@@ -19,7 +19,6 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
-	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 )
 
@@ -184,20 +183,10 @@ func GetStatus(c *gin.Context) {
 }
 
 func statusViewerRole(c *gin.Context) (isLoggedIn bool, isAdmin bool) {
-	session := sessions.Default(c)
-	if session.Get("id") == nil {
+	if c.GetInt("id") <= 0 {
 		return false, false
 	}
-	role := 0
-	switch v := session.Get("role").(type) {
-	case int:
-		role = v
-	case int64:
-		role = int(v)
-	case float64:
-		role = int(v)
-	}
-	return true, role >= common.RoleAdminUser
+	return true, c.GetInt("role") >= common.RoleAdminUser
 }
 
 func GetNotice(c *gin.Context) {
