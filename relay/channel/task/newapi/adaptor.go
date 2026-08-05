@@ -1,12 +1,19 @@
 package newapi
 
 import (
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/channel"
 	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 )
 
@@ -19,6 +26,7 @@ type TaskAdaptor struct {
 
 type taskResultResponse struct {
 	ID        string `json:"id"`
+	TaskID    string `json:"task_id,omitempty"`
 	Status    string `json:"status"`
 	Progress  int    `json:"progress"`
 	VideoURL  string `json:"video_url"`
@@ -27,6 +35,88 @@ type taskResultResponse struct {
 	Error     *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
+	a.ChannelType = info.ChannelType
+	a.baseURL = info.ChannelBaseUrl
+	a.apiKey = info.ApiKey
+}
+
+func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) {
+	return fmt.Sprintf("%s/v1/video/generations", a.baseURL), nil
+}
+
+func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, _ *relaycommon.RelayInfo) error {
+	req.Header.Set("Authorization", "Bearer "+a.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	if ct := c.Request.Header.Get("Content-Type"); ct != "" {
+		req.Header.Set("Content-Type", ct)
+	}
+	return nil
+}
+
+func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
+	return channel.DoTaskApiRequest(a, c, info, requestBody)
+}
+
+func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *taskdto.TaskError) {
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		taskErr = service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
+		return
+	}
+	_ = resp.Body.Close()
+
+	var dResp taskResultResponse
+	if err := common.Unmarshal(responseBody, &dResp); err != nil {
+		taskErr = service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError)
+		return
+	}
+
+	upstreamID := dResp.ID
+	if upstreamID == "" {
+		upstreamID = dResp.TaskID
+	}
+	if upstreamID == "" {
+		taskErr = service.TaskErrorWrapper(fmt.Errorf("task_id is empty"), "invalid_response", http.StatusInternalServerError)
+		return
+	}
+
+	dResp.ID = info.PublicTaskID
+	dResp.TaskID = info.PublicTaskID
+	c.JSON(http.StatusOK, dResp)
+	return upstreamID, responseBody, nil
+}
+
+func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {
+	taskID, ok := body["task_id"].(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid task_id")
+	}
+
+	uri := fmt.Sprintf("%s/v1/video/generations/%s", baseUrl, taskID)
+
+	req, err := http.NewRequest(http.MethodGet, uri, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+key)
+
+	client, err := service.GetHttpClientWithProxy(proxy)
+	if err != nil {
+		return nil, fmt.Errorf("new proxy http client failed: %w", err)
+	}
+	return client.Do(req)
+}
+
+func (a *TaskAdaptor) GetModelList() []string {
+	return ModelList
+}
+
+func (a *TaskAdaptor) GetChannelName() string {
+	return ChannelName
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
