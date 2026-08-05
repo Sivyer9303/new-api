@@ -543,6 +543,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			// Queue local ingest: keep upstream URL private; ResultURL is the public content path.
 			// Download failure later must not refund — settle proceeds as success.
 			markSilkRoadPendingStore(task, taskResult.Url)
+			if redacted, err := redactSilkRoadUpstreamURLs(task.Data); err == nil {
+				task.Data = redacted
+			}
 		} else if strings.HasPrefix(taskResult.Url, "data:") {
 			// data: URI (e.g. Vertex base64 encoded video) — keep in Data, not in ResultURL
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)

@@ -31,11 +31,20 @@ type silkRoadVideoFetchFunc func(url string) (io.ReadCloser, error)
 
 // shouldSilkRoadStore reports whether a completed task should be queued for
 // local SilkRoad video ingest instead of exposing the upstream ResultURL.
+// Requires Storage.Enabled, ingest node name, and public download base URL so
+// misconfigured installs fall through to upstream ResultURL instead of pending forever.
 func shouldSilkRoadStore(task *model.Task) bool {
 	if task == nil {
 		return false
 	}
-	if !silkroad_setting.GetSilkRoadSetting().Storage.Enabled {
+	storage := silkroad_setting.GetSilkRoadSetting().Storage
+	if !storage.Enabled {
+		return false
+	}
+	if strings.TrimSpace(storage.IngestNodeName) == "" {
+		return false
+	}
+	if strings.TrimSpace(storage.PublicDownloadBaseURL) == "" {
 		return false
 	}
 	return task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeNewAPI))
@@ -48,6 +57,36 @@ func markSilkRoadPendingStore(task *model.Task, upstreamURL string) {
 	task.PrivateData.StorageStatus = "pending"
 	task.PrivateData.StorageRetryCount = 0
 	task.PrivateData.ResultURL = BuildSilkRoadPublicURL(task.TaskID)
+}
+
+// redactSilkRoadUpstreamURLs removes upstream CDN URL fields from task.Data JSON
+// so TaskDto.Data cannot leak video_url / url / result_url (including nested maps).
+func redactSilkRoadUpstreamURLs(data []byte) ([]byte, error) {
+	if len(data) == 0 {
+		return data, nil
+	}
+	var v any
+	if err := common.Unmarshal(data, &v); err != nil {
+		return nil, err
+	}
+	stripSilkRoadUpstreamURLFields(v)
+	return common.Marshal(v)
+}
+
+func stripSilkRoadUpstreamURLFields(v any) {
+	switch x := v.(type) {
+	case map[string]any:
+		delete(x, "video_url")
+		delete(x, "url")
+		delete(x, "result_url")
+		for _, child := range x {
+			stripSilkRoadUpstreamURLFields(child)
+		}
+	case []any:
+		for _, child := range x {
+			stripSilkRoadUpstreamURLFields(child)
+		}
+	}
 }
 
 // StartSilkRoadVideoIngestTask starts the periodic ingest loop on the configured

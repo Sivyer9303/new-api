@@ -33,10 +33,20 @@ func TestShouldSilkRoadStore(t *testing.T) {
 	otherTask := &model.Task{Platform: "openai"}
 
 	s.Storage.Enabled = true
+	s.Storage.IngestNodeName = "node-a"
+	s.Storage.PublicDownloadBaseURL = "https://video.example.com"
 	assert.True(t, shouldSilkRoadStore(newAPITask))
 	assert.False(t, shouldSilkRoadStore(otherTask))
 	assert.False(t, shouldSilkRoadStore(nil))
 
+	s.Storage.IngestNodeName = ""
+	assert.False(t, shouldSilkRoadStore(newAPITask))
+
+	s.Storage.IngestNodeName = "node-a"
+	s.Storage.PublicDownloadBaseURL = ""
+	assert.False(t, shouldSilkRoadStore(newAPITask))
+
+	s.Storage.PublicDownloadBaseURL = "https://video.example.com"
 	s.Storage.Enabled = false
 	assert.False(t, shouldSilkRoadStore(newAPITask))
 }
@@ -54,6 +64,27 @@ func TestMarkSilkRoadPendingStoreKeepsUpstreamPrivate(t *testing.T) {
 	assert.Equal(t, "https://video.example.com/v1/videos/task_store_1/content", task.PrivateData.ResultURL)
 	assert.NotContains(t, task.PrivateData.ResultURL, "upstream")
 	assert.NotEqual(t, upstream, task.PrivateData.ResultURL)
+}
+
+func TestRedactSilkRoadUpstreamURLsStripsVideoURL(t *testing.T) {
+	withSilkRoadStorage(t, t.TempDir(), "node-a", "https://video.example.com")
+
+	upstream := "https://cdn.upstream.example/raw.mp4"
+	body := []byte(`{"id":"cgt-1","status":"completed","progress":100,"video_url":"https://cdn.upstream.example/raw.mp4","data":{"url":"https://cdn.upstream.example/nested.mp4","result_url":"https://cdn.upstream.example/result.mp4"}}`)
+
+	task := &model.Task{TaskID: "task_redact_1", Data: body}
+	markSilkRoadPendingStore(task, upstream)
+	redacted, err := redactSilkRoadUpstreamURLs(task.Data)
+	require.NoError(t, err)
+	task.Data = redacted
+
+	assert.NotContains(t, string(task.Data), "cdn.upstream.example")
+	assert.NotContains(t, string(task.Data), "video_url")
+	assert.NotContains(t, string(task.Data), `"url"`)
+	assert.NotContains(t, string(task.Data), "result_url")
+	assert.Contains(t, string(task.Data), `"id":"cgt-1"`)
+	assert.Equal(t, "https://video.example.com/v1/videos/task_redact_1/content", task.PrivateData.ResultURL)
+	assert.Equal(t, upstream, task.PrivateData.UpstreamResultURL)
 }
 
 func TestIngestOneSuccessWritesLocalFile(t *testing.T) {
