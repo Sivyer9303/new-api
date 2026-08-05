@@ -49,27 +49,44 @@ func claimSilkRoadExpiredVideoTasks(limit int, now int64) ([]*model.Task, error)
 		return nil, nil
 	}
 	platform := strconv.Itoa(constant.ChannelTypeNewAPI)
-	var candidates []*model.Task
-	err := model.DB.
-		Where("status = ? AND platform = ?", model.TaskStatusSuccess, platform).
-		Order("id").
-		Limit(limit * 10).
-		Find(&candidates).Error
-	if err != nil {
-		return nil, err
-	}
-
 	out := make([]*model.Task, 0, limit)
-	for _, task := range candidates {
-		if task.PrivateData.StorageStatus != "ready" {
-			continue
+	pageSize := limit * 3
+	var afterID int64
+
+	for len(out) < limit {
+		var candidates []*model.Task
+		// LIKE keeps SQLite/MySQL/PostgreSQL compatible without dialect JSON ops.
+		likeExpr := silkRoadPrivateDataTextExpr()
+		q := model.DB.
+			Where("status = ? AND platform = ?", model.TaskStatusSuccess, platform).
+			Where(likeExpr+` LIKE ?`, `%"storage_status":"ready"%`).
+			Order("id").
+			Limit(pageSize)
+		if afterID > 0 {
+			q = q.Where("id > ?", afterID)
 		}
-		expiresAt := task.PrivateData.StorageExpiresAt
-		if expiresAt <= 0 || expiresAt >= now {
-			continue
+		err := q.Find(&candidates).Error
+		if err != nil {
+			return nil, err
 		}
-		out = append(out, task)
-		if len(out) >= limit {
+		if len(candidates) == 0 {
+			break
+		}
+		for _, task := range candidates {
+			afterID = task.ID
+			if task.PrivateData.StorageStatus != "ready" {
+				continue
+			}
+			expiresAt := task.PrivateData.StorageExpiresAt
+			if expiresAt <= 0 || expiresAt >= now {
+				continue
+			}
+			out = append(out, task)
+			if len(out) >= limit {
+				break
+			}
+		}
+		if len(candidates) < pageSize {
 			break
 		}
 	}

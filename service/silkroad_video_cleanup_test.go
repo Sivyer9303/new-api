@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"testing"
@@ -15,6 +16,47 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestClaimSilkRoadExpiredVideoTasksSkipsNonReadySuccessRows(t *testing.T) {
+	truncate(t)
+	platform := constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeNewAPI))
+	now := time.Now().Unix()
+	expiredReadyID := "task_claim_expired_ready"
+	ts := time.Now().Unix()
+
+	// Old unfiltered Limit*10 scan could miss an expired-ready row behind many non-ready successes.
+	for i := 0; i < 205; i++ {
+		task := &model.Task{
+			TaskID:    fmt.Sprintf("task_claim_pending_%d", i),
+			Platform:  platform,
+			UserId:    1,
+			Status:    model.TaskStatusSuccess,
+			CreatedAt: ts,
+			UpdatedAt: ts,
+			PrivateData: model.TaskPrivateData{
+				StorageStatus: "pending",
+			},
+		}
+		require.NoError(t, model.DB.Create(task).Error)
+	}
+	require.NoError(t, model.DB.Create(&model.Task{
+		TaskID:    expiredReadyID,
+		Platform:  platform,
+		UserId:    1,
+		Status:    model.TaskStatusSuccess,
+		CreatedAt: ts,
+		UpdatedAt: ts,
+		PrivateData: model.TaskPrivateData{
+			StorageStatus:    "ready",
+			StorageExpiresAt: now - 60,
+		},
+	}).Error)
+
+	claimed, err := claimSilkRoadExpiredVideoTasks(5, now)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, expiredReadyID, claimed[0].TaskID)
+}
 
 func TestExpireOneSilkRoadVideoDeletesFileAndMarksExpired(t *testing.T) {
 	dir := t.TempDir()
@@ -29,7 +71,7 @@ func TestExpireOneSilkRoadVideoDeletesFileAndMarksExpired(t *testing.T) {
 		PrivateData: model.TaskPrivateData{
 			StorageStatus:    "ready",
 			StorageExpiresAt: time.Now().Unix() - 60,
-			StoragePath:        SilkRoadVideoLocalPath(taskID),
+			StoragePath:      SilkRoadVideoLocalPath(taskID),
 		},
 	}
 	expireOneSilkRoadVideo(task)
@@ -70,8 +112,8 @@ func TestRunSilkRoadVideoCleanupOnceExpiresReadyPastRetention(t *testing.T) {
 			PrivateData: model.TaskPrivateData{
 				StorageStatus:    "ready",
 				StorageExpiresAt: spec.expiresAt,
-				StoragePath:        SilkRoadVideoLocalPath(spec.taskID),
-				ResultURL:          BuildSilkRoadPublicURL(spec.taskID),
+				StoragePath:      SilkRoadVideoLocalPath(spec.taskID),
+				ResultURL:        BuildSilkRoadPublicURL(spec.taskID),
 			},
 		}
 		require.NoError(t, model.DB.Create(task).Error)

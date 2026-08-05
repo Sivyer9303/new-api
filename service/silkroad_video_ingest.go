@@ -24,6 +24,19 @@ const (
 	silkRoadVideoIngestBatch    = 20
 )
 
+// silkRoadPrivateDataTextExpr is the SQL expression for LIKE on private_data
+// without dialect-specific JSON operators (see claimSilkRoadIngestTasks).
+func silkRoadPrivateDataTextExpr() string {
+	switch common.MainDatabaseType() {
+	case common.DatabaseTypeSQLite:
+		return "CAST(private_data AS TEXT)"
+	case common.DatabaseTypePostgreSQL:
+		return "private_data::text"
+	default:
+		return "private_data"
+	}
+}
+
 var silkRoadVideoIngestOnce sync.Once
 
 // silkRoadVideoFetchFunc downloads an upstream video body. Tests inject httptest.
@@ -105,7 +118,7 @@ func StartSilkRoadVideoIngestTask() {
 			defer ticker.Stop()
 
 			_ = RunSilkRoadVideoIngestOnce(context.Background())
-				_ = RunSilkRoadVideoCleanupOnce(context.Background())
+			_ = RunSilkRoadVideoCleanupOnce(context.Background())
 			for range ticker.C {
 				_ = RunSilkRoadVideoIngestOnce(context.Background())
 				_ = RunSilkRoadVideoCleanupOnce(context.Background())
@@ -154,10 +167,11 @@ func claimSilkRoadIngestTasks(limit int, maxRetry int) ([]*model.Task, error) {
 	platform := strconv.Itoa(constant.ChannelTypeNewAPI)
 	var candidates []*model.Task
 	// LIKE keeps SQLite/MySQL/PostgreSQL compatible without dialect JSON ops.
+	likeExpr := silkRoadPrivateDataTextExpr()
 	err := model.DB.
 		Where("status = ? AND platform = ?", model.TaskStatusSuccess, platform).
 		Where(
-			"private_data LIKE ? OR private_data LIKE ?",
+			likeExpr+` LIKE ? OR `+likeExpr+` LIKE ?`,
 			`%"storage_status":"pending"%`,
 			`%"storage_status":"failed"%`,
 		).
