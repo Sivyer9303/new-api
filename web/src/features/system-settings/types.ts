@@ -201,6 +201,9 @@ export type ExtensionsSettings = {
   'lottery_setting.require_redemption': boolean
   'lottery_setting.free_prizes': string
   'lottery_setting.bet_prizes': string
+  // GlobalConfig serializes nested Storage as one JSON blob (not dotted leaf keys).
+  'silkroad_setting.storage': string
+  'silkroad_setting.profiles': string
 }
 
 export type ModelSettings = {

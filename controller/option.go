@@ -10,10 +10,12 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/silkroad_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
@@ -41,6 +43,29 @@ func isPositiveOptionValue(value string) bool {
 	}
 	floatValue, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	return err == nil && floatValue > 0
+}
+
+// validateSilkRoadSettingOption applies a single silkroad_setting.* update to a
+// copy of the live config and runs ValidateSilkRoadSetting before persist.
+func validateSilkRoadSettingOption(key, value string) error {
+	configKey := strings.TrimPrefix(key, "silkroad_setting.")
+	if configKey == key || configKey == "" {
+		return fmt.Errorf("invalid silkroad_setting option key")
+	}
+
+	current := silkroad_setting.GetSilkRoadSetting()
+	raw, err := common.Marshal(current)
+	if err != nil {
+		return err
+	}
+	var clone silkroad_setting.SilkRoadSetting
+	if err := common.Unmarshal(raw, &clone); err != nil {
+		return err
+	}
+	if err := config.UpdateConfigFromMap(&clone, map[string]string{configKey: value}); err != nil {
+		return err
+	}
+	return silkroad_setting.ValidateSilkRoadSetting(&clone)
 }
 
 func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}) {
@@ -408,6 +433,15 @@ func UpdateOption(c *gin.Context) {
 		}
 	case "console_setting.uptime_kuma_groups":
 		err = console_setting.ValidateConsoleSettings(option.Value.(string), "UptimeKumaGroups")
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+	case "silkroad_setting.profiles", "silkroad_setting.storage":
+		err = validateSilkRoadSettingOption(option.Key, option.Value.(string))
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
