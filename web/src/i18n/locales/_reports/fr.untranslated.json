@@ -1,0 +1,23 @@
+{
+  "Bet with quota": "Bet with quota",
+  "Bet with USD": "Bet with USD",
+  "Failed to load lottery status": "Failed to load lottery status",
+  "Failed to save settings": "Failed to save settings",
+  "If already saved, this field shows ********. Leave it unchanged unless you need to replace the secret.": "If already saved, this field shows ********. Leave it unchanged unless you need to replace the secret.",
+  "Multiplier is relative to bet amount. Range: -1 to 2.": "Multiplier is relative to bet amount. Range: -1 to 2.",
+  "Please complete the human verification first": "Please complete the human verification first",
+  "Please redeem a code before playing. Crazy Thursday does not require this.": "Please redeem a code before playing. Crazy Thursday does not require this.",
+  "Prize pool and free prize amounts are doubled today. V me 50!": "Prize pool and free prize amounts are doubled today. V me 50!",
+  "Protect login, registration and lottery draws with Cloudflare Turnstile": "Protect login, registration and lottery draws with Cloudflare Turnstile",
+  "Public site key from Cloudflare Turnstile. Required for the widget to render.": "Public site key from Cloudflare Turnstile. Required for the widget to render.",
+  "Pull to spin": "Pull to spin",
+  "Real daily payout cap used by the backend. Hidden from users. Doubled on Thursdays.": "Real daily payout cap used by the backend. Hidden from users. Doubled on Thursdays.",
+  "Require redemption code to play": "Require redemption code to play",
+  "Shown to users on the lottery page. Does not limit real payouts. Doubled on Thursdays. Set 0 to fall back to the actual pool.": "Shown to users on the lottery page. Does not limit real payouts. Doubled on Thursdays. Set 0 to fall back to the actual pool.",
+  "Shows Lucky Slot under Extensions. Draws are decided by the backend once per user per day.": "Shows Lucky Slot under Extensions. Draws are decided by the backend once per user per day.",
+  "Tap the button below to draw": "Tap the button below to draw",
+  "Turnstile failed to load. Check that this domain is allowed in Cloudflare Turnstile hostnames.": "Turnstile failed to load. Check that this domain is allowed in Cloudflare Turnstile hostnames.",
+  "Unable to enable Turnstile. Please fill in the Turnstile site key first.": "Unable to enable Turnstile. Please fill in the Turnstile site key first.",
+  "Unable to load lottery": "Unable to load lottery",
+  "Users must have a quota upper limit (used + remaining) strictly greater than this USD value. Use this to require recharge (e.g. 5 if signup gift is $5 and min top-up is $10). Set 0 to disable.": "Users must have a quota upper limit (used + remaining) strictly greater than this USD value. Use this to require recharge (e.g. 5 if signup gift is $5 and min top-up is $10). Set 0 to disable."
+}

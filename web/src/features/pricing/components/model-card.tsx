@@ -35,6 +35,7 @@ import { formatPrice, formatRequestPrice } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
+import { PriceWithRatio } from './price-with-ratio'
 
 export interface ModelCardProps {
   model: PricingModel
@@ -113,9 +114,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               className='text-muted-foreground whitespace-nowrap'
             >
               {t(entry.shortLabel)}{' '}
-              <span className='text-foreground font-mono font-semibold'>
-                {entry.formatted}
-              </span>
+              <PriceWithRatio value={entry.formatted} />
             </span>
           ))}
         </>
@@ -132,8 +131,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       <>
         <span className='text-muted-foreground whitespace-nowrap'>
           {t('Input')}{' '}
-          <span className='text-foreground font-mono font-semibold'>
-            {formatPrice(
+          <PriceWithRatio
+            value={formatPrice(
               props.model,
               'input',
               tokenUnit,
@@ -142,12 +141,12 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               usdExchangeRate,
               props.selectedGroup
             )}
-          </span>
+          />
         </span>
         <span className='text-muted-foreground whitespace-nowrap'>
           {t('Output')}{' '}
-          <span className='text-foreground font-mono font-semibold'>
-            {formatPrice(
+          <PriceWithRatio
+            value={formatPrice(
               props.model,
               'output',
               tokenUnit,
@@ -156,13 +155,13 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               usdExchangeRate,
               props.selectedGroup
             )}
-          </span>
+          />
         </span>
         {hasCachedPrice && (
           <span className='text-muted-foreground whitespace-nowrap'>
             {t('Cached')}{' '}
-            <span className='text-foreground font-mono font-semibold'>
-              {formatPrice(
+            <PriceWithRatio
+              value={formatPrice(
                 props.model,
                 'cache',
                 tokenUnit,
@@ -171,7 +170,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                 usdExchangeRate,
                 props.selectedGroup
               )}
-            </span>
+            />
           </span>
         )}
       </>
@@ -179,15 +178,15 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   } else {
     priceSummary = (
       <span className='text-muted-foreground whitespace-nowrap'>
-        <span className='text-foreground font-mono font-semibold'>
-          {formatRequestPrice(
+        <PriceWithRatio
+          value={formatRequestPrice(
             props.model,
             showRechargePrice,
             priceRate,
             usdExchangeRate,
             props.selectedGroup
           )}
-        </span>{' '}
+        />{' '}
         / {t('request')}
       </span>
     )
