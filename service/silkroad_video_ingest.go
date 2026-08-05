@@ -105,8 +105,10 @@ func StartSilkRoadVideoIngestTask() {
 			defer ticker.Stop()
 
 			_ = RunSilkRoadVideoIngestOnce(context.Background())
+				_ = RunSilkRoadVideoCleanupOnce(context.Background())
 			for range ticker.C {
 				_ = RunSilkRoadVideoIngestOnce(context.Background())
+				_ = RunSilkRoadVideoCleanupOnce(context.Background())
 			}
 		})
 	})
