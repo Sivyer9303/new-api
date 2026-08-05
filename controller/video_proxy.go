@@ -55,6 +55,13 @@ func VideoProxy(c *gin.Context) {
 		return
 	}
 
+	// SilkRoad-stored tasks: serve from local disk only — never redirect/proxy
+	// the client to UpstreamResultURL.
+	if strings.TrimSpace(task.PrivateData.StorageStatus) != "" {
+		serveSilkRoadVideoContent(c, task)
+		return
+	}
+
 	channel, err := model.CacheGetChannel(task.ChannelId)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to get channel for task %s: %s", taskID, err.Error()))
