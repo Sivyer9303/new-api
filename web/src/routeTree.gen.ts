@@ -42,6 +42,7 @@ import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_aut
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedExtensionsAvailabilityRouteImport } from './routes/_authenticated/extensions/availability'
 import { Route as AuthenticatedExtensionsLotteryRouteImport } from './routes/_authenticated/extensions/lottery'
+import { Route as AuthenticatedExtensionsSeedanceRouteImport } from './routes/_authenticated/extensions/seedance'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
@@ -242,6 +243,12 @@ const AuthenticatedExtensionsLotteryRoute =
   AuthenticatedExtensionsLotteryRouteImport.update({
     id: '/extensions/lottery',
     path: '/extensions/lottery',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedExtensionsSeedanceRoute =
+  AuthenticatedExtensionsSeedanceRouteImport.update({
+    id: '/extensions/seedance',
+    path: '/extensions/seedance',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedKeysIndexRoute = AuthenticatedKeysIndexRouteImport.update({
@@ -452,6 +459,7 @@ export interface FileRoutesByFullPath {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/extensions/availability': typeof AuthenticatedExtensionsAvailabilityRoute
   '/extensions/lottery': typeof AuthenticatedExtensionsLotteryRoute
+  '/extensions/seedance': typeof AuthenticatedExtensionsSeedanceRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -514,6 +522,7 @@ export interface FileRoutesByTo {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/extensions/availability': typeof AuthenticatedExtensionsAvailabilityRoute
   '/extensions/lottery': typeof AuthenticatedExtensionsLotteryRoute
+  '/extensions/seedance': typeof AuthenticatedExtensionsSeedanceRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
@@ -580,6 +589,7 @@ export interface FileRoutesById {
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/extensions/availability': typeof AuthenticatedExtensionsAvailabilityRoute
   '/_authenticated/extensions/lottery': typeof AuthenticatedExtensionsLotteryRoute
+  '/_authenticated/extensions/seedance': typeof AuthenticatedExtensionsSeedanceRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -645,6 +655,7 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/extensions/availability'
     | '/extensions/lottery'
+    | '/extensions/seedance'
     | '/models/$section'
     | '/usage-logs/$section'
     | '/channels/'
@@ -707,6 +718,7 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/extensions/availability'
     | '/extensions/lottery'
+    | '/extensions/seedance'
     | '/models/$section'
     | '/usage-logs/$section'
     | '/channels'
@@ -772,6 +784,7 @@ export interface FileRouteTypes {
     | '/_authenticated/errors/$error'
     | '/_authenticated/extensions/availability'
     | '/_authenticated/extensions/lottery'
+    | '/_authenticated/extensions/seedance'
     | '/_authenticated/models/$section'
     | '/_authenticated/usage-logs/$section'
     | '/_authenticated/channels/'
@@ -1056,6 +1069,13 @@ declare module '@tanstack/react-router' {
       path: '/extensions/lottery'
       fullPath: '/extensions/lottery'
       preLoaderRoute: typeof AuthenticatedExtensionsLotteryRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/extensions/seedance': {
+      id: '/_authenticated/extensions/seedance'
+      path: '/extensions/seedance'
+      fullPath: '/extensions/seedance'
+      preLoaderRoute: typeof AuthenticatedExtensionsSeedanceRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/keys/': {
@@ -1369,6 +1389,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedExtensionsAvailabilityRoute: typeof AuthenticatedExtensionsAvailabilityRoute
   AuthenticatedExtensionsLotteryRoute: typeof AuthenticatedExtensionsLotteryRoute
+  AuthenticatedExtensionsSeedanceRoute: typeof AuthenticatedExtensionsSeedanceRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
@@ -1396,6 +1417,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedExtensionsAvailabilityRoute:
     AuthenticatedExtensionsAvailabilityRoute,
   AuthenticatedExtensionsLotteryRoute: AuthenticatedExtensionsLotteryRoute,
+  AuthenticatedExtensionsSeedanceRoute: AuthenticatedExtensionsSeedanceRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,

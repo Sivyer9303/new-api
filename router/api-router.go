@@ -24,6 +24,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/status", middleware.TryUserAuth(), controller.GetStatus)
 		apiRouter.GET("/uptime/status", controller.GetUptimeKumaStatus)
 		apiRouter.GET("/extensions/availability", middleware.UserAuth(), controller.GetExtensionsAvailability)
+		apiRouter.GET("/silkroad/video-tool", middleware.UserAuth(), controller.GetSilkRoadVideoToolConfig)
 		apiRouter.GET("/models", middleware.UserAuth(), controller.DashboardListModels)
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)
 		apiRouter.GET("/notice", controller.GetNotice)

@@ -34,7 +34,6 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
 
 import {
   SettingsForm,
@@ -44,7 +43,9 @@ import {
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
-import { formatJsonForTextarea } from '../models/utils'
+
+import { profileFormSchema, parseProfilesToForm, profilesFormToApi } from './silkroad-profile-schemas'
+import { SilkRoadProfilesEditor } from './silkroad-profiles-editor'
 
 const DEFAULT_STORAGE = {
   enabled: true,
@@ -99,11 +100,6 @@ function parseStorage(raw: string | undefined): StorageValues {
   }
 }
 
-function parseProfilesJson(raw: string | undefined): string {
-  if (!raw || !raw.trim()) return '[]'
-  return formatJsonForTextarea(raw)
-}
-
 const schema = z
   .object({
     enabled: z.boolean(),
@@ -113,7 +109,7 @@ const schema = z
     max_retry: z.coerce.number().int().min(1),
     ingest_node_name: z.string(),
     public_download_base_url: z.string(),
-    profilesJson: z.string().min(1),
+    profiles: z.array(profileFormSchema).min(1),
   })
   .superRefine((values, ctx) => {
     if (values.enabled) {
@@ -141,27 +137,18 @@ const schema = z
       }
     }
 
-    try {
-      const parsed = JSON.parse(values.profilesJson) as unknown
-      if (!Array.isArray(parsed)) {
+    for (let i = 0; i < values.profiles.length; i++) {
+      const prefixes = values.profiles[i].model_prefixes_text
+        .split(/[,，\n]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+      if (prefixes.length === 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: 'Profiles must be a JSON array',
-          path: ['profilesJson'],
-        })
-      } else if (parsed.length === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Profiles cannot be empty',
-          path: ['profilesJson'],
+          message: 'At least one model prefix is required',
+          path: ['profiles', i, 'model_prefixes_text'],
         })
       }
-    } catch {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Invalid JSON',
-        path: ['profilesJson'],
-      })
     }
   })
 
@@ -184,7 +171,7 @@ export function SilkRoadSettingsSection({
     resolver: zodResolver(schema) as unknown as Resolver<Values>,
     defaultValues: {
       ...storage,
-      profilesJson: parseProfilesJson(defaultValues.profilesJson),
+      profiles: parseProfilesToForm(defaultValues.profilesJson),
     },
   })
 
@@ -192,19 +179,23 @@ export function SilkRoadSettingsSection({
     const next = parseStorage(defaultValues.storageJson)
     form.reset({
       ...next,
-      profilesJson: parseProfilesJson(defaultValues.profilesJson),
+      profiles: parseProfilesToForm(defaultValues.profilesJson),
     })
   }, [defaultValues, form])
 
   const { isDirty, isSubmitting } = form.formState
 
   async function onSubmit(values: Values) {
-    let profilesNormalized: string
-    try {
-      profilesNormalized = JSON.stringify(JSON.parse(values.profilesJson))
-    } catch {
-      toast.error(t('Invalid JSON'))
+    const profilesPayload = profilesFormToApi(values.profiles)
+    if (profilesPayload.length === 0) {
+      toast.error(t('Profiles cannot be empty'))
       return
+    }
+    for (const profile of profilesPayload) {
+      if (profile.model_prefixes.length === 0) {
+        toast.error(t('Each profile needs at least one model prefix'))
+        return
+      }
     }
 
     const storagePayload = {
@@ -224,7 +215,7 @@ export function SilkRoadSettingsSection({
       },
       {
         key: 'silkroad_setting.profiles',
-        value: profilesNormalized,
+        value: JSON.stringify(profilesPayload),
       },
     ]
 
@@ -239,12 +230,14 @@ export function SilkRoadSettingsSection({
       form.reset({
         ...values,
         driver: 'local',
-        profilesJson: formatJsonForTextarea(profilesNormalized),
+        profiles: parseProfilesToForm(JSON.stringify(profilesPayload)),
       })
     } catch {
       toast.error(t('Failed to save settings'))
     }
   }
+
+  const busy = updateOption.isPending || isSubmitting
 
   return (
     <SettingsSection title={t('SilkRoad Video')}>
@@ -252,7 +245,7 @@ export function SilkRoadSettingsSection({
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)} autoComplete='off'>
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
-            isSaving={isSubmitting || updateOption.isPending}
+            isSaving={busy}
             isSaveDisabled={!isDirty}
           />
 
@@ -273,7 +266,7 @@ export function SilkRoadSettingsSection({
                   <Switch
                     checked={field.value}
                     onCheckedChange={field.onChange}
-                    disabled={updateOption.isPending || isSubmitting}
+                    disabled={busy}
                   />
                 </FormControl>
               </SettingsSwitchItem>
@@ -308,7 +301,7 @@ export function SilkRoadSettingsSection({
                     <Input
                       placeholder='data/silkroad-videos'
                       {...field}
-                      disabled={updateOption.isPending || isSubmitting}
+                      disabled={busy}
                     />
                   </FormControl>
                   <FormDescription>
@@ -329,12 +322,7 @@ export function SilkRoadSettingsSection({
                   <FormItem>
                     <FormLabel>{t('Retention days')}</FormLabel>
                     <FormControl>
-                      <Input
-                        type='number'
-                        min={1}
-                        {...field}
-                        disabled={updateOption.isPending || isSubmitting}
-                      />
+                      <Input type='number' min={1} {...field} disabled={busy} />
                     </FormControl>
                     <FormDescription>
                       {t('Stored videos older than this many days are deleted.')}
@@ -350,12 +338,7 @@ export function SilkRoadSettingsSection({
                   <FormItem>
                     <FormLabel>{t('Max ingest retries')}</FormLabel>
                     <FormControl>
-                      <Input
-                        type='number'
-                        min={1}
-                        {...field}
-                        disabled={updateOption.isPending || isSubmitting}
-                      />
+                      <Input type='number' min={1} {...field} disabled={busy} />
                     </FormControl>
                     <FormDescription>
                       {t(
@@ -378,7 +361,7 @@ export function SilkRoadSettingsSection({
                     <Input
                       placeholder='node-1'
                       {...field}
-                      disabled={updateOption.isPending || isSubmitting}
+                      disabled={busy}
                     />
                   </FormControl>
                   <FormDescription>
@@ -401,7 +384,7 @@ export function SilkRoadSettingsSection({
                     <Input
                       placeholder='https://video.example.com'
                       {...field}
-                      disabled={updateOption.isPending || isSubmitting}
+                      disabled={busy}
                     />
                   </FormControl>
                   <FormDescription>
@@ -414,29 +397,7 @@ export function SilkRoadSettingsSection({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name='profilesJson'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Model profiles (JSON)')}</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      className='min-h-64 font-mono text-sm'
-                      spellCheck={false}
-                      {...field}
-                      disabled={updateOption.isPending || isSubmitting}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'JSON array of SilkRoad profiles (durations, aspect ratios, generation types). Must be non-empty and valid.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <SilkRoadProfilesEditor control={form.control} disabled={busy} />
           </div>
         </SettingsForm>
       </Form>

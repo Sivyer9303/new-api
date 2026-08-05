@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/silkroad_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
@@ -142,9 +143,11 @@ func GetStatus(c *gin.Context) {
 		data["custom_pages"] = console_setting.GetCustomPagesForRole(isAdmin)
 		data["availability_monitor_visible"] = console_setting.IsAvailabilityMonitorVisible(isAdmin)
 		data["availability_monitor_refresh_interval"] = console_setting.GetAvailabilityMonitorRefreshInterval()
+		data["silkroad_video_tool_enabled"] = silkroad_setting.GetPublicVideoToolConfig().Enabled
 	} else {
 		data["custom_pages"] = []map[string]interface{}{}
 		data["availability_monitor_visible"] = false
+		data["silkroad_video_tool_enabled"] = false
 	}
 
 	// Add enabled custom OAuth providers
