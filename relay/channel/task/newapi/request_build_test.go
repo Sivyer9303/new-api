@@ -90,3 +90,33 @@ func TestBuildUpstreamBodyMultiImageSetsReferenceURLs(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "auto", vc["reference_mode"])
 }
+
+func TestBuildUpstreamBodyStartEndExtraDoesNotClobberReferenceMode(t *testing.T) {
+	profile, ok := silkroad_setting.MatchProfile("seedance-2.0-720")
+	require.True(t, ok)
+
+	req := FriendlyRequest{
+		Model:          "seedance-2.0-720",
+		Prompt:         "blend",
+		GenerationType: "start_end",
+		DurationValue:  "10",
+		AspectRatio:    "16:9",
+		Images:         []string{"https://a.png", "https://b.png"},
+		Extras: map[string]string{
+			"video_config.reference_mode": "auto",
+		},
+	}
+	data, err := buildUpstreamBody(req, profile, "seedance-2.0-720")
+	require.NoError(t, err)
+
+	var body map[string]any
+	require.NoError(t, common.Unmarshal(data, &body))
+
+	vc, ok := body["video_config"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "start_end", vc["reference_mode"], "recipe UpstreamSets must win over ExtraOptions")
+
+	refs, ok := body["reference_image_urls"].([]any)
+	require.True(t, ok)
+	require.Len(t, refs, 2)
+}

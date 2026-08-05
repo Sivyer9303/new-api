@@ -152,5 +152,11 @@ func validateStorage(s *StorageSetting) error {
 	if s.MaxRetry < 1 {
 		return errors.New("storage.max_retry must be >= 1 when enabled")
 	}
+	if strings.TrimSpace(s.IngestNodeName) == "" {
+		return errors.New("storage.ingest_node_name is required when enabled")
+	}
+	if strings.TrimSpace(s.PublicDownloadBaseURL) == "" {
+		return errors.New("storage.public_download_base_url is required when enabled")
+	}
 	return nil
 }

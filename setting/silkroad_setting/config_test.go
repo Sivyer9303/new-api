@@ -38,7 +38,7 @@ func TestDefaultSilkRoadSettingProfiles(t *testing.T) {
 
 func TestDefaultSilkRoadSettingStorage(t *testing.T) {
 	s := defaultSilkRoadSetting()
-	assert.True(t, s.Storage.Enabled)
+	assert.False(t, s.Storage.Enabled)
 	assert.Equal(t, "local", s.Storage.Driver)
 	assert.Equal(t, "data/silkroad-videos", s.Storage.LocalDir)
 	assert.Equal(t, 7, s.Storage.RetentionDays)

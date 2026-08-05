@@ -35,12 +35,18 @@ func TestValidateRejectsEnabledOptionMissingUpstreamKey(t *testing.T) {
 
 func TestValidateRejectsStorageNonLocalDriver(t *testing.T) {
 	s := defaultSilkRoadSetting()
+	s.Storage.Enabled = true
 	s.Storage.Driver = "s3"
+	s.Storage.IngestNodeName = "node-a"
+	s.Storage.PublicDownloadBaseURL = "https://video.example.com"
 	require.Error(t, ValidateSilkRoadSetting(&s))
 }
 
 func TestValidateRejectsStorageBadRetention(t *testing.T) {
 	s := defaultSilkRoadSetting()
+	s.Storage.Enabled = true
+	s.Storage.IngestNodeName = "node-a"
+	s.Storage.PublicDownloadBaseURL = "https://video.example.com"
 	s.Storage.RetentionDays = 0
 	require.Error(t, ValidateSilkRoadSetting(&s))
 }
@@ -54,4 +60,32 @@ func TestValidateNilSetting(t *testing.T) {
 	err := ValidateSilkRoadSetting(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nil")
+}
+
+func TestValidateRejectsStorageEnabledMissingIngest(t *testing.T) {
+	s := defaultSilkRoadSetting()
+	s.Storage.Enabled = true
+	s.Storage.IngestNodeName = ""
+	s.Storage.PublicDownloadBaseURL = "https://video.example.com"
+	err := ValidateSilkRoadSetting(&s)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ingest_node_name")
+}
+
+func TestValidateRejectsStorageEnabledMissingPublicBase(t *testing.T) {
+	s := defaultSilkRoadSetting()
+	s.Storage.Enabled = true
+	s.Storage.IngestNodeName = "node-a"
+	s.Storage.PublicDownloadBaseURL = ""
+	err := ValidateSilkRoadSetting(&s)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "public_download_base_url")
+}
+
+func TestValidateAcceptsStorageEnabledComplete(t *testing.T) {
+	s := defaultSilkRoadSetting()
+	s.Storage.Enabled = true
+	s.Storage.IngestNodeName = "node-a"
+	s.Storage.PublicDownloadBaseURL = "https://video.example.com"
+	require.NoError(t, ValidateSilkRoadSetting(&s))
 }

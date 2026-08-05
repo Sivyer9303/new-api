@@ -76,6 +76,12 @@ func buildUpstreamBody(req FriendlyRequest, profile *silkroad_setting.Profile, u
 	}
 	setNestedValue(body, aspectOpt.UpstreamKey, aspectOpt.Value)
 
+	// Apply ExtraOptions first; generation-type UpstreamSets win on key conflicts
+	// so recipe fields (e.g. reference_mode=start_end) are never clobbered by client extras.
+	for key, val := range req.Extras {
+		setNestedValue(body, key, coerceExtraValue(val))
+	}
+
 	for _, us := range gt.UpstreamSets {
 		if us.UpstreamKey == "" {
 			continue
@@ -92,10 +98,6 @@ func buildUpstreamBody(req FriendlyRequest, profile *silkroad_setting.Profile, u
 			return nil, err
 		}
 		setNestedValue(body, us.UpstreamKey, val)
-	}
-
-	for key, val := range req.Extras {
-		setNestedValue(body, key, coerceExtraValue(val))
 	}
 
 	return common.Marshal(body)

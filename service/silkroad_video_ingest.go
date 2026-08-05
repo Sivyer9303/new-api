@@ -44,8 +44,9 @@ type silkRoadVideoFetchFunc func(url string) (io.ReadCloser, error)
 
 // shouldSilkRoadStore reports whether a completed task should be queued for
 // local SilkRoad video ingest instead of exposing the upstream ResultURL.
-// Requires Storage.Enabled, ingest node name, and public download base URL so
-// misconfigured installs fall through to upstream ResultURL instead of pending forever.
+// Requires Storage.Enabled plus non-empty ingest node name and public download
+// base URL. When Enabled but ingest/public are incomplete, callers must fail
+// closed (proxy URL) rather than writing the upstream CDN URL into ResultURL.
 func shouldSilkRoadStore(task *model.Task) bool {
 	if task == nil {
 		return false
@@ -61,6 +62,24 @@ func shouldSilkRoadStore(task *model.Task) bool {
 		return false
 	}
 	return task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeNewAPI))
+}
+
+// silkRoadNewAPIAvoidUpstreamResultURL is true when NewAPI storage is enabled
+// but incomplete (missing ingest node and/or public base). Polling Success must
+// use BuildProxyURL instead of the upstream ResultURL.
+func silkRoadNewAPIAvoidUpstreamResultURL(task *model.Task) bool {
+	if task == nil {
+		return false
+	}
+	if task.Platform != constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeNewAPI)) {
+		return false
+	}
+	storage := silkroad_setting.GetSilkRoadSetting().Storage
+	if !storage.Enabled {
+		return false
+	}
+	return strings.TrimSpace(storage.IngestNodeName) == "" ||
+		strings.TrimSpace(storage.PublicDownloadBaseURL) == ""
 }
 
 // markSilkRoadPendingStore records the upstream URL privately and points
@@ -86,6 +105,16 @@ func redactSilkRoadUpstreamURLs(data []byte) ([]byte, error) {
 	return common.Marshal(v)
 }
 
+// applySilkRoadDataRedaction redacts upstream URL fields from task.Data.
+// On error it fail-closes to an empty JSON object so unredacted video_url cannot leak.
+func applySilkRoadDataRedaction(data []byte) ([]byte, error) {
+	redacted, err := redactSilkRoadUpstreamURLs(data)
+	if err != nil {
+		return []byte("{}"), err
+	}
+	return redacted, nil
+}
+
 func stripSilkRoadUpstreamURLFields(v any) {
 	switch x := v.(type) {
 	case map[string]any:
@@ -102,29 +131,36 @@ func stripSilkRoadUpstreamURLFields(v any) {
 	}
 }
 
-// StartSilkRoadVideoIngestTask starts the periodic ingest loop on the configured
-// ingest node only. Non-ingest nodes return immediately.
+// StartSilkRoadVideoIngestTask starts the periodic ingest ticker once.
+// Each tick (and the initial run) no-ops unless this process is the ingest
+// node and storage is enabled, so late SyncOptions config takes effect without restart.
 func StartSilkRoadVideoIngestTask() {
 	silkRoadVideoIngestOnce.Do(func() {
-		if !IsSilkRoadIngestNode() {
-			return
-		}
 		gopool.Go(func() {
 			logger.LogInfo(context.Background(), fmt.Sprintf(
-				"silkroad video ingest task started: tick=%s node=%s",
-				silkRoadVideoIngestInterval, common.NodeName,
+				"silkroad video ingest ticker started: tick=%s",
+				silkRoadVideoIngestInterval,
 			))
 			ticker := time.NewTicker(silkRoadVideoIngestInterval)
 			defer ticker.Stop()
 
-			_ = RunSilkRoadVideoIngestOnce(context.Background())
-			_ = RunSilkRoadVideoCleanupOnce(context.Background())
+			runSilkRoadVideoIngestTick()
 			for range ticker.C {
-				_ = RunSilkRoadVideoIngestOnce(context.Background())
-				_ = RunSilkRoadVideoCleanupOnce(context.Background())
+				runSilkRoadVideoIngestTick()
 			}
 		})
 	})
+}
+
+func runSilkRoadVideoIngestTick() {
+	if !IsSilkRoadIngestNode() {
+		return
+	}
+	if !silkroad_setting.GetSilkRoadSetting().Storage.Enabled {
+		return
+	}
+	_ = RunSilkRoadVideoIngestOnce(context.Background())
+	_ = RunSilkRoadVideoCleanupOnce(context.Background())
 }
 
 // RunSilkRoadVideoIngestOnce claims pending/failed SilkRoad video tasks and

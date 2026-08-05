@@ -51,6 +51,51 @@ func TestShouldSilkRoadStore(t *testing.T) {
 	assert.False(t, shouldSilkRoadStore(newAPITask))
 }
 
+func TestSilkRoadNewAPIAvoidUpstreamResultURLWhenStorageIncomplete(t *testing.T) {
+	s := silkroad_setting.GetSilkRoadSetting()
+	prev := s.Storage
+	t.Cleanup(func() { s.Storage = prev })
+
+	newAPITask := &model.Task{
+		Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeNewAPI)),
+	}
+	otherTask := &model.Task{Platform: "openai"}
+
+	s.Storage.Enabled = true
+	s.Storage.IngestNodeName = ""
+	s.Storage.PublicDownloadBaseURL = "https://video.example.com"
+	assert.False(t, shouldSilkRoadStore(newAPITask))
+	assert.True(t, silkRoadNewAPIAvoidUpstreamResultURL(newAPITask))
+	assert.False(t, silkRoadNewAPIAvoidUpstreamResultURL(otherTask))
+
+	s.Storage.IngestNodeName = "node-a"
+	s.Storage.PublicDownloadBaseURL = ""
+	assert.False(t, shouldSilkRoadStore(newAPITask))
+	assert.True(t, silkRoadNewAPIAvoidUpstreamResultURL(newAPITask))
+
+	s.Storage.PublicDownloadBaseURL = "https://video.example.com"
+	assert.True(t, shouldSilkRoadStore(newAPITask))
+	assert.False(t, silkRoadNewAPIAvoidUpstreamResultURL(newAPITask))
+
+	s.Storage.Enabled = false
+	assert.False(t, silkRoadNewAPIAvoidUpstreamResultURL(newAPITask))
+}
+
+func TestRedactSilkRoadUpstreamURLsFailClosedClearsData(t *testing.T) {
+	invalid := []byte(`{"video_url":"https://cdn.upstream.example/leak.mp4"`) // truncated / invalid JSON
+	cleared, err := applySilkRoadDataRedaction(invalid)
+	require.Error(t, err)
+	assert.JSONEq(t, `{}`, string(cleared))
+	assert.NotContains(t, string(cleared), "cdn.upstream.example")
+	assert.NotContains(t, string(cleared), "video_url")
+
+	okBody := []byte(`{"id":"x","video_url":"https://cdn.upstream.example/ok.mp4"}`)
+	redacted, err := applySilkRoadDataRedaction(okBody)
+	require.NoError(t, err)
+	assert.Contains(t, string(redacted), `"id":"x"`)
+	assert.NotContains(t, string(redacted), "cdn.upstream.example")
+}
+
 func TestMarkSilkRoadPendingStoreKeepsUpstreamPrivate(t *testing.T) {
 	withSilkRoadStorage(t, t.TempDir(), "", "https://video.example.com")
 

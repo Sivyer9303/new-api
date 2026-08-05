@@ -218,7 +218,9 @@ func defaultSilkRoadSetting() SilkRoadSetting {
 			},
 		},
 		Storage: StorageSetting{
-			Enabled:               true,
+			// Default off so misconfigured installs never attempt local store
+			// or expose incomplete public/ingest wiring unexpectedly.
+			Enabled:               false,
 			Driver:                "local",
 			LocalDir:              "data/silkroad-videos",
 			RetentionDays:         7,
