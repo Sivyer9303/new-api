@@ -126,6 +126,9 @@ func main() {
 	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
 	service.StartCodexCredentialAutoRefreshTask()
 
+	// SilkRoad local video ingest — only runs when this node matches ingest_node_name
+	service.StartSilkRoadVideoIngestTask()
+
 	// Subscription quota reset task (daily/weekly/monthly/custom)
 	service.StartSubscriptionQuotaResetTask()
 
