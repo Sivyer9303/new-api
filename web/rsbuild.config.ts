@@ -16,8 +16,10 @@ export default defineConfig(({ envMode }) => {
     'http://localhost:3000'
 
   const isProd = envMode === 'production'
+  // Include /v1 so Seedance video tool (and other OpenAI-compatible calls) reach
+  // the Go backend in local `bun run dev` — previously only /api|/mj|/pg were proxied.
   const devProxy = Object.fromEntries(
-    (['/api', '/mj', '/pg'] as const).map((key) => [
+    (['/api', '/mj', '/pg', '/v1'] as const).map((key) => [
       key,
       { target: serverUrl, changeOrigin: true },
     ])

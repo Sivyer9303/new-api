@@ -485,6 +485,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		taskResult.TaskID = t.TaskID
 		taskResult.Status = string(t.Status)
 		taskResult.Url = t.GetResultURL()
+		if taskResult.Url == "" || isSilkRoadContentProxyURL(taskResult.Url) {
+			taskResult.Url = ExtractUpstreamVideoURLFromJSON(responseBody)
+		}
 		taskResult.Progress = t.Progress
 		taskResult.Reason = t.FailReason
 		task.Data = t.Data
@@ -539,18 +542,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		if task.FinishTime == 0 {
 			task.FinishTime = now
 		}
-		if shouldSilkRoadStore(task) && taskResult.Url != "" && !strings.HasPrefix(taskResult.Url, "data:") {
-			// Queue local ingest: keep upstream URL private; ResultURL is the public content path.
-			// Download failure later must not refund — settle proceeds as success.
-			markSilkRoadPendingStore(task, taskResult.Url)
-			cleaned, redactErr := applySilkRoadDataRedaction(task.Data)
-			if redactErr != nil {
-				logger.LogWarn(ctx, fmt.Sprintf(
-					"silkroad redact failed task=%s: %s; clearing task.Data",
-					task.TaskID, redactErr.Error(),
-				))
-			}
-			task.Data = cleaned
+		if shouldSilkRoadStore(task) {
+			// Always queue local ingest + redact outbound Data; never put upstream CDN in ResultURL.
+			applySilkRoadSuccessStore(task, taskResult.Url, responseBody)
 		} else if strings.HasPrefix(taskResult.Url, "data:") {
 			// data: URI (e.g. Vertex base64 encoded video) — keep in Data, not in ResultURL
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
@@ -561,6 +555,16 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 				task.TaskID,
 			))
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
+			cleaned, redactErr := applySilkRoadDataRedaction(task.Data)
+			if redactErr != nil {
+				logger.LogWarn(ctx, fmt.Sprintf(
+					"silkroad redact failed task=%s: %s; clearing task.Data",
+					task.TaskID, redactErr.Error(),
+				))
+				task.Data = []byte("{}")
+			} else {
+				task.Data = cleaned
+			}
 		} else if taskResult.Url != "" {
 			// Direct upstream URL (e.g. Kling, Ali, Doubao, etc.)
 			task.PrivateData.ResultURL = taskResult.Url

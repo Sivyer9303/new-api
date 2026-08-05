@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -47,6 +47,7 @@ import { cn } from '@/lib/utils'
 
 import {
   fetchModelsWithTokenKey,
+  fetchVideoContentBlob,
   fetchVideoGeneration,
   fetchVideoToolConfig,
   submitVideoGeneration,
@@ -87,8 +88,20 @@ function isTerminalSuccess(status: string | undefined): boolean {
 
 function isTerminalFailure(status: string | undefined): boolean {
   const s = (status || '').toLowerCase()
-  return s === 'failed' || s === 'failure' || s === 'cancelled'
+  return (
+    s === 'failed' ||
+    s === 'failure' ||
+    s === 'cancelled' ||
+    s === 'canceled'
+  )
 }
+
+function isTerminalStatus(status: string | undefined): boolean {
+  return isTerminalSuccess(status) || isTerminalFailure(status)
+}
+
+const POLL_INTERVAL_MS = 3000
+const POLL_MAX_ATTEMPTS = 120
 
 async function filesToDataUrls(files: FileList | null): Promise<string[]> {
   if (!files || files.length === 0) return []
@@ -118,8 +131,12 @@ export function VideoToolPage() {
   const [submitting, setSubmitting] = useState(false)
   const [taskId, setTaskId] = useState('')
   const [taskStatus, setTaskStatus] = useState('')
+  const [taskProgress, setTaskProgress] = useState('')
   const [previewUrl, setPreviewUrl] = useState('')
   const [pollError, setPollError] = useState('')
+  const [pollingTokenKey, setPollingTokenKey] = useState('')
+  const pollAttemptRef = useRef(0)
+  const seenTerminalToastRef = useRef('')
 
   const configQuery = useQuery({
     queryKey: ['silkroad-video-tool-config'],
@@ -144,6 +161,26 @@ export function VideoToolPage() {
   })
 
   const profiles = configQuery.data?.profiles ?? []
+  const videoToolGroups = configQuery.data?.video_tool_groups ?? []
+  const allowedGroupSet = useMemo(
+    () => new Set(videoToolGroups.map((g) => g.trim()).filter(Boolean)),
+    [videoToolGroups]
+  )
+  const keys = useMemo(() => {
+    const all = keysQuery.data ?? []
+    if (allowedGroupSet.size === 0) return []
+    return all.filter((k) => allowedGroupSet.has((k.group || '').trim()))
+  }, [keysQuery.data, allowedGroupSet])
+
+  useEffect(() => {
+    if (!tokenId) return
+    if (!keys.some((k) => String(k.id) === tokenId)) {
+      setTokenId('')
+      setModels([])
+      setModelId('')
+    }
+  }, [keys, tokenId])
+
   const selectedProfile = useMemo(
     () => (modelId ? matchProfile(profiles, modelId) : null),
     [modelId, profiles]
@@ -299,7 +336,11 @@ export function VideoToolPage() {
     setPollError('')
     setPreviewUrl('')
     setTaskStatus('')
+    setTaskProgress('')
     setTaskId('')
+    setPollingTokenKey('')
+    pollAttemptRef.current = 0
+    seenTerminalToastRef.current = ''
     try {
       const keyRes = await fetchTokenKey(Number(tokenId))
       if (!keyRes.success || !keyRes.data?.key) {
@@ -338,30 +379,9 @@ export function VideoToolPage() {
       }
       setTaskId(publicId)
       setTaskStatus(submitRes.status || 'queued')
+      setTaskProgress('')
+      setPollingTokenKey(tokenKey)
       toast.success(t('Video task submitted'))
-
-      // Poll until terminal
-      for (let i = 0; i < 120; i++) {
-        await new Promise((r) => setTimeout(r, 3000))
-        const statusRes = await fetchVideoGeneration(tokenKey, publicId)
-        const st = statusRes.status || ''
-        setTaskStatus(st)
-        if (isTerminalSuccess(st)) {
-          // Prefer local proxy path so session cookie auth works in <video>.
-          setPreviewUrl(`/v1/videos/${publicId}/content`)
-          toast.success(t('Video generation completed'))
-          return
-        }
-        if (isTerminalFailure(st)) {
-          const msg =
-            statusRes.error?.message || t('Video generation failed')
-          setPollError(msg)
-          toast.error(msg)
-          return
-        }
-      }
-      setPollError(t('Timed out waiting for video. Check Task Logs.'))
-      toast.message(t('Timed out waiting for video. Check Task Logs.'))
     } catch (err) {
       const message =
         err instanceof Error ? err.message : t('Failed to submit video task')
@@ -371,6 +391,91 @@ export function VideoToolPage() {
       setSubmitting(false)
     }
   }
+
+  const isPolling =
+    Boolean(taskId) &&
+    Boolean(pollingTokenKey) &&
+    !isTerminalStatus(taskStatus)
+
+  useEffect(() => {
+    if (!taskId || !pollingTokenKey) return
+
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+
+    const pollOnce = async () => {
+      if (cancelled) return
+      if (pollAttemptRef.current >= POLL_MAX_ATTEMPTS) {
+        setPollError(t('Timed out waiting for video. Check Task Logs.'))
+        toast.message(t('Timed out waiting for video. Check Task Logs.'))
+        setPollingTokenKey('')
+        return
+      }
+      pollAttemptRef.current += 1
+      try {
+        const statusRes = await fetchVideoGeneration(pollingTokenKey, taskId)
+        if (cancelled) return
+        const st = statusRes.status || ''
+        if (st) {
+          setTaskStatus(st)
+        }
+        if (statusRes.progress != null && String(statusRes.progress).trim()) {
+          setTaskProgress(String(statusRes.progress))
+        }
+        if (isTerminalSuccess(st)) {
+          // Only this site's content endpoint — never upstream CDN.
+          const siteContent = `/v1/videos/${taskId}/content`
+          let playable = siteContent
+          try {
+            const blob = await fetchVideoContentBlob(pollingTokenKey, taskId)
+            if (cancelled) return
+            playable = URL.createObjectURL(blob)
+          } catch {
+            playable = siteContent
+          }
+          setPreviewUrl(playable)
+          if (seenTerminalToastRef.current !== taskId) {
+            seenTerminalToastRef.current = taskId
+            toast.success(t('Video generation completed'))
+          }
+          return
+        }
+        if (isTerminalFailure(st)) {
+          const msg =
+            statusRes.error?.message ||
+            statusRes.fail_reason ||
+            t('Video generation failed')
+          setPollError(msg)
+          if (seenTerminalToastRef.current !== taskId) {
+            seenTerminalToastRef.current = taskId
+            toast.error(msg)
+          }
+          return
+        }
+      } catch (err) {
+        if (cancelled) return
+        // Keep polling on transient fetch errors; surface the latest message.
+        setPollError(
+          err instanceof Error ? err.message : t('Failed to fetch video task')
+        )
+      }
+      if (!cancelled) {
+        timer = setTimeout(() => {
+          void pollOnce()
+        }, POLL_INTERVAL_MS)
+      }
+    }
+
+    // First poll shortly after submit so UI updates without waiting a full interval.
+    timer = setTimeout(() => {
+      void pollOnce()
+    }, 800)
+
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [taskId, pollingTokenKey, t])
 
   if (configQuery.isLoading || keysQuery.isLoading) {
     return (
@@ -409,7 +514,8 @@ export function VideoToolPage() {
     )
   }
 
-  const keys = keysQuery.data ?? []
+  const allowedGroupsLabel =
+    videoToolGroups.length > 0 ? videoToolGroups.join(', ') : t('(none)')
 
   return (
     <SectionPageLayout>
@@ -418,6 +524,16 @@ export function VideoToolPage() {
       </SectionPageLayout.Title>
       <SectionPageLayout.Content>
         <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pb-8'>
+          <div className='bg-muted/50 rounded-md border px-3 py-2 text-sm'>
+            <p>
+              {t(
+                'You must select an API key from the allowed groups. If no key is available, create a key for those groups.'
+              )}
+            </p>
+            <p className='text-muted-foreground mt-1'>
+              {t('Allowed groups')}: {allowedGroupsLabel}
+            </p>
+          </div>
           <p className='text-muted-foreground text-sm'>
             {t(
               'Select an API key, load models, choose a mode, and generate video. Results also appear in Task Logs.'
@@ -438,6 +554,7 @@ export function VideoToolPage() {
             <Select
               value={tokenId || null}
               onValueChange={(v) => setTokenId(v ?? '')}
+              disabled={keys.length === 0}
             >
               <SelectTrigger className='w-full'>
                 <SelectValue placeholder={t('Select an API key')} />
@@ -445,12 +562,15 @@ export function VideoToolPage() {
               <SelectContent>
                 {keys.length === 0 ? (
                   <div className='text-muted-foreground px-2 py-1.5 text-sm'>
-                    {t('No enabled API keys. Create one on the API Keys page.')}
+                    {t(
+                      'No API keys in the allowed groups. Create a key for those groups on the API Keys page.'
+                    )}
                   </div>
                 ) : (
                   keys.map((k) => (
                     <SelectItem key={k.id} value={String(k.id)}>
-                      {k.name || `Key #${k.id}`} ({k.key})
+                      {k.name || `Key #${k.id}`} ({k.group || 'default'}) ·{' '}
+                      {k.key}
                     </SelectItem>
                   ))
                 )}
@@ -460,7 +580,7 @@ export function VideoToolPage() {
           <Button
             type='button'
             onClick={() => void handleLoadModels()}
-            disabled={!tokenId || loadingModels}
+            disabled={!tokenId || loadingModels || keys.length === 0}
           >
             {loadingModels ? t('Loading...') : t('Load models')}
           </Button>
@@ -611,9 +731,11 @@ export function VideoToolPage() {
           type='button'
           size='lg'
           onClick={() => void handleSubmit()}
-          disabled={submitting || !tokenId || !modelId}
+          disabled={submitting || isPolling || !tokenId || !modelId}
         >
-          {submitting ? t('Generating...') : t('Generate video')}
+          {submitting || isPolling
+            ? t('Generating...')
+            : t('Generate video')}
         </Button>
         <Link
           to='/usage-logs/$section'
@@ -638,16 +760,45 @@ export function VideoToolPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className='space-y-3'>
+            {isPolling && (
+              <div className='space-y-1 text-sm'>
+                <p className='text-muted-foreground'>
+                  {t('Refreshing task status automatically...')}
+                </p>
+                <p>
+                  {t('Progress')}:{' '}
+                  <span className='font-medium'>
+                    {taskProgress || t('Waiting for update')}
+                  </span>
+                </p>
+              </div>
+            )}
+            {!isPolling && taskProgress && !pollError && !previewUrl && (
+              <p className='text-sm'>
+                {t('Progress')}:{' '}
+                <span className='font-medium'>{taskProgress}</span>
+              </p>
+            )}
             {pollError && (
               <p className='text-destructive text-sm'>{pollError}</p>
             )}
             {previewUrl && (
-              <video
-                className='bg-muted aspect-video w-full rounded-md'
-                src={previewUrl}
-                controls
-                playsInline
-              />
+              <div className='space-y-2'>
+                <video
+                  className='bg-muted aspect-video w-full rounded-md'
+                  src={previewUrl}
+                  controls
+                  playsInline
+                />
+                <a
+                  href={previewUrl}
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  className='text-muted-foreground text-sm hover:underline'
+                >
+                  {t('Download link')}
+                </a>
+              </div>
             )}
             {taskId && (
               <Link

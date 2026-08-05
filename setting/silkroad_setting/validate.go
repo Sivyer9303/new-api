@@ -28,7 +28,30 @@ func ValidateSilkRoadSetting(s *SilkRoadSetting) error {
 	if err := validateStorage(&s.Storage); err != nil {
 		return err
 	}
+	s.VideoToolGroups = NormalizeVideoToolGroups(s.VideoToolGroups)
 	return nil
+}
+
+// NormalizeVideoToolGroups trims, drops empties, and deduplicates group names
+// while preserving first-seen order. Empty input yields an empty slice (no keys allowed).
+func NormalizeVideoToolGroups(groups []string) []string {
+	if len(groups) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]struct{}, len(groups))
+	out := make([]string, 0, len(groups))
+	for _, g := range groups {
+		name := strings.TrimSpace(g)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }
 
 func validateProfile(p *Profile, idx int) error {

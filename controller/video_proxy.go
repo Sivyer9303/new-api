@@ -119,11 +119,22 @@ func VideoProxy(c *gin.Context) {
 			return
 		}
 	case constant.ChannelTypeOpenAI, constant.ChannelTypeSora:
-		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
-		req.Header.Set("Authorization", "Bearer "+channel.Key)
+		// Prefer a stored/upstream CDN URL when present. SilkRoad (and similar
+		// NewAPI-compatible upstreams) often run as OpenAI channel type but
+		// return a direct video_url instead of OpenAI /v1/videos/{id}/content.
+		if stored := extractStoredVideoURL(task); stored != "" {
+			videoURL = stored
+		} else {
+			videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
+			req.Header.Set("Authorization", "Bearer "+channel.Key)
+		}
 	default:
 		// Video URL is stored in PrivateData.ResultURL (fallback to FailReason for old data)
-		videoURL = task.GetResultURL()
+		if stored := extractStoredVideoURL(task); stored != "" {
+			videoURL = stored
+		} else {
+			videoURL = task.GetResultURL()
+		}
 	}
 
 	videoURL = strings.TrimSpace(videoURL)
@@ -187,6 +198,75 @@ func VideoProxy(c *gin.Context) {
 	if _, err = io.Copy(c.Writer, resp.Body); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to stream video content: %s", err.Error()))
 	}
+}
+
+// extractStoredVideoURL returns a playable absolute http(s) video URL from task
+// private fields or upstream payload. Self-referential /v1/videos/.../content
+// proxy URLs are ignored so we do not recurse through the proxy.
+func extractStoredVideoURL(task *model.Task) string {
+	if task == nil {
+		return ""
+	}
+	candidates := []string{
+		task.PrivateData.UpstreamResultURL,
+	}
+	if len(task.Data) > 0 {
+		var payload any
+		if err := common.Unmarshal(task.Data, &payload); err == nil {
+			candidates = append(candidates, collectVideoURLCandidates(payload, 0)...)
+		}
+	}
+	candidates = append(candidates, task.PrivateData.ResultURL, task.FailReason)
+
+	for _, raw := range candidates {
+		u := strings.TrimSpace(raw)
+		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			continue
+		}
+		if isLocalVideoContentProxyURL(u) {
+			continue
+		}
+		return u
+	}
+	return ""
+}
+
+const maxVideoURLSearchDepth = 6
+
+func collectVideoURLCandidates(node any, depth int) []string {
+	if node == nil || depth > maxVideoURLSearchDepth {
+		return nil
+	}
+	switch typed := node.(type) {
+	case map[string]any:
+		var out []string
+		for _, key := range []string{"video_url", "url", "result_url"} {
+			if s, ok := typed[key].(string); ok {
+				out = append(out, s)
+			}
+		}
+		for _, value := range typed {
+			out = append(out, collectVideoURLCandidates(value, depth+1)...)
+		}
+		return out
+	case []any:
+		var out []string
+		for _, value := range typed {
+			out = append(out, collectVideoURLCandidates(value, depth+1)...)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func isLocalVideoContentProxyURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Path == "" {
+		return false
+	}
+	path := parsed.Path
+	return strings.Contains(path, "/v1/videos/") && strings.HasSuffix(path, "/content")
 }
 
 func writeVideoDataURL(c *gin.Context, dataURL string) error {

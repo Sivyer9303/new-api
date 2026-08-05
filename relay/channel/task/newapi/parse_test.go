@@ -38,3 +38,12 @@ func TestParseTaskResultFailed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, model.TaskStatusFailure, info.Status)
 }
+
+func TestParseTaskResultWrappedTaskDtoWithNestedVideoURL(t *testing.T) {
+	a := &TaskAdaptor{}
+	body := []byte(`{"code":"success","data":{"status":"SUCCESS","result_url":"http://localhost:3000/v1/videos/task_x/content","data":{"video_url":"https://cdn.example/nested.mp4","url":"https://cdn.example/nested.mp4"}}}`)
+	info, err := a.ParseTaskResult(body)
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatusSuccess, info.Status)
+	assert.Equal(t, "https://cdn.example/nested.mp4", info.Url)
+}

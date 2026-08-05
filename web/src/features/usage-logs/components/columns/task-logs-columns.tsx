@@ -19,11 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 import type { ColumnDef } from '@tanstack/react-table'
 import { Music } from 'lucide-react'
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { StatusBadge } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { getFreshAuthHeaders } from '@/lib/auth-session'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -48,11 +50,14 @@ function parseTaskData(data: unknown): unknown[] {
   if (typeof data === 'string') {
     try {
       const parsed = JSON.parse(data)
-      return Array.isArray(parsed) ? parsed : []
+      if (Array.isArray(parsed)) return parsed
+      if (parsed && typeof parsed === 'object') return [parsed]
+      return []
     } catch {
       return []
     }
   }
+  if (data && typeof data === 'object') return [data]
   return []
 }
 
@@ -245,19 +250,47 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           log.action === TASK_ACTIONS.REFERENCE_GENERATE ||
           log.action === TASK_ACTIONS.REMIX_GENERATE
         const isSuccess = status === TASK_STATUS.SUCCESS
-        const isUrl = failReason?.startsWith('http')
 
-        if (isSuccess && isVideoTask && isUrl) {
-          const videoUrl = `/v1/videos/${log.task_id}/content`
+        if (isSuccess && isVideoTask) {
+          const proxyUrl = `/v1/videos/${log.task_id}/content`
+          const openPreview = async (
+            event: MouseEvent<HTMLAnchorElement>
+          ) => {
+            event.preventDefault()
+            try {
+              const headers = await getFreshAuthHeaders()
+              const auth = headers.Authorization
+              if (!auth) {
+                toast.error(t('Session expired!'))
+                return
+              }
+              const res = await fetch(proxyUrl, {
+                headers: { Authorization: auth },
+              })
+              if (!res.ok) {
+                toast.error(t('Failed to load video preview'))
+                return
+              }
+              const blob = await res.blob()
+              const objectUrl = URL.createObjectURL(blob)
+              window.open(objectUrl, '_blank', 'noopener,noreferrer')
+              window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+            } catch {
+              toast.error(t('Failed to load video preview'))
+            }
+          }
           return (
-            <a
-              href={videoUrl}
-              target='_blank'
-              rel='noopener noreferrer'
-              className='text-foreground text-xs hover:underline'
-            >
-              {t('Click to preview video')}
-            </a>
+            <div className='flex max-w-[220px] flex-col gap-1 text-xs'>
+              <a
+                href={proxyUrl}
+                target='_blank'
+                rel='noopener noreferrer'
+                onClick={openPreview}
+                className='text-foreground hover:underline'
+              >
+                {t('Click to preview video')}
+              </a>
+            </div>
           )
         }
 

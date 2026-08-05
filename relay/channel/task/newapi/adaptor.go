@@ -1,6 +1,7 @@
 package newapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -120,8 +121,8 @@ func (a *TaskAdaptor) GetChannelName() string {
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
-	var res taskResultResponse
-	if err := common.Unmarshal(respBody, &res); err != nil {
+	res, err := unmarshalTaskResultResponse(respBody)
+	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal task result failed")
 	}
 
@@ -137,9 +138,17 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	case "completed", "success":
 		taskResult.Status = model.TaskStatusSuccess
 		for _, u := range []string{res.VideoURL, res.URL, res.ResultURL} {
-			if u != "" {
+			if strings.TrimSpace(u) != "" && !isVideoContentProxyURL(u) {
 				taskResult.Url = u
 				break
+			}
+		}
+		if taskResult.Url == "" {
+			for _, u := range []string{res.VideoURL, res.URL, res.ResultURL} {
+				if strings.TrimSpace(u) != "" {
+					taskResult.Url = u
+					break
+				}
 			}
 		}
 	case "failed", "failure", "cancelled":
@@ -154,4 +163,50 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	}
 
 	return &taskResult, nil
+}
+
+func unmarshalTaskResultResponse(respBody []byte) (taskResultResponse, error) {
+	var res taskResultResponse
+	if err := common.Unmarshal(respBody, &res); err != nil {
+		return taskResultResponse{}, err
+	}
+	if strings.TrimSpace(res.Status) != "" {
+		return res, nil
+	}
+
+	// Upstream New API often wraps TaskDto as {code,data:{status,data:{video_url}}}.
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := common.Unmarshal(respBody, &envelope); err != nil || len(envelope.Data) == 0 {
+		return res, nil
+	}
+	var nested taskResultResponse
+	if err := common.Unmarshal(envelope.Data, &nested); err != nil {
+		return res, nil
+	}
+	if nested.VideoURL == "" || nested.URL == "" || nested.ResultURL == "" {
+		var nestedPayload struct {
+			Data json.RawMessage `json:"data"`
+		}
+		if err := common.Unmarshal(envelope.Data, &nestedPayload); err == nil && len(nestedPayload.Data) > 0 {
+			var leaf taskResultResponse
+			if err := common.Unmarshal(nestedPayload.Data, &leaf); err == nil {
+				if nested.VideoURL == "" {
+					nested.VideoURL = leaf.VideoURL
+				}
+				if nested.URL == "" {
+					nested.URL = leaf.URL
+				}
+				if nested.ResultURL == "" {
+					nested.ResultURL = leaf.ResultURL
+				}
+			}
+		}
+	}
+	return nested, nil
+}
+
+func isVideoContentProxyURL(raw string) bool {
+	return strings.Contains(raw, "/v1/videos/") && strings.HasSuffix(strings.TrimRight(raw, "/"), "/content")
 }

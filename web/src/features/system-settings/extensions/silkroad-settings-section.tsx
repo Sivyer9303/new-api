@@ -100,6 +100,32 @@ function parseStorage(raw: string | undefined): StorageValues {
   }
 }
 
+function parseVideoToolGroupsText(raw: string | undefined): string {
+  if (!raw || !raw.trim()) return ''
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return ''
+    return parsed
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean)
+      .join(', ')
+  } catch {
+    return ''
+  }
+}
+
+function videoToolGroupsTextToApi(text: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const part of text.split(/[,，\n]/)) {
+    const name = part.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    out.push(name)
+  }
+  return out
+}
+
 const schema = z
   .object({
     enabled: z.boolean(),
@@ -109,6 +135,7 @@ const schema = z
     max_retry: z.coerce.number().int().min(1),
     ingest_node_name: z.string(),
     public_download_base_url: z.string(),
+    video_tool_groups_text: z.string(),
     profiles: z.array(profileFormSchema).min(1),
   })
   .superRefine((values, ctx) => {
@@ -160,6 +187,7 @@ export function SilkRoadSettingsSection({
   defaultValues: {
     storageJson: string
     profilesJson: string
+    videoToolGroupsJson: string
   }
 }) {
   const { t } = useTranslation()
@@ -171,6 +199,9 @@ export function SilkRoadSettingsSection({
     resolver: zodResolver(schema) as unknown as Resolver<Values>,
     defaultValues: {
       ...storage,
+      video_tool_groups_text: parseVideoToolGroupsText(
+        defaultValues.videoToolGroupsJson
+      ),
       profiles: parseProfilesToForm(defaultValues.profilesJson),
     },
   })
@@ -179,6 +210,9 @@ export function SilkRoadSettingsSection({
     const next = parseStorage(defaultValues.storageJson)
     form.reset({
       ...next,
+      video_tool_groups_text: parseVideoToolGroupsText(
+        defaultValues.videoToolGroupsJson
+      ),
       profiles: parseProfilesToForm(defaultValues.profilesJson),
     })
   }, [defaultValues, form])
@@ -207,6 +241,9 @@ export function SilkRoadSettingsSection({
       ingest_node_name: values.ingest_node_name.trim(),
       public_download_base_url: values.public_download_base_url.trim(),
     }
+    const videoToolGroupsPayload = videoToolGroupsTextToApi(
+      values.video_tool_groups_text
+    )
 
     const updates: Array<{ key: string; value: string }> = [
       {
@@ -216,6 +253,10 @@ export function SilkRoadSettingsSection({
       {
         key: 'silkroad_setting.profiles',
         value: JSON.stringify(profilesPayload),
+      },
+      {
+        key: 'silkroad_setting.video_tool_groups',
+        value: JSON.stringify(videoToolGroupsPayload),
       },
     ]
 
@@ -230,6 +271,7 @@ export function SilkRoadSettingsSection({
       form.reset({
         ...values,
         driver: 'local',
+        video_tool_groups_text: videoToolGroupsPayload.join(', '),
         profiles: parseProfilesToForm(JSON.stringify(profilesPayload)),
       })
     } catch {
@@ -247,6 +289,29 @@ export function SilkRoadSettingsSection({
             onSave={form.handleSubmit(onSubmit)}
             isSaving={busy}
             isSaveDisabled={!isDirty}
+          />
+
+          <FormField
+            control={form.control}
+            name='video_tool_groups_text'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Video tool allowed groups')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder='default, silkroad'
+                    {...field}
+                    disabled={busy}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Comma-separated group names whose API keys can be used in the Seedance video tool. Leave empty to allow no keys.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
           />
 
           <FormField

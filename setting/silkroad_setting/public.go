@@ -32,18 +32,24 @@ type PublicProfile struct {
 
 // PublicVideoToolConfig is returned to logged-in users for the Seedance-style tool page.
 type PublicVideoToolConfig struct {
-	Enabled  bool           `json:"enabled"`
-	Profiles []PublicProfile `json:"profiles"`
+	Enabled         bool            `json:"enabled"`
+	VideoToolGroups []string        `json:"video_tool_groups"`
+	Profiles        []PublicProfile `json:"profiles"`
 }
 
 // GetPublicVideoToolConfig returns enabled profiles/options only (no storage secrets).
 func GetPublicVideoToolConfig() PublicVideoToolConfig {
 	s := GetSilkRoadSetting()
-	out := PublicVideoToolConfig{Enabled: true, Profiles: make([]PublicProfile, 0)}
+	out := PublicVideoToolConfig{
+		Enabled:         true,
+		VideoToolGroups: []string{},
+		Profiles:        make([]PublicProfile, 0),
+	}
 	if s == nil || len(s.Profiles) == 0 {
 		out.Enabled = false
 		return out
 	}
+	out.VideoToolGroups = NormalizeVideoToolGroups(s.VideoToolGroups)
 	for _, p := range s.Profiles {
 		pub := PublicProfile{
 			ID:            p.ID,

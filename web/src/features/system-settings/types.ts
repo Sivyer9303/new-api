@@ -204,6 +204,7 @@ export type ExtensionsSettings = {
   // GlobalConfig serializes nested Storage as one JSON blob (not dotted leaf keys).
   'silkroad_setting.storage': string
   'silkroad_setting.profiles': string
+  'silkroad_setting.video_tool_groups': string
 }
 
 export type ModelSettings = {

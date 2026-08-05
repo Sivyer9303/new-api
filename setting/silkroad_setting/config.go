@@ -61,8 +61,9 @@ type StorageSetting struct {
 
 // SilkRoadSetting is the top-level silkroad_setting config module.
 type SilkRoadSetting struct {
-	Profiles []Profile      `json:"profiles"`
-	Storage  StorageSetting `json:"storage"`
+	Profiles        []Profile      `json:"profiles"`
+	Storage         StorageSetting `json:"storage"`
+	VideoToolGroups []string       `json:"video_tool_groups"` // groups whose API keys may be used in Seedance tool; empty = none
 }
 
 var silkRoadSetting = defaultSilkRoadSetting()
@@ -228,6 +229,8 @@ func defaultSilkRoadSetting() SilkRoadSetting {
 			IngestNodeName:        "",
 			PublicDownloadBaseURL: "",
 		},
+		// Empty by default: Seedance tool shows no keys until admins opt in.
+		VideoToolGroups: []string{},
 	}
 }
 

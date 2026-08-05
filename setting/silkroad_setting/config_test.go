@@ -45,6 +45,7 @@ func TestDefaultSilkRoadSettingStorage(t *testing.T) {
 	assert.Equal(t, 5, s.Storage.MaxRetry)
 	assert.Empty(t, s.Storage.IngestNodeName)
 	assert.Empty(t, s.Storage.PublicDownloadBaseURL)
+	assert.Empty(t, s.VideoToolGroups)
 }
 
 func TestGetSilkRoadSettingReturnsDefaults(t *testing.T) {

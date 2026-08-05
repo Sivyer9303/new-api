@@ -440,7 +440,7 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
-	case "silkroad_setting.profiles", "silkroad_setting.storage":
+	case "silkroad_setting.profiles", "silkroad_setting.storage", "silkroad_setting.video_tool_groups":
 		err = validateSilkRoadSettingOption(option.Key, option.Value.(string))
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{

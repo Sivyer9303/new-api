@@ -43,6 +43,7 @@ export type PublicProfile = {
 
 export type VideoToolConfig = {
   enabled: boolean
+  video_tool_groups: string[]
   profiles: PublicProfile[]
 }
 
@@ -70,5 +71,6 @@ export type VideoFetchResponse = {
   video_url?: string
   url?: string
   result_url?: string
+  fail_reason?: string
   error?: { message?: string }
 }

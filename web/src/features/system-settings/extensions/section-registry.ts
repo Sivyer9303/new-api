@@ -89,6 +89,8 @@ const EXTENSIONS_SECTIONS = [
         defaultValues: {
           storageJson: settings['silkroad_setting.storage'] || '',
           profilesJson: settings['silkroad_setting.profiles'] || '[]',
+          videoToolGroupsJson:
+            settings['silkroad_setting.video_tool_groups'] || '[]',
         },
       }),
   },

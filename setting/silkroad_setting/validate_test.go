@@ -89,3 +89,16 @@ func TestValidateAcceptsStorageEnabledComplete(t *testing.T) {
 	s.Storage.PublicDownloadBaseURL = "https://video.example.com"
 	require.NoError(t, ValidateSilkRoadSetting(&s))
 }
+
+func TestValidateNormalizesVideoToolGroups(t *testing.T) {
+	s := defaultSilkRoadSetting()
+	s.VideoToolGroups = []string{" default ", "", "vip", "default"}
+	require.NoError(t, ValidateSilkRoadSetting(&s))
+	assert.Equal(t, []string{"default", "vip"}, s.VideoToolGroups)
+}
+
+func TestNormalizeVideoToolGroupsEmptyMeansNone(t *testing.T) {
+	assert.Empty(t, NormalizeVideoToolGroups(nil))
+	assert.Empty(t, NormalizeVideoToolGroups([]string{}))
+	assert.Empty(t, NormalizeVideoToolGroups([]string{"", "  "}))
+}

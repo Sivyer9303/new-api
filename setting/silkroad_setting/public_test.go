@@ -47,4 +47,15 @@ func TestGetPublicVideoToolConfigIncludesPrefixes(t *testing.T) {
 	assert.Contains(t, p.ModelPrefixes, "dreamina-seedance-2-0-")
 	assert.NotEmpty(t, p.AspectRatios)
 	assert.NotEmpty(t, p.Durations)
+	assert.Empty(t, cfg.VideoToolGroups)
+}
+
+func TestGetPublicVideoToolConfigExposesNormalizedGroups(t *testing.T) {
+	prev := silkRoadSetting
+	t.Cleanup(func() { silkRoadSetting = prev })
+	silkRoadSetting = defaultSilkRoadSetting()
+	silkRoadSetting.VideoToolGroups = []string{" default ", "", "default", "silkroad"}
+
+	cfg := GetPublicVideoToolConfig()
+	assert.Equal(t, []string{"default", "silkroad"}, cfg.VideoToolGroups)
 }
