@@ -230,7 +230,10 @@ export function SilkRoadSettingsSection({
 
     try {
       for (const item of updates) {
-        await updateOption.mutateAsync(item)
+        const result = await updateOption.mutateAsync(item)
+        if (!result.success) {
+          return
+        }
       }
       toast.success(t('Settings saved'))
       form.reset({
