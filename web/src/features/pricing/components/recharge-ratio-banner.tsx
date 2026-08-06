@@ -46,11 +46,11 @@ export function RechargeRatioBanner(props: RechargeRatioBannerProps) {
         </div>
         <div className='min-w-0 flex-1 space-y-1'>
           <p className='text-sm font-semibold text-amber-950 sm:text-base dark:text-amber-50'>
-            {t('Site recharge ratio is 1:10')}
+            {t('Site quota conversion ratio is 1:10')}
           </p>
           <p className='text-xs leading-relaxed text-amber-900/80 sm:text-sm dark:text-amber-100/80'>
             {t(
-              'Strikethrough prices are list prices. The highlighted price on the right is what you actually pay.'
+              'Top-ups and deductions both use this ratio. Strikethrough is the display price; the colored price is the real price after conversion.'
             )}
           </p>
         </div>

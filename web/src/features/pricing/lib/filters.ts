@@ -81,7 +81,9 @@ export function filterByQuotaType(
   const targetType =
     quotaType === QUOTA_TYPES.TOKEN
       ? QUOTA_TYPE_VALUES.TOKEN
-      : QUOTA_TYPE_VALUES.REQUEST
+      : quotaType === QUOTA_TYPES.SECOND
+        ? QUOTA_TYPE_VALUES.SECOND
+        : QUOTA_TYPE_VALUES.REQUEST
   return models.filter((m) => m.quota_type === targetType)
 }
 

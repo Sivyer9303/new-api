@@ -1,6 +1,6 @@
 # 新增「按秒计费」模型定价类型
 
-> 状态：已确认方案，待实现  
+> 状态：已实现，待验收  
 > 日期：2026-08-05  
 > 分支：`feat/silkroad-newapi-video`
 
@@ -41,9 +41,10 @@ flowchart LR
    - 增加常量 `BillingModePerSecond = "per_second"`。
 2. `model/pricing.go`（重建定价列表）
    - 命中 `GetModelPrice` 时：
-     - 若 `GetBillingMode(model) == per_second` → `QuotaType = 2`，保留 `ModelPrice`
+     - 若 `GetBillingMode(model) == per_second` → `QuotaType = 2`，保留 `ModelPrice`，并透出 `BillingMode=per_second`
      - 否则 → `QuotaType = 1`（原按次逻辑不变）
 3. `ModelPriceHelperPerCall` / Seedance `EstimateBilling` **不改**（`$ / 秒 × 秒数` 已正确）。
+4. `controller/ratio_sync.go`：上游同步时 `quota_type=2` 写入 `ModelPrice`，并保留 `billing_mode=per_second`。
 
 ## 管理后台（系统设置 → 模型）
 
@@ -52,10 +53,9 @@ flowchart LR
    - 增加 **按秒** Tab（四列）。
    - 表单：单个美元价格字段，说明为「视频每秒的美元单价」。
 3. `web/src/features/system-settings/models/model-ratio-visual-editor.tsx` 保存逻辑
-   - 现状：只要有 `data.price` 就只写 `ModelPrice`，并清掉 `billing_mode`。
-   - 改为：
+   - 保存前先 **删除** 该模型的 `billing_mode` / `billing_expr` 键，再按模式写入：
      - `per-second` → 写 `ModelPrice`，且 `billingModeMap[name] = 'per_second'`
-     - `per-request` → 写 `ModelPrice`，不设置 `per_second`
+     - `per-request` → 写 `ModelPrice`，**不**写回 `per_second`（键保持删除，避免从按秒切回按次时粘住）
      - `tiered_expr` → 保持现状
 4. `web/src/features/system-settings/models/model-pricing-snapshots.ts`
    - 当 `billing_mode[model] === 'per_second'` 时推断为 `billingMode: 'per-second'`。
@@ -68,6 +68,11 @@ flowchart LR
    - `quota_type === 2` 时按按次价公式格式化，后缀改为 `/ 秒`（仍用 `model_price × 分组倍率`）。
 3. `web/src/features/pricing/components/model-billing-mode-badge.tsx`：徽章「按秒」。
 4. 侧边栏/筛选统计纳入新类型。
+
+## 运营注意（重要）
+
+- Seedance / New API 视频适配器的 `EstimateBilling` **不论**后台标成按次还是按秒，都会乘 `seconds`。因此视频模型必须配置为 **按秒**，否则广场显示 `$x / 次`、实际仍按秒扣费。
+- **存量迁移**：上线前已有 `ModelPrice` 的 Seedance 模型不会自动变成 `quota_type=2`，需在后台重新保存为「按秒」，或批量写入 `billing_setting.billing_mode[model]=per_second`。
 
 ## 国际化
 
@@ -89,7 +94,9 @@ flowchart LR
 
 ## 实现待办
 
-- [ ] 后端增加 `billing_mode=per_second`，`pricing.go` 输出 `quota_type=2`
-- [ ] 管理后台定价表单/编辑器/快照：支持按秒模式的保存与回显
-- [ ] 模型广场常量、价格格式化、徽章、筛选支持 `quota_type=2`
-- [ ] 补充 i18n 文案 + pricing 重建单测
+- [x] 后端增加 `billing_mode=per_second`，`pricing.go` 输出 `quota_type=2`
+- [x] 管理后台定价表单/编辑器/快照：支持按秒模式的保存与回显
+- [x] 模型广场常量、价格格式化、徽章、筛选支持 `quota_type=2`
+- [x] 补充 i18n 文案 + pricing 重建单测
+
+> 状态：已实现，待验收

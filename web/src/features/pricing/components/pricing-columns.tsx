@@ -34,7 +34,7 @@ import {
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { isTokenBasedModel } from '../lib/model-helpers'
+import { isPerSecondModel, isTokenBasedModel } from '../lib/model-helpers'
 import {
   formatPrice,
   formatRequestPrice,
@@ -233,7 +233,7 @@ export function usePricingColumns(
               <PriceWithRatio value={price} />
             </span>
             <div className='text-muted-foreground/50 text-[10px]'>
-              / {t('request')}
+              / {isPerSecondModel(model) ? t('sec') : t('request')}
             </div>
           </div>
         )
