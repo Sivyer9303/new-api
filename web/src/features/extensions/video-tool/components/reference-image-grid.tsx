@@ -1,0 +1,218 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { Cancel01Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { useId, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+
+import { cn } from '@/lib/utils'
+
+import {
+  createReferenceImageItem,
+  type ReferenceImageItem,
+} from '../lib/reference-image'
+
+type ReferenceImageGridProps = {
+  items: ReferenceImageItem[]
+  onChange: (items: ReferenceImageItem[]) => void
+  min: number
+  max: number
+  disabled?: boolean
+}
+
+/**
+ * 3×3-style reference image picker. Empty cells open a file dialog; multi-select
+ * appends until max. Existing thumbnails can be removed individually.
+ */
+export function ReferenceImageGrid(props: ReferenceImageGridProps) {
+  const { t } = useTranslation()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const replaceIndexRef = useRef<number | null>(null)
+  const inputId = useId()
+  const maxSlots = Math.min(Math.max(props.max, 0), 9)
+  const remaining = Math.max(0, props.max - props.items.length)
+
+  const openPicker = (replaceIndex: number | null) => {
+    if (props.disabled) return
+    if (replaceIndex === null && remaining <= 0) {
+      toast.error(
+        t('You can upload at most {{max}} image(s)', { max: props.max })
+      )
+      return
+    }
+    replaceIndexRef.current = replaceIndex
+    if (inputRef.current) {
+      // Multi-select only when appending into empty capacity.
+      inputRef.current.multiple = replaceIndex === null && remaining > 1
+      inputRef.current.value = ''
+      inputRef.current.click()
+    }
+  }
+
+  const handleFilesSelected = (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return
+    const picked = [...fileList].filter((f) => f.type.startsWith('image/'))
+    if (picked.length === 0) {
+      toast.error(t('Please select image files'))
+      return
+    }
+
+    const replaceIndex = replaceIndexRef.current
+    replaceIndexRef.current = null
+
+    if (
+      replaceIndex !== null &&
+      replaceIndex >= 0 &&
+      replaceIndex < props.items.length
+    ) {
+      // Replace a single slot (first picked file only).
+      const next = [...props.items]
+      const prev = next[replaceIndex]
+      URL.revokeObjectURL(prev.previewUrl)
+      next[replaceIndex] = createReferenceImageItem(picked[0])
+      props.onChange(next)
+      if (picked.length > 1) {
+        toast.message(
+          t('Replaced one image. Extra selected files were ignored.')
+        )
+      }
+      return
+    }
+
+    const room = props.max - props.items.length
+    if (room <= 0) {
+      toast.error(
+        t('You can upload at most {{max}} image(s)', { max: props.max })
+      )
+      return
+    }
+    const accepted = picked.slice(0, room)
+    const created = accepted.map(createReferenceImageItem)
+    props.onChange([...props.items, ...created])
+    if (picked.length > room) {
+      toast.message(
+        t('Only {{count}} more image(s) could be added (max {{max}}).', {
+          count: room,
+          max: props.max,
+        })
+      )
+    }
+  }
+
+  const removeAt = (index: number) => {
+    const next = [...props.items]
+    const [removed] = next.splice(index, 1)
+    if (removed) URL.revokeObjectURL(removed.previewUrl)
+    props.onChange(next)
+  }
+
+  if (maxSlots <= 0) return null
+
+  const slots: Array<ReferenceImageItem | null> = [...Array(maxSlots)].map(
+    (_, i) => props.items[i] ?? null
+  )
+
+  return (
+    <div className='space-y-2'>
+      <input
+        id={inputId}
+        ref={inputRef}
+        type='file'
+        accept='image/*'
+        multiple
+        className='sr-only'
+        disabled={props.disabled}
+        onChange={(e) => handleFilesSelected(e.target.files)}
+      />
+      <div className='grid grid-cols-3 gap-2 sm:gap-3'>
+        {slots.map((item, index) => {
+          if (item) {
+            return (
+              <div
+                key={item.id}
+                className='bg-muted/40 group relative aspect-square overflow-hidden rounded-lg border'
+              >
+                <button
+                  type='button'
+                  className='size-full cursor-pointer'
+                  onClick={() => openPicker(index)}
+                  disabled={props.disabled}
+                  aria-label={t('Replace image {{n}}', { n: index + 1 })}
+                >
+                  <img
+                    src={item.previewUrl}
+                    alt={item.file.name}
+                    className='size-full object-cover'
+                  />
+                </button>
+                <button
+                  type='button'
+                  className={cn(
+                    'bg-background/90 text-foreground absolute top-1 right-1 inline-flex size-7 items-center justify-center rounded-full border shadow-sm',
+                    'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
+                  )}
+                  onClick={() => removeAt(index)}
+                  disabled={props.disabled}
+                  aria-label={t('Remove image {{n}}', { n: index + 1 })}
+                >
+                  <HugeiconsIcon icon={Cancel01Icon} className='size-3.5' />
+                </button>
+                <span className='bg-background/80 absolute bottom-1 left-1 rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums'>
+                  {index + 1}
+                </span>
+              </div>
+            )
+          }
+
+          const canAdd = props.items.length < props.max
+          // Fixed grid slot positions use positional keys by design.
+          return (
+            <button
+              key={`empty-slot-${index + 1}-of-${maxSlots}`}
+              type='button'
+              disabled={props.disabled || !canAdd}
+              onClick={() => openPicker(null)}
+              className={cn(
+                'border-muted-foreground/30 text-muted-foreground flex aspect-square flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-xs transition-colors',
+                canAdd && !props.disabled
+                  ? 'hover:border-primary hover:text-primary cursor-pointer'
+                  : 'cursor-not-allowed opacity-40'
+              )}
+              aria-label={t('Add image')}
+            >
+              <span className='text-2xl leading-none font-light'>+</span>
+              <span>{t('Add')}</span>
+            </button>
+          )
+        })}
+      </div>
+      <p className='text-muted-foreground text-xs'>
+        {t(
+          '{{count}} / {{max}} selected (min {{min}}). Click a tile to add or replace; multi-select appends until the limit.',
+          {
+            count: props.items.length,
+            max: props.max,
+            min: props.min,
+          }
+        )}
+      </p>
+    </div>
+  )
+}

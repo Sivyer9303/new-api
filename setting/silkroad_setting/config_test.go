@@ -19,21 +19,33 @@ func TestDefaultSilkRoadSettingProfiles(t *testing.T) {
 	assert.Equal(t, "10", seedance.Durations[0].Value)
 	assert.Equal(t, "15", seedance.Durations[1].Value)
 	require.Len(t, seedance.AspectRatios, 6)
-	require.Len(t, seedance.GenerationTypes, 5)
-	assert.Equal(t, "text2video", seedance.GenerationTypes[0].Value)
-	assert.Equal(t, "multi_image", seedance.GenerationTypes[2].Value)
-	assert.Equal(t, "start_end", seedance.GenerationTypes[4].Value)
 
 	dreamina := s.Profiles[1]
 	assert.Equal(t, "dreamina_overseas", dreamina.ID)
 	assert.Equal(t, []string{"dreamina-seedance-2-0-"}, dreamina.ModelPrefixes)
 	require.Len(t, dreamina.Durations, 2)
-	assert.Equal(t, "duration", dreamina.Durations[0].UpstreamKey)
+	assert.Equal(t, "seconds", dreamina.Durations[0].UpstreamKey)
 	assert.Equal(t, "4", dreamina.Durations[0].Value)
 	assert.Equal(t, "5", dreamina.Durations[1].Value)
-	require.Len(t, dreamina.GenerationTypes, 3)
-	assert.True(t, dreamina.GenerationTypes[1].RequireRefModel)
-	assert.True(t, dreamina.GenerationTypes[2].RequireRefModel)
+}
+
+func TestHardcodedGenerationModes(t *testing.T) {
+	modes := HardcodedGenerationModes()
+	require.Len(t, modes, 5)
+	assert.Equal(t, GenerationText2Video, modes[0].Value)
+	assert.Equal(t, GenerationImage2Video, modes[1].Value)
+	assert.Equal(t, GenerationMultiImage, modes[2].Value)
+	assert.Equal(t, GenerationStartEnd, modes[3].Value)
+	assert.Equal(t, GenerationReferenceAudio, modes[4].Value)
+
+	assert.Equal(t, 0, modes[0].ImagesMax)
+	assert.Equal(t, 1, modes[1].ImagesMax)
+	assert.Equal(t, 9, modes[2].ImagesMax)
+	assert.Equal(t, 2, modes[3].ImagesMax)
+	assert.True(t, modes[4].AllowAudio)
+	assert.True(t, modes[4].RequireAudio)
+	assert.False(t, modes[1].AllowAudio)
+	assert.True(t, modes[1].RequireRefModel)
 }
 
 func TestDefaultSilkRoadSettingStorage(t *testing.T) {

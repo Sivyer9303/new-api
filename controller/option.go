@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
@@ -66,6 +68,38 @@ func validateSilkRoadSettingOption(key, value string) error {
 		return err
 	}
 	return silkroad_setting.ValidateSilkRoadSetting(&clone)
+}
+
+// perSecondBindingWarning checks the billing_setting.billing_mode JSON map and
+// warns about models marked per_second that do not match any SilkRoad profile.
+// Such models never route through the NewAPI task adaptor's seconds multiplier,
+// so they would be charged the flat per-second unit price once per call —
+// a severe undercharge. The save still proceeds; the warning is surfaced to admins.
+func perSecondBindingWarning(value string) (string, error) {
+	if strings.TrimSpace(value) == "" {
+		return "", nil
+	}
+	var modes map[string]string
+	if err := common.UnmarshalJsonStr(value, &modes); err != nil {
+		return "", fmt.Errorf("billing_mode 必须是合法的 JSON 对象: %w", err)
+	}
+	var mismatched []string
+	for modelName, mode := range modes {
+		if mode != billing_setting.BillingModePerSecond {
+			continue
+		}
+		if _, ok := silkroad_setting.MatchProfile(modelName); !ok {
+			mismatched = append(mismatched, modelName)
+		}
+	}
+	if len(mismatched) == 0 {
+		return "", nil
+	}
+	sort.Strings(mismatched)
+	return fmt.Sprintf(
+		"警告：以下模型设置了按秒计费(per_second)，但未匹配任何 SilkRoad 视频档案的模型前缀，实际请求不会乘以时长，将按次仅收取一次单价，存在严重少收费风险：%s",
+		strings.Join(mismatched, ", "),
+	), nil
 }
 
 func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}) {
@@ -204,6 +238,7 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	}
+	saveWarning := ""
 	switch option.Key {
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && common.GitHubClientId == "" {
@@ -449,6 +484,15 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "billing_setting." + billing_setting.BillingModeField:
+		saveWarning, err = perSecondBindingWarning(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
 	}
 	err = model.UpdateOption(option.Key, option.Value.(string))
 	if err != nil {
@@ -461,6 +505,6 @@ func UpdateOption(c *gin.Context) {
 	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "",
+		"message": saveWarning,
 	})
 }

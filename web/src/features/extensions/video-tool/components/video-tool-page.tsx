@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
   Card,
@@ -43,6 +44,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { SectionPageLayout } from '@/components/layout'
 import { getApiKeys, fetchTokenKey } from '@/features/keys/api'
 import type { ApiKey } from '@/features/keys/types'
+import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
+import { getConfiguredGroupRatio } from '@/features/pricing/lib/model-helpers'
+import { formatCurrencyFromUSD } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 
 import {
@@ -52,7 +56,13 @@ import {
   fetchVideoToolConfig,
   submitVideoGeneration,
 } from '../api'
-import type { PublicProfile } from '../types'
+import type { PublicGenerationType, PublicProfile } from '../types'
+import { HARDCODED_GENERATION_TYPES } from '../types'
+import {
+  revokeReferenceImageItems,
+  type ReferenceImageItem,
+} from '../lib/reference-image'
+import { ReferenceImageGrid } from './reference-image-grid'
 
 function matchProfile(
   profiles: PublicProfile[],
@@ -81,6 +91,26 @@ function filterModelsForProfile(
   return refs.length > 0 ? refs : matched
 }
 
+function generationTypeDisplayLabel(
+  gt: PublicGenerationType,
+  translate: (key: string) => string
+): string {
+  switch (gt.value) {
+    case 'text2video':
+      return translate('Text to video')
+    case 'image2video':
+      return translate('Image to video')
+    case 'multi_image':
+      return translate('Multi-image reference')
+    case 'start_end':
+      return translate('First & last frame')
+    case 'reference_audio':
+      return translate('Reference audio')
+    default:
+      return gt.label
+  }
+}
+
 function isTerminalSuccess(status: string | undefined): boolean {
   const s = (status || '').toLowerCase()
   return s === 'completed' || s === 'success'
@@ -103,9 +133,9 @@ function isTerminalStatus(status: string | undefined): boolean {
 const POLL_INTERVAL_MS = 3000
 const POLL_MAX_ATTEMPTS = 120
 
-async function filesToDataUrls(files: FileList | null): Promise<string[]> {
-  if (!files || files.length === 0) return []
-  const readers = Array.from(files).map(
+async function filesToDataUrls(files: File[]): Promise<string[]> {
+  if (files.length === 0) return []
+  const readers = files.map(
     (file) =>
       new Promise<string>((resolve, reject) => {
         const reader = new FileReader()
@@ -115,6 +145,11 @@ async function filesToDataUrls(files: FileList | null): Promise<string[]> {
       })
   )
   return Promise.all(readers)
+}
+
+async function fileToDataURL(file: File): Promise<string> {
+  const [url] = await filesToDataUrls([file])
+  return url
 }
 
 export function VideoToolPage() {
@@ -127,7 +162,11 @@ export function VideoToolPage() {
   const [prompt, setPrompt] = useState('')
   const [durationValue, setDurationValue] = useState('')
   const [aspectRatio, setAspectRatio] = useState('')
-  const [imageFiles, setImageFiles] = useState<FileList | null>(null)
+  const [referenceImages, setReferenceImages] = useState<ReferenceImageItem[]>(
+    []
+  )
+  const [audioFile, setAudioFile] = useState<File | null>(null)
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [taskId, setTaskId] = useState('')
   const [taskStatus, setTaskStatus] = useState('')
@@ -137,6 +176,7 @@ export function VideoToolPage() {
   const [pollingTokenKey, setPollingTokenKey] = useState('')
   const pollAttemptRef = useRef(0)
   const seenTerminalToastRef = useRef('')
+  const loadModelsRequestRef = useRef(0)
 
   const configQuery = useQuery({
     queryKey: ['silkroad-video-tool-config'],
@@ -160,8 +200,19 @@ export function VideoToolPage() {
     },
   })
 
-  const profiles = configQuery.data?.profiles ?? []
-  const videoToolGroups = configQuery.data?.video_tool_groups ?? []
+  const {
+    models: pricingModels,
+    groupRatio,
+  } = usePricingData()
+
+  const profiles = useMemo(
+    () => configQuery.data?.profiles ?? [],
+    [configQuery.data?.profiles]
+  )
+  const videoToolGroups = useMemo(
+    () => configQuery.data?.video_tool_groups ?? [],
+    [configQuery.data?.video_tool_groups]
+  )
   const allowedGroupSet = useMemo(
     () => new Set(videoToolGroups.map((g) => g.trim()).filter(Boolean)),
     [videoToolGroups]
@@ -181,22 +232,83 @@ export function VideoToolPage() {
     }
   }, [keys, tokenId])
 
-  const selectedProfile = useMemo(
-    () => (modelId ? matchProfile(profiles, modelId) : null),
-    [modelId, profiles]
+  // Selecting / changing an API key automatically loads models.
+  useEffect(() => {
+    if (!tokenId) {
+      setModels([])
+      setModelId('')
+      setLoadingModels(false)
+      return
+    }
+    if (profiles.length === 0) return
+
+    const requestId = ++loadModelsRequestRef.current
+    let cancelled = false
+
+    const load = async () => {
+      setLoadingModels(true)
+      try {
+        const keyRes = await fetchTokenKey(Number(tokenId))
+        if (cancelled || requestId !== loadModelsRequestRef.current) return
+        if (!keyRes.success || !keyRes.data?.key) {
+          throw new Error(keyRes.message || 'Failed to fetch API key')
+        }
+        const all = await fetchModelsWithTokenKey(keyRes.data.key)
+        if (cancelled || requestId !== loadModelsRequestRef.current) return
+        const matched = all.filter((id) =>
+          profiles.some((p) =>
+            p.model_prefixes.some((prefix) => id.startsWith(prefix))
+          )
+        )
+        setModels(matched)
+        if (matched.length === 0) {
+          setModelId('')
+          toast.error(t('No Seedance models available for this key'))
+        } else {
+          setModelId((prev) =>
+            prev && matched.includes(prev) ? prev : matched[0]
+          )
+        }
+      } catch (err) {
+        if (cancelled || requestId !== loadModelsRequestRef.current) return
+        setModels([])
+        setModelId('')
+        toast.error(
+          err instanceof Error ? err.message : t('Failed to load models')
+        )
+      } finally {
+        if (!cancelled && requestId === loadModelsRequestRef.current) {
+          setLoadingModels(false)
+        }
+      }
+    }
+
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [tokenId, profiles, t])
+
+  const selectedApiKey = useMemo(
+    () => keys.find((k) => String(k.id) === tokenId) ?? null,
+    [keys, tokenId]
   )
 
+  const selectedProfile = useMemo(() => {
+    const id = modelId || ''
+    return id ? matchProfile(profiles, id) : null
+  }, [modelId, profiles])
+
+  // Generation modes are fixed in code (not profile-configurable).
+  const generationTypes = HARDCODED_GENERATION_TYPES
+
   const selectedGenType = useMemo(() => {
-    if (!selectedProfile || !generationType) return null
-    return (
-      selectedProfile.generation_types.find((g) => g.value === generationType) ??
-      null
-    )
-  }, [selectedProfile, generationType])
+    if (!generationType) return null
+    return generationTypes.find((g) => g.value === generationType) ?? null
+  }, [generationType, generationTypes])
 
   const durationOptions = selectedProfile?.durations ?? []
   const aspectOptions = selectedProfile?.aspect_ratios ?? []
-  const generationTypes = selectedProfile?.generation_types ?? []
 
   const durationFieldKey =
     durationOptions.find((d) => d.value === durationValue)?.upstream_key ||
@@ -204,13 +316,16 @@ export function VideoToolPage() {
     'seconds'
 
   useEffect(() => {
-    if (!selectedProfile) return
     if (
       !generationType ||
-      !selectedProfile.generation_types.some((g) => g.value === generationType)
+      !generationTypes.some((g) => g.value === generationType)
     ) {
-      setGenerationType(selectedProfile.generation_types[0]?.value ?? '')
+      setGenerationType(generationTypes[0]?.value ?? '')
     }
+  }, [generationType, generationTypes])
+
+  useEffect(() => {
+    if (!selectedProfile) return
     if (
       !durationValue ||
       !selectedProfile.durations.some((d) => d.value === durationValue)
@@ -223,7 +338,50 @@ export function VideoToolPage() {
     ) {
       setAspectRatio(selectedProfile.aspect_ratios[0]?.value ?? '')
     }
-  }, [selectedProfile, generationType, durationValue, aspectRatio])
+  }, [selectedProfile, durationValue, aspectRatio])
+
+  // Trim or clear reference images when the selected mode's image limit changes.
+  useEffect(() => {
+    const maxImg = selectedGenType?.images_max ?? 0
+    if (maxImg <= 0) {
+      if (referenceImages.length > 0) {
+        revokeReferenceImageItems(referenceImages)
+        setReferenceImages([])
+      }
+      return
+    }
+    if (referenceImages.length > maxImg) {
+      const keep = referenceImages.slice(0, maxImg)
+      const dropped = referenceImages.slice(maxImg)
+      revokeReferenceImageItems(dropped)
+      setReferenceImages(keep)
+      toast.message(
+        t('Removed extra images to fit this mode (max {{max}}).', {
+          max: maxImg,
+        })
+      )
+    }
+    // intentionally only react to generation-type limit changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- trim on mode change, not every image edit
+  }, [selectedGenType?.images_max, selectedGenType?.value])
+
+  // Clear reference audio when the mode does not allow it.
+  useEffect(() => {
+    if (selectedGenType?.allow_audio) return
+    setAudioFile(null)
+    setAudioPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return ''
+    })
+  }, [selectedGenType?.allow_audio, selectedGenType?.value])
+
+  useEffect(() => {
+    return () => {
+      revokeReferenceImageItems(referenceImages)
+      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- revoke current list on unmount only
+  }, [])
 
   const filteredModels = useMemo(() => {
     if (!selectedProfile) {
@@ -240,16 +398,62 @@ export function VideoToolPage() {
     )
   }, [models, profiles, selectedProfile, selectedGenType])
 
-  useEffect(() => {
-    if (filteredModels.length === 0) return
-    if (!modelId || !filteredModels.includes(modelId)) {
-      setModelId(filteredModels[0])
-    }
+  // Base UI Select throws if value is not among items. When switching to a
+  // require_ref generation type, filteredModels shrinks to *-ref ids before
+  // the sync effect can update modelId — keep a render-safe selection.
+  const safeModelId = useMemo(() => {
+    if (filteredModels.length === 0) return ''
+    if (modelId && filteredModels.includes(modelId)) return modelId
+    return filteredModels[0]
   }, [filteredModels, modelId])
+
+  useEffect(() => {
+    if (safeModelId === modelId) return
+    setModelId(safeModelId)
+  }, [safeModelId, modelId])
+
+  const priceEstimate = useMemo(() => {
+    if (!safeModelId || !durationValue) return null
+    const pricing = pricingModels.find((m) => m.model_name === safeModelId)
+    if (!pricing || pricing.model_price == null || pricing.model_price <= 0) {
+      return null
+    }
+    const seconds = Number(durationValue)
+    if (!Number.isFinite(seconds) || seconds <= 0) return null
+    const group =
+      (selectedApiKey?.group || '').trim() ||
+      videoToolGroups[0] ||
+      'default'
+    const ratios = pricing.group_ratio || groupRatio || {}
+    const ratio = getConfiguredGroupRatio(ratios, group)
+    // NewAPI video adaptor always multiplies ModelPrice by duration seconds.
+    const usd = pricing.model_price * seconds * ratio
+    let formatted = '-'
+    try {
+      formatted = formatCurrencyFromUSD(usd)
+    } catch {
+      formatted = `$${usd}`
+    }
+    return {
+      usd,
+      seconds,
+      unitPrice: pricing.model_price,
+      group,
+      ratio,
+      formatted,
+    }
+  }, [
+    safeModelId,
+    durationValue,
+    pricingModels,
+    selectedApiKey,
+    videoToolGroups,
+    groupRatio,
+  ])
 
   const requestPreview = useMemo(() => {
     const body: Record<string, unknown> = {
-      model: modelId,
+      model: safeModelId,
       prompt,
       generation_type: generationType,
       aspect_ratio: aspectRatio,
@@ -259,58 +463,37 @@ export function VideoToolPage() {
     } else {
       body.seconds = durationValue
     }
-    if ((selectedGenType?.images_max ?? 0) > 0) {
-      body.images = ['<selected files will be attached>']
+    if ((selectedGenType?.images_max ?? 0) > 0 && referenceImages.length > 0) {
+      // Preview only: full base64 payloads are substituted on submit.
+      body.images = referenceImages.map((item) => {
+        const mime = item.file.type || 'image/jpeg'
+        return `data:${mime};base64,…(${item.file.name || 'image'})`
+      })
+    }
+    if (selectedGenType?.allow_audio) {
+      body.audio_url = audioFile
+        ? `data:audio/mpeg;base64,…(${audioFile.name})`
+        : 'data:audio/mpeg;base64,…'
     }
     return JSON.stringify(body, null, 2)
   }, [
-    modelId,
+    safeModelId,
     prompt,
     generationType,
     aspectRatio,
     durationFieldKey,
     durationValue,
     selectedGenType,
+    referenceImages,
+    audioFile,
   ])
-
-  async function handleLoadModels() {
-    if (!tokenId) {
-      toast.error(t('Please select an API key'))
-      return
-    }
-    setLoadingModels(true)
-    try {
-      const keyRes = await fetchTokenKey(Number(tokenId))
-      if (!keyRes.success || !keyRes.data?.key) {
-        throw new Error(keyRes.message || 'Failed to fetch API key')
-      }
-      const all = await fetchModelsWithTokenKey(keyRes.data.key)
-      const matched = all.filter((id) =>
-        profiles.some((p) =>
-          p.model_prefixes.some((prefix) => id.startsWith(prefix))
-        )
-      )
-      setModels(matched)
-      if (matched.length === 0) {
-        toast.error(t('No Seedance models available for this key'))
-        setModelId('')
-      } else {
-        setModelId(matched[0])
-        toast.success(t('Models loaded'))
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('Failed to load models'))
-    } finally {
-      setLoadingModels(false)
-    }
-  }
 
   async function handleSubmit() {
     if (!tokenId) {
       toast.error(t('Please select an API key'))
       return
     }
-    if (!modelId || !generationType || !prompt.trim() || !durationValue || !aspectRatio) {
+    if (!safeModelId || !generationType || !prompt.trim() || !durationValue || !aspectRatio) {
       toast.error(t('Please fill in all required fields'))
       return
     }
@@ -321,14 +504,18 @@ export function VideoToolPage() {
 
     const minImg = selectedGenType.images_min
     const maxImg = selectedGenType.images_max
-    const fileCount = imageFiles?.length ?? 0
-    if (maxImg > 0 && (fileCount < minImg || fileCount > maxImg)) {
+    const fileCount = referenceImages.length
+    if (fileCount < minImg || fileCount > maxImg) {
       toast.error(
         t('This mode requires {{min}}-{{max}} reference image(s)', {
           min: minImg,
           max: maxImg,
         })
       )
+      return
+    }
+    if (selectedGenType.require_audio && !audioFile) {
+      toast.error(t('This mode requires an MP3 reference audio file'))
       return
     }
 
@@ -347,9 +534,22 @@ export function VideoToolPage() {
         throw new Error(keyRes.message || 'Failed to fetch API key')
       }
       const tokenKey = keyRes.data.key
-      const images = await filesToDataUrls(imageFiles)
+      const images = await filesToDataUrls(
+        referenceImages.map((item) => item.file)
+      )
+      let audioURL = ''
+      if (selectedGenType.allow_audio && audioFile) {
+        audioURL = await fileToDataURL(audioFile)
+        const lower = audioURL.toLowerCase()
+        if (
+          !lower.startsWith('data:audio/mpeg;base64,') &&
+          !lower.startsWith('data:audio/mp3;base64,')
+        ) {
+          throw new Error(t('Reference audio must be an MP3 file'))
+        }
+      }
 
-      let submitModel = modelId
+      let submitModel = safeModelId
       if (selectedGenType.require_ref_model && !submitModel.includes('-ref')) {
         const refCandidate = filteredModels.find((id) => id.includes('-ref'))
         if (refCandidate) {
@@ -370,6 +570,9 @@ export function VideoToolPage() {
       }
       if (images.length > 0) {
         body.images = images
+      }
+      if (audioURL) {
+        body.audio_url = audioURL
       }
 
       const submitRes = await submitVideoGeneration(tokenKey, body)
@@ -524,19 +727,24 @@ export function VideoToolPage() {
       </SectionPageLayout.Title>
       <SectionPageLayout.Content>
         <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pb-8'>
-          <div className='bg-muted/50 rounded-md border px-3 py-2 text-sm'>
-            <p>
-              {t(
-                'You must select an API key from the allowed groups. If no key is available, create a key for those groups.'
-              )}
-            </p>
-            <p className='text-muted-foreground mt-1'>
-              {t('Allowed groups')}: {allowedGroupsLabel}
-            </p>
-          </div>
+          <Alert className='border-amber-500/40 bg-amber-500/10 px-4 py-3'>
+            <AlertTitle className='text-base font-semibold text-amber-950 dark:text-amber-100'>
+              {t('API key group required')}
+            </AlertTitle>
+            <AlertDescription className='text-base leading-relaxed text-amber-950/90 dark:text-amber-50/90'>
+              <p>
+                {t(
+                  'You must select an API key from an allowed group. If none appear, create a key for those groups on the API Keys page.'
+                )}
+              </p>
+              <p className='mt-1 font-medium'>
+                {t('Allowed groups')}: {allowedGroupsLabel}
+              </p>
+            </AlertDescription>
+          </Alert>
           <p className='text-muted-foreground text-sm'>
             {t(
-              'Select an API key, load models, choose a mode, and generate video. Results also appear in Task Logs.'
+              'Select an API key, choose a mode, and generate video. Models load automatically after you pick a key. Results also appear in Task Logs.'
             )}
           </p>
       <Card>
@@ -548,42 +756,44 @@ export function VideoToolPage() {
             )}
           </CardDescription>
         </CardHeader>
-        <CardContent className='flex flex-col gap-3 sm:flex-row sm:items-end'>
-          <div className='min-w-0 flex-1 space-y-2'>
-            <Label>{t('Your API key')}</Label>
-            <Select
-              value={tokenId || null}
-              onValueChange={(v) => setTokenId(v ?? '')}
-              disabled={keys.length === 0}
-            >
-              <SelectTrigger className='w-full'>
-                <SelectValue placeholder={t('Select an API key')} />
-              </SelectTrigger>
-              <SelectContent>
-                {keys.length === 0 ? (
-                  <div className='text-muted-foreground px-2 py-1.5 text-sm'>
-                    {t(
-                      'No API keys in the allowed groups. Create a key for those groups on the API Keys page.'
-                    )}
-                  </div>
-                ) : (
-                  keys.map((k) => (
-                    <SelectItem key={k.id} value={String(k.id)}>
-                      {k.name || `Key #${k.id}`} ({k.group || 'default'}) ·{' '}
-                      {k.key}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            type='button'
-            onClick={() => void handleLoadModels()}
-            disabled={!tokenId || loadingModels || keys.length === 0}
+        <CardContent className='space-y-2'>
+          <Label>{t('Your API key')}</Label>
+          <Select
+            value={tokenId || null}
+            onValueChange={(v) => setTokenId(v ?? '')}
+            disabled={keys.length === 0}
           >
-            {loadingModels ? t('Loading...') : t('Load models')}
-          </Button>
+            <SelectTrigger className='w-full'>
+              <SelectValue
+                placeholder={
+                  loadingModels
+                    ? t('Loading models...')
+                    : t('Select an API key')
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {keys.length === 0 ? (
+                <div className='text-muted-foreground px-2 py-1.5 text-sm'>
+                  {t(
+                    'No API keys in the allowed groups. Create a key for those groups on the API Keys page.'
+                  )}
+                </div>
+              ) : (
+                keys.map((k) => (
+                  <SelectItem key={k.id} value={String(k.id)}>
+                    {k.name || `Key #${k.id}`} ({k.group || 'default'}) ·{' '}
+                    {k.key}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+          {loadingModels && (
+            <p className='text-muted-foreground text-sm'>
+              {t('Loading models...')}
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -599,12 +809,18 @@ export function VideoToolPage() {
         </CardHeader>
         <CardContent>
           <Select
-            value={modelId || null}
+            value={safeModelId || null}
             onValueChange={(v) => setModelId(v ?? '')}
-            disabled={filteredModels.length === 0}
+            disabled={filteredModels.length === 0 || loadingModels}
           >
             <SelectTrigger className='w-full'>
-              <SelectValue placeholder={t('Load models first')} />
+              <SelectValue
+                placeholder={
+                  loadingModels
+                    ? t('Loading models...')
+                    : t('Select an API key first')
+                }
+              />
             </SelectTrigger>
             <SelectContent>
               {filteredModels.map((id) => (
@@ -630,15 +846,41 @@ export function VideoToolPage() {
                 size='sm'
                 variant={generationType === gt.value ? 'default' : 'outline'}
                 className={cn(
-                  generationType === gt.value && 'bg-primary text-primary-foreground'
+                  'h-auto min-h-9 max-w-full whitespace-normal px-3 py-2 text-left leading-snug',
+                  generationType === gt.value &&
+                    'bg-primary text-primary-foreground'
                 )}
-                onClick={() => setGenerationType(gt.value)}
+                onClick={() => {
+                  setGenerationType(gt.value)
+                  // Keep model selection inside the filtered list for this mode
+                  // (e.g. image/reference requires *-ref) in the same click.
+                  if (selectedProfile) {
+                    const next = filterModelsForProfile(
+                      models,
+                      selectedProfile,
+                      Boolean(gt.require_ref_model)
+                    )
+                    if (
+                      next.length > 0 &&
+                      (!modelId || !next.includes(modelId))
+                    ) {
+                      setModelId(next[0])
+                    }
+                  }
+                }}
                 disabled={!selectedProfile}
               >
-                {gt.label}
+                {generationTypeDisplayLabel(gt, t)}
               </Button>
             ))}
           </div>
+          {selectedGenType?.require_ref_model && (
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'This mode requires a model whose name contains -ref.'
+                )}
+              </p>
+            )}
 
           <div className='space-y-2'>
             <Label>{t('Prompt')}</Label>
@@ -699,14 +941,105 @@ export function VideoToolPage() {
                 {t('Reference images')} ({selectedGenType?.images_min}-
                 {selectedGenType?.images_max})
               </Label>
-              <Input
-                type='file'
-                accept='image/*'
-                multiple={(selectedGenType?.images_max ?? 1) > 1}
-                onChange={(e) => setImageFiles(e.target.files)}
+              <ReferenceImageGrid
+                items={referenceImages}
+                onChange={setReferenceImages}
+                min={selectedGenType?.images_min ?? 0}
+                max={selectedGenType?.images_max ?? 1}
+                disabled={submitting || isPolling}
               />
             </div>
           )}
+
+          {selectedGenType?.allow_audio && (
+            <div className='space-y-2'>
+              <Label>
+                {selectedGenType.require_audio
+                  ? t('Reference audio (required, MP3)')
+                  : t('Reference audio (optional, MP3)')}
+              </Label>
+              <Input
+                type='file'
+                accept='audio/mpeg,audio/mp3,.mp3'
+                disabled={submitting || isPolling}
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null
+                  setAudioPreviewUrl((prev) => {
+                    if (prev) URL.revokeObjectURL(prev)
+                    return file ? URL.createObjectURL(file) : ''
+                  })
+                  if (file && !/audio\/(mpeg|mp3)/i.test(file.type) && !file.name.toLowerCase().endsWith('.mp3')) {
+                    toast.error(t('Reference audio must be an MP3 file'))
+                    e.target.value = ''
+                    setAudioFile(null)
+                    return
+                  }
+                  setAudioFile(file)
+                }}
+              />
+              {audioFile && (
+                <div className='flex flex-col gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center'>
+                  <p className='text-muted-foreground min-w-0 flex-1 truncate text-sm'>
+                    {audioFile.name}
+                  </p>
+                  {audioPreviewUrl && (
+                    <audio
+                      controls
+                      src={audioPreviewUrl}
+                      className='h-8 w-full max-w-xs'
+                    />
+                  )}
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='outline'
+                    disabled={submitting || isPolling}
+                    onClick={() => {
+                      setAudioFile(null)
+                      setAudioPreviewUrl((prev) => {
+                        if (prev) URL.revokeObjectURL(prev)
+                        return ''
+                      })
+                    }}
+                  >
+                    {t('Remove')}
+                  </Button>
+                </div>
+              )}
+              <p className='text-muted-foreground text-xs'>
+                {selectedGenType.require_audio
+                  ? t(
+                      'Required. Sent as data:audio/mpeg;base64,… in audio_url. MP3 only. Images are optional.'
+                    )
+                  : t(
+                      'Optional. Sent as data:audio/mpeg;base64,… in audio_url. MP3 only.'
+                    )}
+              </p>
+            </div>
+          )}
+
+          <div className='bg-muted/40 rounded-md border px-3 py-3'>
+            <div className='flex flex-wrap items-baseline justify-between gap-2'>
+              <p className='text-sm font-medium'>{t('Estimated price')}</p>
+              <p className='text-lg font-semibold tabular-nums'>
+                {priceEstimate ? priceEstimate.formatted : t('—')}
+              </p>
+            </div>
+            {priceEstimate ? (
+              <p className='text-muted-foreground mt-1 text-sm'>
+                {t(
+                  'Based on model unit price × {{seconds}}s × group ratio. Reference only — final charge follows actual billing.',
+                  { seconds: priceEstimate.seconds }
+                )}
+              </p>
+            ) : (
+              <p className='text-muted-foreground mt-1 text-sm'>
+                {t(
+                  'Unable to estimate for the current selection. Configure model pricing first.'
+                )}
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -716,7 +1049,9 @@ export function VideoToolPage() {
             {t('Request JSON (auto-generated)')}
           </CardTitle>
           <CardDescription>
-            {t('Built from the form above. Submitted fields follow site validation rules.')}
+            {t(
+              'Preview only — image/audio base64 is shortened here. On submit, full data:…;base64,… payloads are sent.'
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -731,7 +1066,7 @@ export function VideoToolPage() {
           type='button'
           size='lg'
           onClick={() => void handleSubmit()}
-          disabled={submitting || isPolling || !tokenId || !modelId}
+          disabled={submitting || isPolling || !tokenId || !safeModelId}
         >
           {submitting || isPolling
             ? t('Generating...')

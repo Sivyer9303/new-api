@@ -78,9 +78,9 @@ func TestValidateFriendlyRequestRejectsUnknownTopLevelKey(t *testing.T) {
 func TestValidateFriendlyRequestRejectsMissingRefModel(t *testing.T) {
 	profile, ok := silkroad_setting.MatchProfile("dreamina-seedance-2-0-720")
 	require.True(t, ok)
-	gt, ok := silkroad_setting.FindGenerationType(profile, "image2video")
+	mode, ok := silkroad_setting.FindGenerationMode("image2video")
 	require.True(t, ok)
-	require.True(t, gt.RequireRefModel)
+	require.True(t, mode.RequireRefModel)
 
 	req := FriendlyRequest{
 		Model:          "dreamina-seedance-2-0-720",
@@ -96,7 +96,7 @@ func TestValidateFriendlyRequestRejectsMissingRefModel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = checkRequireRefModel(gt, "dreamina-seedance-2-0-720")
+	err = checkRequireRefModel(mode, "dreamina-seedance-2-0-720")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "-ref")
 }

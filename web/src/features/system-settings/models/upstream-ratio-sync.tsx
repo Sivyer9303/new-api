@@ -194,12 +194,22 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
 
   const { mutate: syncMutate, isPending: isSyncPending } = useMutation({
     mutationFn: async (updates: Array<{ key: string; value: string }>) => {
+      // Backend may return warnings on success (e.g. per_second billing mode
+      // bound to a model without a SilkRoad profile) — collect and surface them.
+      const warnings: string[] = []
       for (const update of updates) {
-        await updateSystemOption(update)
+        const res = await updateSystemOption(update)
+        if (res.success && res.message) {
+          warnings.push(res.message)
+        }
       }
+      return warnings
     },
-    onSuccess: () => {
+    onSuccess: (warnings) => {
       toast.success(t('Prices synced successfully'))
+      warnings.forEach((warning) => {
+        toast.warning(warning, { duration: 10000 })
+      })
       queryClient.invalidateQueries({ queryKey: ['system-options'] })
 
       setDifferences((prevDiffs) => {

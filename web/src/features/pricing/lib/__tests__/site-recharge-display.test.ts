@@ -16,7 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { describe, expect, it } from 'vitest'
+import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 
 import {
   SITE_RECHARGE_RATIO,
@@ -24,36 +25,36 @@ import {
 } from '../site-recharge-display'
 
 describe('formatPriceWithSiteRatio', () => {
-  it('keeps the site ratio at 10', () => {
-    expect(SITE_RECHARGE_RATIO).toBe(10)
+  test('keeps the site ratio at 10', () => {
+    assert.equal(SITE_RECHARGE_RATIO, 10)
   })
 
-  it('scales a dollar list price to one tenth', () => {
-    expect(formatPriceWithSiteRatio('$10')).toEqual({
+  test('scales a dollar list price to one tenth', () => {
+    assert.deepEqual(formatPriceWithSiteRatio('$10'), {
       original: '$10',
       actual: '$1',
       scalable: true,
     })
   })
 
-  it('scales fractional prices', () => {
-    expect(formatPriceWithSiteRatio('$12.5')).toEqual({
+  test('scales fractional prices', () => {
+    assert.deepEqual(formatPriceWithSiteRatio('$12.5'), {
       original: '$12.5',
       actual: '$1.25',
       scalable: true,
     })
   })
 
-  it('preserves currency symbols other than dollar', () => {
-    expect(formatPriceWithSiteRatio('¥70')).toEqual({
+  test('preserves currency symbols other than dollar', () => {
+    assert.deepEqual(formatPriceWithSiteRatio('¥70'), {
       original: '¥70',
       actual: '¥7',
       scalable: true,
     })
   })
 
-  it('does not scale placeholder dashes', () => {
-    expect(formatPriceWithSiteRatio('-')).toEqual({
+  test('does not scale placeholder dashes', () => {
+    assert.deepEqual(formatPriceWithSiteRatio('-'), {
       original: '-',
       actual: '-',
       scalable: false,

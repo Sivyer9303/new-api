@@ -26,7 +26,7 @@ type FriendlyRequest struct {
 	DurationSeconds int    // billing multiplier (always seconds count)
 	AspectRatio     string
 	Images          []string
-	Extras          map[string]string // ExtraOptions upstream_key -> chosen value
+	AudioURL        string // reference audio data URL (data:audio/mpeg;base64,...)
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *taskdto.TaskError {
@@ -71,15 +71,15 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
 
-	gt, ok := silkroad_setting.FindGenerationType(profile, req.GenerationType)
+	mode, ok := silkroad_setting.FindGenerationMode(req.GenerationType)
 	if !ok {
 		return service.TaskErrorWrapperLocal(
-			fmt.Errorf("generation_type %q is not enabled", req.GenerationType),
+			fmt.Errorf("generation_type %q is not supported", req.GenerationType),
 			"invalid_generation_type",
 			http.StatusBadRequest,
 		)
 	}
-	if err := checkRequireRefModel(gt, info.GetUpstreamModelName()); err != nil {
+	if err := checkRequireRefModel(mode, info.GetUpstreamModelName()); err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_model", http.StatusBadRequest)
 	}
 
@@ -180,6 +180,14 @@ func parseFriendlyRequest(raw map[string]any) (FriendlyRequest, error) {
 		}
 	}
 
+	if audio, ok := raw["audio_url"]; ok && audio != nil {
+		s, err := scalarToString(audio)
+		if err != nil {
+			return req, fmt.Errorf("invalid audio_url: %w", err)
+		}
+		req.AudioURL = s
+	}
+
 	return req, nil
 }
 
@@ -213,7 +221,7 @@ func validateFriendlyRequest(req *FriendlyRequest, profile *silkroad_setting.Pro
 	if profile == nil {
 		return fmt.Errorf("profile is required")
 	}
-	if err := rejectUnknownTopLevelKeys(raw, profile); err != nil {
+	if err := rejectUnknownTopLevelKeys(raw); err != nil {
 		return err
 	}
 	if strings.TrimSpace(req.Prompt) == "" {
@@ -229,9 +237,9 @@ func validateFriendlyRequest(req *FriendlyRequest, profile *silkroad_setting.Pro
 		return fmt.Errorf("seconds or duration is required")
 	}
 
-	gt, ok := silkroad_setting.FindGenerationType(profile, req.GenerationType)
+	mode, ok := silkroad_setting.FindGenerationMode(req.GenerationType)
 	if !ok {
-		return fmt.Errorf("generation_type %q is not enabled for this profile", req.GenerationType)
+		return fmt.Errorf("generation_type %q is not supported", req.GenerationType)
 	}
 	if _, ok := silkroad_setting.FindEnabledOption(profile.AspectRatios, req.AspectRatio); !ok {
 		return fmt.Errorf("aspect_ratio %q is not enabled for this profile", req.AspectRatio)
@@ -241,19 +249,42 @@ func validateFriendlyRequest(req *FriendlyRequest, profile *silkroad_setting.Pro
 	}
 
 	n := len(req.Images)
-	minImg := gt.MediaRequirements.ImagesMin
-	maxImg := gt.MediaRequirements.ImagesMax
-	if n < minImg || n > maxImg {
-		return fmt.Errorf("generation_type %q requires between %d and %d images, got %d", req.GenerationType, minImg, maxImg, n)
+	if n < mode.ImagesMin || n > mode.ImagesMax {
+		return fmt.Errorf("generation_type %q requires between %d and %d images, got %d", req.GenerationType, mode.ImagesMin, mode.ImagesMax, n)
 	}
 
-	if err := collectAndValidateExtras(req, profile, raw); err != nil {
+	if err := validateAudioURL(req.AudioURL, mode); err != nil {
 		return err
 	}
 	return nil
 }
 
-func rejectUnknownTopLevelKeys(raw map[string]any, profile *silkroad_setting.Profile) error {
+// maxAudioDataURLBytes caps reference audio payload size (~8MiB decoded MP3).
+const maxAudioDataURLBytes = 12 << 20
+
+func validateAudioURL(audioURL string, mode *silkroad_setting.GenerationMode) error {
+	audioURL = strings.TrimSpace(audioURL)
+	if audioURL == "" {
+		if mode != nil && mode.RequireAudio {
+			return fmt.Errorf("audio_url is required for generation_type %q", mode.Value)
+		}
+		return nil
+	}
+	if mode == nil || !mode.AllowAudio {
+		return fmt.Errorf("audio_url is not supported for this generation_type")
+	}
+	lower := strings.ToLower(audioURL)
+	if !strings.HasPrefix(lower, "data:audio/mpeg;base64,") &&
+		!strings.HasPrefix(lower, "data:audio/mp3;base64,") {
+		return fmt.Errorf("audio_url must be an MP3 data URL (data:audio/mpeg;base64,...)")
+	}
+	if len(audioURL) > maxAudioDataURLBytes {
+		return fmt.Errorf("audio_url exceeds maximum size")
+	}
+	return nil
+}
+
+func rejectUnknownTopLevelKeys(raw map[string]any) error {
 	allowed := map[string]struct{}{
 		"model":           {},
 		"prompt":          {},
@@ -262,18 +293,7 @@ func rejectUnknownTopLevelKeys(raw map[string]any, profile *silkroad_setting.Pro
 		"duration":        {},
 		"aspect_ratio":    {},
 		"images":          {},
-	}
-	for _, opt := range profile.ExtraOptions {
-		if !opt.Enabled {
-			continue
-		}
-		key := opt.UpstreamKey
-		if i := strings.IndexByte(key, '.'); i >= 0 {
-			key = key[i+1:]
-		}
-		if key != "" {
-			allowed[key] = struct{}{}
-		}
+		"audio_url":       {},
 	}
 	for k := range raw {
 		if _, ok := allowed[k]; !ok {
@@ -283,48 +303,12 @@ func rejectUnknownTopLevelKeys(raw map[string]any, profile *silkroad_setting.Pro
 	return nil
 }
 
-func collectAndValidateExtras(req *FriendlyRequest, profile *silkroad_setting.Profile, raw map[string]any) error {
-	req.Extras = map[string]string{}
-	for _, opt := range profile.ExtraOptions {
-		if !opt.Enabled {
-			continue
-		}
-		clientKey := opt.UpstreamKey
-		if i := strings.IndexByte(clientKey, '.'); i >= 0 {
-			clientKey = clientKey[i+1:]
-		}
-		v, ok := raw[clientKey]
-		if !ok {
-			continue
-		}
-		s, err := scalarToString(v)
-		if err != nil {
-			return fmt.Errorf("invalid %s: %w", clientKey, err)
-		}
-		matched := false
-		for _, cand := range profile.ExtraOptions {
-			if !cand.Enabled || cand.UpstreamKey != opt.UpstreamKey {
-				continue
-			}
-			if cand.Value == s {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return fmt.Errorf("%s value %q is not enabled", clientKey, s)
-		}
-		req.Extras[opt.UpstreamKey] = s
-	}
-	return nil
-}
-
-func checkRequireRefModel(gt *silkroad_setting.GenerationType, upstreamModel string) error {
-	if gt == nil || !gt.RequireRefModel {
+func checkRequireRefModel(mode *silkroad_setting.GenerationMode, upstreamModel string) error {
+	if mode == nil || !mode.RequireRefModel {
 		return nil
 	}
 	if !strings.Contains(upstreamModel, "-ref") {
-		return fmt.Errorf("generation_type %q requires upstream model name containing -ref, got %q", gt.Value, upstreamModel)
+		return fmt.Errorf("generation_type %q requires upstream model name containing -ref, got %q", mode.Value, upstreamModel)
 	}
 	return nil
 }

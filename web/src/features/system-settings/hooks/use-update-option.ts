@@ -67,7 +67,14 @@ export function useUpdateOption() {
           }
         }
 
-        toast.success(i18next.t('Setting updated successfully'))
+        // Backend may return a non-empty message on success as a warning
+        // (e.g. per_second billing mode bound to a model without a SilkRoad
+        // profile). Surface it prominently instead of the generic success toast.
+        if (data.message) {
+          toast.warning(data.message, { duration: 10000 })
+        } else {
+          toast.success(i18next.t('Setting updated successfully'))
+        }
       } else {
         toast.error(data.message || i18next.t('Failed to update setting'))
       }

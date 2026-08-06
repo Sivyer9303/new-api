@@ -31,7 +31,7 @@ func TestGetPublicVideoToolConfigFiltersDisabled(t *testing.T) {
 	for _, d := range seedance.Durations {
 		assert.NotEqual(t, "10", d.Value)
 	}
-	assert.NotEmpty(t, seedance.GenerationTypes)
+	assert.Len(t, cfg.GenerationTypes, 5)
 	assert.Contains(t, seedance.ModelPrefixes, "seedance-2.0-")
 }
 

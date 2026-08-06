@@ -9,79 +9,32 @@ function stableStringify(obj) {
 
 const newKeys = {
   en: {
-    'Fixed per-second price': 'Fixed per-second price',
-    'Per Second': 'Per Second',
-    'Per second': 'Per second',
-    'Per-second': 'Per-second',
-    'USD price per second of generated video.':
-      'USD price per second of generated video.',
-    Unit: 'Unit',
-    'per second': 'per second',
-    sec: 'sec',
+    'Preview only — image/audio base64 is shortened here. On submit, full data:…;base64,… payloads are sent.':
+      'Preview only — image/audio base64 is shortened here. On submit, full data:…;base64,… payloads are sent.',
   },
   zh: {
-    'Fixed per-second price': '固定按秒价格',
-    'Per Second': '按秒',
-    'Per second': '按秒',
-    'Per-second': '按秒',
-    'USD price per second of generated video.': '生成视频的每秒美元单价。',
-    Unit: '单位',
-    'per second': '每秒',
-    sec: '秒',
+    'Preview only — image/audio base64 is shortened here. On submit, full data:…;base64,… payloads are sent.':
+      '仅预览：图片/音频的 base64 在此缩短显示。真正提交时会发送完整的 data:…;base64,… 内容。',
   },
   'zh-TW': {
-    'Fixed per-second price': '固定按秒價格',
-    'Per Second': '按秒',
-    'Per second': '按秒',
-    'Per-second': '按秒',
-    'USD price per second of generated video.': '產生影片的每秒美元單價。',
-    Unit: '單位',
-    'per second': '每秒',
-    sec: '秒',
+    'Preview only — image/audio base64 is shortened here. On submit, full data:…;base64,… payloads are sent.':
+      '僅預覽：圖片/音訊的 base64 在此縮短顯示。真正送出時會傳送完整的 data:…;base64,… 內容。',
   },
   fr: {
-    'Fixed per-second price': 'Prix fixe à la seconde',
-    'Per Second': 'À la seconde',
-    'Per second': 'À la seconde',
-    'Per-second': 'À la seconde',
-    'USD price per second of generated video.':
-      'Prix en USD par seconde de vidéo générée.',
-    Unit: 'Unité',
-    'per second': 'par seconde',
-    sec: 's',
+    'Preview only — image/audio base64 is shortened here. On submit, full data:…;base64,… payloads are sent.':
+      'Aperçu uniquement — le base64 image/audio est raccourci ici. À l’envoi, les payloads data:…;base64,… complets sont transmis.',
   },
   ja: {
-    'Fixed per-second price': '秒単位の固定価格',
-    'Per Second': '秒単位',
-    'Per second': '秒単位',
-    'Per-second': '秒単位',
-    'USD price per second of generated video.':
-      '生成動画の1秒あたりの米ドル単価。',
-    Unit: '単位',
-    'per second': '毎秒',
-    sec: '秒',
+    'Preview only — image/audio base64 is shortened here. On submit, full data:…;base64,… payloads are sent.':
+      'プレビューのみ — 画像/音声の base64 はここでは短縮表示します。送信時は完全な data:…;base64,… を送ります。',
   },
   ru: {
-    'Fixed per-second price': 'Фиксированная цена за секунду',
-    'Per Second': 'Посекундно',
-    'Per second': 'Посекундно',
-    'Per-second': 'Посекундно',
-    'USD price per second of generated video.':
-      'Цена в USD за секунду сгенерированного видео.',
-    Unit: 'Единица',
-    'per second': 'за секунду',
-    sec: 'сек',
+    'Preview only — image/audio base64 is shortened here. On submit, full data:…;base64,… payloads are sent.':
+      'Только превью — base64 изображений/аудио здесь сокращён. При отправке уходят полные data:…;base64,….',
   },
   vi: {
-    'Fixed per-second price': 'Giá cố định theo giây',
-    'Per Second': 'Theo giây',
-    'Per second': 'Theo giây',
-    'Per-second': 'Theo giây',
-    'USD price per second of generated video.':
-      'Giá USD cho mỗi giây video được tạo.',
-    Unit: 'Đơn vị',
-    'per second': 'mỗi giây',
-    sec: 'giây',
+    'Preview only — image/audio base64 is shortened here. On submit, full data:…;base64,… payloads are sent.':
+      'Chỉ xem trước — base64 ảnh/âm thanh được rút gọn tại đây. Khi gửi sẽ dùng đầy đủ data:…;base64,….',
   },
 }
 
@@ -94,30 +47,26 @@ async function main() {
 
     let count = 0
     for (const [key, value] of Object.entries(trans)) {
-      if (!Object.prototype.hasOwnProperty.call(json.translation, key)) {
-        json.translation[key] = value
-        count++
-      } else if (json.translation[key] !== value) {
+      if (!(key in json.translation) || json.translation[key] !== value) {
         json.translation[key] = value
         count++
       }
     }
 
-    if (count > 0) {
-      json.translation = Object.fromEntries(
-        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
-      )
-      await fs.writeFile(filePath, stableStringify(json), 'utf8')
-    }
+    const sorted = Object.keys(json.translation)
+      .sort((a, b) => a.localeCompare(b))
+      .reduce((acc, k) => {
+        acc[k] = json.translation[k]
+        return acc
+      }, {})
+    json.translation = sorted
 
-    console.log(`${locale}: ${count} translations applied`)
+    await fs.writeFile(filePath, stableStringify(json))
+    console.log(`${locale}: upserted ${count} keys`)
     totalAdded += count
   }
 
-  console.log(`\nTotal: ${totalAdded} translations applied`)
+  console.log(`Done. Total upserts: ${totalAdded}`)
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exitCode = 1
-})
+await main()

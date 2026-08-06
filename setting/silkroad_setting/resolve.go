@@ -30,20 +30,3 @@ func FindEnabledOption(items []OptionItem, value string) (*OptionItem, bool) {
 	}
 	return nil, false
 }
-
-// FindGenerationType returns the enabled generation type matching value.
-func FindGenerationType(p *Profile, value string) (*GenerationType, bool) {
-	if p == nil {
-		return nil, false
-	}
-	for i := range p.GenerationTypes {
-		gt := &p.GenerationTypes[i]
-		if !gt.Enabled {
-			continue
-		}
-		if gt.Value == value {
-			return gt, true
-		}
-	}
-	return nil, false
-}

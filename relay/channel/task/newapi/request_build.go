@@ -53,9 +53,9 @@ func buildUpstreamBody(req FriendlyRequest, profile *silkroad_setting.Profile, u
 	if profile == nil {
 		return nil, fmt.Errorf("profile is required")
 	}
-	gt, ok := silkroad_setting.FindGenerationType(profile, req.GenerationType)
+	mode, ok := silkroad_setting.FindGenerationMode(req.GenerationType)
 	if !ok {
-		return nil, fmt.Errorf("generation_type %q is not enabled", req.GenerationType)
+		return nil, fmt.Errorf("generation_type %q is not supported", req.GenerationType)
 	}
 	durOpt, ok := silkroad_setting.FindEnabledOption(profile.Durations, req.DurationValue)
 	if !ok {
@@ -76,28 +76,8 @@ func buildUpstreamBody(req FriendlyRequest, profile *silkroad_setting.Profile, u
 	}
 	setNestedValue(body, aspectOpt.UpstreamKey, aspectOpt.Value)
 
-	// Apply ExtraOptions first; generation-type UpstreamSets win on key conflicts
-	// so recipe fields (e.g. reference_mode=start_end) are never clobbered by client extras.
-	for key, val := range req.Extras {
-		setNestedValue(body, key, coerceExtraValue(val))
-	}
-
-	for _, us := range gt.UpstreamSets {
-		if us.UpstreamKey == "" {
-			continue
-		}
-		if us.Value != "" {
-			setNestedValue(body, us.UpstreamKey, coerceExtraValue(us.Value))
-			continue
-		}
-		if us.From == "" {
-			continue
-		}
-		val, err := resolveFromPath(us.From, req.Images)
-		if err != nil {
-			return nil, err
-		}
-		setNestedValue(body, us.UpstreamKey, val)
+	if err := silkroad_setting.ApplyGenerationMedia(body, mode, req.Images, req.AudioURL); err != nil {
+		return nil, err
 	}
 
 	return common.Marshal(body)
@@ -123,28 +103,6 @@ func setDurationField(body map[string]any, durOpt *silkroad_setting.OptionItem) 
 	return nil
 }
 
-func resolveFromPath(from string, images []string) (any, error) {
-	from = strings.TrimSpace(from)
-	switch {
-	case from == "images":
-		out := make([]string, len(images))
-		copy(out, images)
-		return out, nil
-	case strings.HasPrefix(from, "images[") && strings.HasSuffix(from, "]"):
-		idxStr := from[len("images[") : len(from)-1]
-		idx, err := strconv.Atoi(idxStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid from path %q", from)
-		}
-		if idx < 0 || idx >= len(images) {
-			return nil, fmt.Errorf("from path %q out of range (have %d images)", from, len(images))
-		}
-		return images[idx], nil
-	default:
-		return nil, fmt.Errorf("unsupported from path %q", from)
-	}
-}
-
 func setNestedValue(body map[string]any, key string, value any) {
 	parts := strings.Split(key, ".")
 	if len(parts) == 1 {
@@ -162,18 +120,4 @@ func setNestedValue(body map[string]any, key string, value any) {
 		cur = next
 	}
 	cur[parts[len(parts)-1]] = value
-}
-
-func coerceExtraValue(v string) any {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "true":
-		return true
-	case "false":
-		return false
-	default:
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
-		return v
-	}
 }

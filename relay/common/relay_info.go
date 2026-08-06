@@ -926,6 +926,9 @@ type TaskInfo struct {
 	Progress         string `json:"progress,omitempty"`
 	CompletionTokens int    `json:"completion_tokens,omitempty"` // 用于按倍率计费
 	TotalTokens      int    `json:"total_tokens,omitempty"`      // 用于按倍率计费
+	// NoRefund：任务失败时不自动退款，保留预扣额度等待人工介入。
+	// 用于上游返回无法识别的终态时的保守处理，避免"用户已退款、上游已扣费"的资金损失。
+	NoRefund bool `json:"no_refund,omitempty"`
 }
 
 func FailTaskInfo(reason string) *TaskInfo {

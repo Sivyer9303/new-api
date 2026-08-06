@@ -75,12 +75,6 @@ func validateProfile(p *Profile, idx int) error {
 	if err := validateOptionList(p.AspectRatios, fmt.Sprintf("profile[%d].aspect_ratios", idx)); err != nil {
 		return err
 	}
-	if err := validateGenerationTypes(p.GenerationTypes, fmt.Sprintf("profile[%d].generation_types", idx)); err != nil {
-		return err
-	}
-	if err := validateOptionItemsOptional(p.ExtraOptions, fmt.Sprintf("profile[%d].extra_options", idx)); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -119,42 +113,6 @@ func validateOptionItemsOptional(items []OptionItem, path string) error {
 			return fmt.Errorf("%s[%d]: duplicate value %q", path, i, item.Value)
 		}
 		seen[item.Value] = struct{}{}
-	}
-	return nil
-}
-
-func validateGenerationTypes(items []GenerationType, path string) error {
-	enabled := 0
-	seen := make(map[string]struct{})
-	for i, item := range items {
-		if !item.Enabled {
-			continue
-		}
-		enabled++
-		if strings.TrimSpace(item.Label) == "" {
-			return fmt.Errorf("%s[%d]: label is required when enabled", path, i)
-		}
-		if strings.TrimSpace(item.Value) == "" {
-			return fmt.Errorf("%s[%d]: value is required when enabled", path, i)
-		}
-		if _, dup := seen[item.Value]; dup {
-			return fmt.Errorf("%s[%d]: duplicate value %q", path, i, item.Value)
-		}
-		seen[item.Value] = struct{}{}
-		if item.MediaRequirements.ImagesMin < 0 || item.MediaRequirements.ImagesMax < 0 {
-			return fmt.Errorf("%s[%d]: media_requirements images bounds must be >= 0", path, i)
-		}
-		if item.MediaRequirements.ImagesMin > item.MediaRequirements.ImagesMax {
-			return fmt.Errorf("%s[%d]: media_requirements images_min must be <= images_max", path, i)
-		}
-		for j, us := range item.UpstreamSets {
-			if strings.TrimSpace(us.UpstreamKey) == "" {
-				return fmt.Errorf("%s[%d].upstream_sets[%d]: upstream_key is required", path, i, j)
-			}
-		}
-	}
-	if enabled == 0 {
-		return fmt.Errorf("%s: at least one enabled item is required", path)
 	}
 	return nil
 }

@@ -86,6 +86,11 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 
 	dResp.ID = info.PublicTaskID
 	dResp.TaskID = info.PublicTaskID
+	// 提交响应绝不携带上游 URL：轮询与查询路径都会做脱敏，
+	// 提交这一次也必须一致（上游可能在提交时就返回 video_url）。
+	dResp.VideoURL = ""
+	dResp.URL = ""
+	dResp.ResultURL = ""
 	c.JSON(http.StatusOK, dResp)
 	return upstreamID, responseBody, nil
 }
@@ -131,11 +136,17 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	}
 
 	switch strings.ToLower(strings.TrimSpace(res.Status)) {
+	case "":
+		// 错误响应体（如限流）没有 status 字段：保持进行中，交给下一轮轮询
+		// 与超时清扫处理，不在此处判定终态。
+		taskResult.Status = model.TaskStatusInProgress
+	case "submitted", "not_start":
+		taskResult.Status = model.TaskStatusSubmitted
 	case "queued", "pending":
 		taskResult.Status = model.TaskStatusQueued
 	case "in_progress", "processing", "running":
 		taskResult.Status = model.TaskStatusInProgress
-	case "completed", "success":
+	case "completed", "success", "succeeded":
 		taskResult.Status = model.TaskStatusSuccess
 		for _, u := range []string{res.VideoURL, res.URL, res.ResultURL} {
 			if strings.TrimSpace(u) != "" && !isVideoContentProxyURL(u) {
@@ -151,7 +162,7 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 				}
 			}
 		}
-	case "failed", "failure", "cancelled":
+	case "failed", "failure", "cancelled", "canceled":
 		taskResult.Status = model.TaskStatusFailure
 		if res.Error != nil && res.Error.Message != "" {
 			taskResult.Reason = res.Error.Message
@@ -159,7 +170,13 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 			taskResult.Reason = "task failed"
 		}
 	default:
-		taskResult.Status = model.TaskStatusInProgress
+		// 上游返回了词表之外的终态：保守处理——标记失败但不自动退款，
+		// 保留预扣额度等待管理员人工核实（上游可能已成功并扣费）。
+		taskResult.Status = model.TaskStatusFailure
+		taskResult.NoRefund = true
+		taskResult.Reason = fmt.Sprintf(
+			"上游返回未知状态 %q，额度未退还，请管理员人工核实后处理", res.Status,
+		)
 	}
 
 	return &taskResult, nil

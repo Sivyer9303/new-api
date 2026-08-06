@@ -114,7 +114,6 @@ export function useMarqueeSpin(options: UseMarqueeSpinOptions) {
         return
       }
       const left = remainingStepsRef.current
-      const total = Math.max(left, 1)
       // Ease-out: slower as we approach the end
       const t = 1 - left / (left + 8)
       const delay = 45 + t * t * 280

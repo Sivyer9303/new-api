@@ -60,10 +60,9 @@ func TestE2EBuildDreaminaImage2VideoGolden(t *testing.T) {
 		"model":"dreamina-seedance-2-0-720-ref",
 		"prompt":"animate the still photo",
 		"generation_type":"image2video",
-		"duration":5,
+		"seconds":"5",
 		"aspect_ratio":"9:16",
-		"images":["https://cdn.example/ref.png"],
-		"generate_audio":true
+		"images":["data:image/jpeg;base64,abc"]
 	}`, "dreamina-seedance-2-0-720-ref", "dreamina-seedance-2-0-720-ref")
 
 	require.Nil(t, a.ValidateRequestAndSetAction(c, info))
@@ -73,8 +72,85 @@ func TestE2EBuildDreaminaImage2VideoGolden(t *testing.T) {
 	got, err := io.ReadAll(reader)
 	require.NoError(t, err)
 
-	const want = `{"aspect_ratio":"9:16","duration":5,"generate_audio":true,"image":"https://cdn.example/ref.png","model":"dreamina-seedance-2-0-720-ref","prompt":"animate the still photo"}`
+	const want = `{"aspect_ratio":"9:16","image":"data:image/jpeg;base64,abc","model":"dreamina-seedance-2-0-720-ref","prompt":"animate the still photo","seconds":"5"}`
 	assert.JSONEq(t, want, string(got))
 	assert.NotContains(t, string(got), "generation_type")
+	assert.NotContains(t, string(got), `"images"`)
+}
+
+func TestE2EBuildDreaminaMultiImageRejectsAudio(t *testing.T) {
+	a := &TaskAdaptor{}
+	c, info := newE2EContext(t, `{
+		"model":"dreamina-seedance-2-0-1080p-ref",
+		"prompt":"一只橘猫在窗台上伸懒腰",
+		"generation_type":"multi_image",
+		"seconds":"5",
+		"aspect_ratio":"16:9",
+		"images":["data:image/jpeg;base64,aaa","data:image/jpeg;base64,bbb"],
+		"audio_url":"data:audio/mpeg;base64,ccc"
+	}`, "dreamina-seedance-2-0-1080p-ref", "dreamina-seedance-2-0-1080p-ref")
+
+	taskErr := a.ValidateRequestAndSetAction(c, info)
+	require.NotNil(t, taskErr)
+	assert.Contains(t, strings.ToLower(taskErr.Message), "audio")
+}
+
+func TestE2EBuildDreaminaReferenceAudioGolden(t *testing.T) {
+	a := &TaskAdaptor{}
+	c, info := newE2EContext(t, `{
+		"model":"dreamina-seedance-2-0-1080p-ref",
+		"prompt":"一只橘猫在窗台上伸懒腰",
+		"generation_type":"reference_audio",
+		"seconds":"5",
+		"aspect_ratio":"16:9",
+		"images":["data:image/jpeg;base64,aaa"],
+		"audio_url":"data:audio/mpeg;base64,ccc"
+	}`, "dreamina-seedance-2-0-1080p-ref", "dreamina-seedance-2-0-1080p-ref")
+
+	require.Nil(t, a.ValidateRequestAndSetAction(c, info))
+
+	reader, err := a.BuildRequestBody(c, info)
+	require.NoError(t, err)
+	got, err := io.ReadAll(reader)
+	require.NoError(t, err)
+
+	const want = `{
+		"aspect_ratio":"16:9",
+		"audio_url":"data:audio/mpeg;base64,ccc",
+		"image":"data:image/jpeg;base64,aaa",
+		"model":"dreamina-seedance-2-0-1080p-ref",
+		"prompt":"一只橘猫在窗台上伸懒腰",
+		"seconds":"5"
+	}`
+	assert.JSONEq(t, want, string(got))
+}
+
+func TestE2EBuildDreaminaStartEndGolden(t *testing.T) {
+	a := &TaskAdaptor{}
+	c, info := newE2EContext(t, `{
+		"model":"dreamina-seedance-2-0-1080p-ref",
+		"prompt":"一只橘猫在窗台上伸懒腰",
+		"generation_type":"start_end",
+		"seconds":"5",
+		"aspect_ratio":"16:9",
+		"images":["data:image/jpeg;base64,first","data:image/jpeg;base64,last"]
+	}`, "dreamina-seedance-2-0-1080p-ref", "dreamina-seedance-2-0-1080p-ref")
+
+	require.Nil(t, a.ValidateRequestAndSetAction(c, info))
+
+	reader, err := a.BuildRequestBody(c, info)
+	require.NoError(t, err)
+	got, err := io.ReadAll(reader)
+	require.NoError(t, err)
+
+	const want = `{
+		"aspect_ratio":"16:9",
+		"first_frame":"data:image/jpeg;base64,first",
+		"last_frame":"data:image/jpeg;base64,last",
+		"model":"dreamina-seedance-2-0-1080p-ref",
+		"prompt":"一只橘猫在窗台上伸懒腰",
+		"seconds":"5"
+	}`
+	assert.JSONEq(t, want, string(got))
 	assert.NotContains(t, string(got), `"images"`)
 }

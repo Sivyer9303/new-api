@@ -584,7 +584,15 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		logger.LogInfo(ctx, fmt.Sprintf("Task %s failed: %s", task.TaskID, task.FailReason))
 		taskResult.Progress = taskcommon.ProgressComplete
 		if quota != 0 {
-			shouldRefund = true
+			if taskResult.NoRefund {
+				// 适配器判定需人工介入（如上游返回未知终态）：保留预扣额度，不自动退款。
+				logger.LogWarn(ctx, fmt.Sprintf(
+					"Task %s failed but refund is withheld pending manual review, quota %d retained: %s",
+					task.TaskID, quota, task.FailReason,
+				))
+			} else {
+				shouldRefund = true
+			}
 		}
 	default:
 		return fmt.Errorf("unknown task status %s for task %s", taskResult.Status, task.TaskID)

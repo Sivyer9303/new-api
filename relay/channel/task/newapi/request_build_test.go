@@ -10,16 +10,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuildRequestBodyImage2VideoSetsImageURL(t *testing.T) {
+func TestBuildRequestBodyImage2VideoSetsImage(t *testing.T) {
 	a := &TaskAdaptor{}
 	c, info := newTestContext(t, `{
-		"model":"seedance-2.0-720",
+		"model":"seedance-2.0-720-ref",
 		"prompt":"animate this",
 		"generation_type":"image2video",
 		"seconds":"10",
 		"aspect_ratio":"16:9",
-		"images":["https://cdn.example/a.png"]
+		"images":["data:image/jpeg;base64,abc"]
 	}`)
+	info.OriginModelName = "seedance-2.0-720-ref"
+	info.ChannelMeta.UpstreamModelName = "seedance-2.0-720-ref"
 
 	taskErr := a.ValidateRequestAndSetAction(c, info)
 	require.Nil(t, taskErr)
@@ -32,91 +34,102 @@ func TestBuildRequestBodyImage2VideoSetsImageURL(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, common.Unmarshal(data, &body))
 
-	assert.Equal(t, "seedance-2.0-720", body["model"])
+	assert.Equal(t, "seedance-2.0-720-ref", body["model"])
 	assert.Equal(t, "animate this", body["prompt"])
-	assert.Equal(t, "https://cdn.example/a.png", body["image_url"])
+	assert.Equal(t, "data:image/jpeg;base64,abc", body["image"])
 	assert.Equal(t, "10", body["seconds"])
 	assert.Equal(t, "16:9", body["aspect_ratio"])
 	_, hasGenType := body["generation_type"]
 	assert.False(t, hasGenType, "generation_type must not appear in upstream body")
 	_, hasImages := body["images"]
-	assert.False(t, hasImages, "friendly images must not appear in upstream body")
+	assert.False(t, hasImages, "friendly images array must not appear for single-image mode")
 }
 
-func TestBuildUpstreamBodyDurationAsNumber(t *testing.T) {
+func TestBuildUpstreamBodySecondsString(t *testing.T) {
+	profile, ok := silkroad_setting.MatchProfile("seedance-2.0-720")
+	require.True(t, ok)
+
+	req := FriendlyRequest{
+		Model:          "seedance-2.0-720",
+		Prompt:         "hi",
+		GenerationType: "text2video",
+		DurationValue:  "10",
+		AspectRatio:    "9:16",
+	}
+	data, err := buildUpstreamBody(req, profile, "seedance-2.0-720")
+	require.NoError(t, err)
+
+	var body map[string]any
+	require.NoError(t, common.Unmarshal(data, &body))
+	assert.Equal(t, "10", body["seconds"])
+	assert.Equal(t, "9:16", body["aspect_ratio"])
+}
+
+func TestBuildUpstreamBodyMultiImageSetsImages(t *testing.T) {
 	profile, ok := silkroad_setting.MatchProfile("dreamina-seedance-2-0-720")
 	require.True(t, ok)
 
 	req := FriendlyRequest{
-		Model:          "dreamina-seedance-2-0-720",
-		Prompt:         "hi",
-		GenerationType: "text2video",
-		DurationValue:  "5",
-		AspectRatio:    "9:16",
-	}
-	data, err := buildUpstreamBody(req, profile, "dreamina-seedance-2-0-720")
-	require.NoError(t, err)
-
-	var body map[string]any
-	require.NoError(t, common.Unmarshal(data, &body))
-	assert.Equal(t, float64(5), body["duration"])
-	assert.Equal(t, "9:16", body["aspect_ratio"])
-}
-
-func TestBuildUpstreamBodyMultiImageSetsReferenceURLs(t *testing.T) {
-	profile, ok := silkroad_setting.MatchProfile("seedance-2.0-720")
-	require.True(t, ok)
-
-	req := FriendlyRequest{
-		Model:          "seedance-2.0-720",
+		Model:          "dreamina-seedance-2-0-720-ref",
 		Prompt:         "blend",
 		GenerationType: "multi_image",
-		DurationValue:  "15",
+		DurationValue:  "5",
 		AspectRatio:    "1:1",
-		Images:         []string{"https://a.png", "https://b.png", "https://c.png"},
+		Images:         []string{"data:image/jpeg;base64,a", "data:image/jpeg;base64,b", "data:image/jpeg;base64,c"},
 	}
-	data, err := buildUpstreamBody(req, profile, "seedance-2.0-720")
+	data, err := buildUpstreamBody(req, profile, "dreamina-seedance-2-0-720-ref")
 	require.NoError(t, err)
 
 	var body map[string]any
 	require.NoError(t, common.Unmarshal(data, &body))
 
-	refs, ok := body["reference_image_urls"].([]any)
+	refs, ok := body["images"].([]any)
 	require.True(t, ok)
 	require.Len(t, refs, 3)
-	assert.Equal(t, "https://a.png", refs[0])
-
-	vc, ok := body["video_config"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "auto", vc["reference_mode"])
+	assert.Equal(t, "data:image/jpeg;base64,a", refs[0])
 }
 
-func TestBuildUpstreamBodyStartEndExtraDoesNotClobberReferenceMode(t *testing.T) {
-	profile, ok := silkroad_setting.MatchProfile("seedance-2.0-720")
+func TestBuildUpstreamBodyStartEndSetsFrames(t *testing.T) {
+	profile, ok := silkroad_setting.MatchProfile("dreamina-seedance-2-0-720")
 	require.True(t, ok)
 
 	req := FriendlyRequest{
-		Model:          "seedance-2.0-720",
+		Model:          "dreamina-seedance-2-0-720-ref",
 		Prompt:         "blend",
 		GenerationType: "start_end",
-		DurationValue:  "10",
+		DurationValue:  "5",
 		AspectRatio:    "16:9",
-		Images:         []string{"https://a.png", "https://b.png"},
-		Extras: map[string]string{
-			"video_config.reference_mode": "auto",
-		},
+		Images:         []string{"data:image/jpeg;base64,first", "data:image/jpeg;base64,last"},
 	}
-	data, err := buildUpstreamBody(req, profile, "seedance-2.0-720")
+	data, err := buildUpstreamBody(req, profile, "dreamina-seedance-2-0-720-ref")
 	require.NoError(t, err)
 
 	var body map[string]any
 	require.NoError(t, common.Unmarshal(data, &body))
+	assert.Equal(t, "data:image/jpeg;base64,first", body["first_frame"])
+	assert.Equal(t, "data:image/jpeg;base64,last", body["last_frame"])
+	_, hasImages := body["images"]
+	assert.False(t, hasImages)
+}
 
-	vc, ok := body["video_config"].(map[string]any)
+func TestBuildUpstreamBodyReferenceAudio(t *testing.T) {
+	profile, ok := silkroad_setting.MatchProfile("dreamina-seedance-2-0-720")
 	require.True(t, ok)
-	assert.Equal(t, "start_end", vc["reference_mode"], "recipe UpstreamSets must win over ExtraOptions")
 
-	refs, ok := body["reference_image_urls"].([]any)
-	require.True(t, ok)
-	require.Len(t, refs, 2)
+	req := FriendlyRequest{
+		Model:          "dreamina-seedance-2-0-720-ref",
+		Prompt:         "with audio",
+		GenerationType: "reference_audio",
+		DurationValue:  "5",
+		AspectRatio:    "16:9",
+		Images:         []string{"data:image/jpeg;base64,pic"},
+		AudioURL:       "data:audio/mpeg;base64,aud",
+	}
+	data, err := buildUpstreamBody(req, profile, "dreamina-seedance-2-0-720-ref")
+	require.NoError(t, err)
+
+	var body map[string]any
+	require.NoError(t, common.Unmarshal(data, &body))
+	assert.Equal(t, "data:image/jpeg;base64,pic", body["image"])
+	assert.Equal(t, "data:audio/mpeg;base64,aud", body["audio_url"])
 }

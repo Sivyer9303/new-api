@@ -8,7 +8,6 @@ import (
 )
 
 func TestMatchProfileSeedance(t *testing.T) {
-	// after Register + defaults loaded in test helper
 	p, ok := MatchProfile("seedance-2.0-720")
 	require.True(t, ok)
 	assert.Equal(t, "seedance_reverse", p.ID)
@@ -42,19 +41,15 @@ func TestFindEnabledOptionFindsEnabled(t *testing.T) {
 	assert.Equal(t, "seconds", opt.UpstreamKey)
 }
 
-func TestFindGenerationType(t *testing.T) {
-	s := defaultSilkRoadSetting()
-	p := &s.Profiles[0]
-	gt, ok := FindGenerationType(p, "image2video")
+func TestFindGenerationMode(t *testing.T) {
+	gt, ok := FindGenerationMode("image2video")
 	require.True(t, ok)
 	assert.Equal(t, "image2video", gt.Value)
-	assert.Equal(t, 1, gt.MediaRequirements.ImagesMin)
+	assert.Equal(t, 1, gt.ImagesMin)
+	assert.True(t, gt.RequireRefModel)
 }
 
-func TestFindGenerationTypeDisabledSkipped(t *testing.T) {
-	s := defaultSilkRoadSetting()
-	p := &s.Profiles[0]
-	p.GenerationTypes[0].Enabled = false
-	_, ok := FindGenerationType(p, p.GenerationTypes[0].Value)
+func TestFindGenerationModeUnknown(t *testing.T) {
+	_, ok := FindGenerationMode("start_frame")
 	assert.False(t, ok)
 }
