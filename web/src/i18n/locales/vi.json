@@ -3147,6 +3147,7 @@
     "No rules yet": "Chưa có quy tắc",
     "No rules yet. Add a group below to get started.": "Chưa có quy tắc nào. Thêm một nhóm bên dưới để bắt đầu.",
     "No Seedance models available for this key": "Không có mô hình Seedance nào cho khóa này",
+    "No Seedance models with configured pricing are available. Set a model price in Model Pricing first.": "Không có mô hình Seedance nào đã cấu hình giá. Hãy đặt đơn giá trong Định giá mô hình trước.",
     "No separate media pricing configured.": "Chưa cấu hình giá phương tiện riêng.",
     "No status code mappings configured.": "Chưa cấu hình ánh xạ mã trạng thái.",
     "No stores on this merchant yet. Set a return URL and click Create to mint your first pair.": "Merchant này chưa có cửa hàng. Đặt URL trả về và nhấn Tạo để tạo cặp đầu tiên.",

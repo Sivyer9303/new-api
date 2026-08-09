@@ -3147,6 +3147,7 @@
     "No rules yet": "No rules yet",
     "No rules yet. Add a group below to get started.": "No rules yet. Add a group below to get started.",
     "No Seedance models available for this key": "No Seedance models available for this key",
+    "No Seedance models with configured pricing are available. Set a model price in Model Pricing first.": "No Seedance models with configured pricing are available. Set a model price in Model Pricing first.",
     "No separate media pricing configured.": "No separate media pricing configured.",
     "No status code mappings configured.": "No status code mappings configured.",
     "No stores on this merchant yet. Set a return URL and click Create to mint your first pair.": "No stores on this merchant yet. Set a return URL and click Create to mint your first pair.",

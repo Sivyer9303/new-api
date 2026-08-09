@@ -3147,6 +3147,7 @@
     "No rules yet": "ルールがありません",
     "No rules yet. Add a group below to get started.": "まだルールがありません。下にグループを追加して開始してください。",
     "No Seedance models available for this key": "このキーで利用できる Seedance モデルがありません",
+    "No Seedance models with configured pricing are available. Set a model price in Model Pricing first.": "価格が設定された Seedance モデルがありません。先にモデル価格設定で単価を設定してください。",
     "No separate media pricing configured.": "個別のメディア料金は設定されていません。",
     "No status code mappings configured.": "ステータスコードのマッピングが設定されていません。",
     "No stores on this merchant yet. Set a return URL and click Create to mint your first pair.": "このマーチャントにはまだストアがありません。戻り URL を設定し、作成をクリックして最初のペアを作成してください。",

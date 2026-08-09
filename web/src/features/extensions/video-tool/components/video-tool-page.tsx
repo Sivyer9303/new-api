@@ -205,6 +205,18 @@ export function VideoToolPage() {
     groupRatio,
   } = usePricingData()
 
+  // Models with a configured ModelPrice (> 0). Unpriced models are hidden
+  // from the selector so users cannot submit without an estimate path.
+  const pricedModelIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const m of pricingModels) {
+      if (m.model_price != null && m.model_price > 0) {
+        ids.add(m.model_name)
+      }
+    }
+    return ids
+  }, [pricingModels])
+
   const profiles = useMemo(
     () => configQuery.data?.profiles ?? [],
     [configQuery.data?.profiles]
@@ -264,11 +276,8 @@ export function VideoToolPage() {
         if (matched.length === 0) {
           setModelId('')
           toast.error(t('No Seedance models available for this key'))
-        } else {
-          setModelId((prev) =>
-            prev && matched.includes(prev) ? prev : matched[0]
-          )
         }
+        // Selection is synced from filteredModels (priced + mode) via safeModelId.
       } catch (err) {
         if (cancelled || requestId !== loadModelsRequestRef.current) return
         setModels([])
@@ -383,20 +392,48 @@ export function VideoToolPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- revoke current list on unmount only
   }, [])
 
+  const availableModels = useMemo(
+    () => models.filter((id) => pricedModelIds.has(id)),
+    [models, pricedModelIds]
+  )
+
+  const noPricedModelsToastKeyRef = useRef('')
+  // Key returned Seedance models, but none have ModelPrice configured.
+  useEffect(() => {
+    if (loadingModels || !tokenId) return
+    if (models.length === 0 || availableModels.length > 0) return
+    if (pricingModels.length === 0) return
+    const toastKey = `${tokenId}:${models.join('\0')}`
+    if (noPricedModelsToastKeyRef.current === toastKey) return
+    noPricedModelsToastKeyRef.current = toastKey
+    toast.error(
+      t(
+        'No Seedance models with configured pricing are available. Set a model price in Model Pricing first.'
+      )
+    )
+  }, [
+    loadingModels,
+    tokenId,
+    models,
+    availableModels.length,
+    pricingModels.length,
+    t,
+  ])
+
   const filteredModels = useMemo(() => {
     if (!selectedProfile) {
-      return models.filter((id) =>
+      return availableModels.filter((id) =>
         profiles.some((p) =>
           p.model_prefixes.some((prefix) => id.startsWith(prefix))
         )
       )
     }
     return filterModelsForProfile(
-      models,
+      availableModels,
       selectedProfile,
       Boolean(selectedGenType?.require_ref_model)
     )
-  }, [models, profiles, selectedProfile, selectedGenType])
+  }, [availableModels, profiles, selectedProfile, selectedGenType])
 
   // Base UI Select throws if value is not among items. When switching to a
   // require_ref generation type, filteredModels shrinks to *-ref ids before
@@ -726,7 +763,7 @@ export function VideoToolPage() {
         {t('Seedance video tool')}
       </SectionPageLayout.Title>
       <SectionPageLayout.Content>
-        <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pb-8'>
+        <div className='mx-auto flex w-full max-w-6xl flex-col gap-4 pb-8'>
           <Alert className='border-amber-500/40 bg-amber-500/10 px-4 py-3'>
             <AlertTitle className='text-base font-semibold text-amber-950 dark:text-amber-100'>
               {t('API key group required')}
@@ -747,6 +784,9 @@ export function VideoToolPage() {
               'Select an API key, choose a mode, and generate video. Models load automatically after you pick a key. Results also appear in Task Logs.'
             )}
           </p>
+
+          <div className='grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]'>
+            <div className='flex min-w-0 flex-col gap-4'>
       <Card>
         <CardHeader className='pb-3'>
           <CardTitle className='text-base'>{t('API key')}</CardTitle>
@@ -856,7 +896,7 @@ export function VideoToolPage() {
                   // (e.g. image/reference requires *-ref) in the same click.
                   if (selectedProfile) {
                     const next = filterModelsForProfile(
-                      models,
+                      availableModels,
                       selectedProfile,
                       Boolean(gt.require_ref_model)
                     )
@@ -1017,137 +1057,155 @@ export function VideoToolPage() {
               </p>
             </div>
           )}
-
-          <div className='bg-muted/40 rounded-md border px-3 py-3'>
-            <div className='flex flex-wrap items-baseline justify-between gap-2'>
-              <p className='text-sm font-medium'>{t('Estimated price')}</p>
-              <p className='text-lg font-semibold tabular-nums'>
-                {priceEstimate ? priceEstimate.formatted : t('—')}
-              </p>
+        </CardContent>
+      </Card>
             </div>
-            {priceEstimate ? (
-              <p className='text-muted-foreground mt-1 text-sm'>
-                {t(
-                  'Based on model unit price × {{seconds}}s × group ratio. Reference only — final charge follows actual billing.',
-                  { seconds: priceEstimate.seconds }
-                )}
-              </p>
-            ) : (
-              <p className='text-muted-foreground mt-1 text-sm'>
-                {t(
-                  'Unable to estimate for the current selection. Configure model pricing first.'
-                )}
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader className='pb-3'>
-          <CardTitle className='text-base'>
-            {t('Request JSON (auto-generated)')}
-          </CardTitle>
-          <CardDescription>
-            {t(
-              'Preview only — image/audio base64 is shortened here. On submit, full data:…;base64,… payloads are sent.'
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <pre className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs'>
-            {requestPreview}
-          </pre>
-        </CardContent>
-      </Card>
+            <aside className='flex min-w-0 flex-col gap-4 lg:sticky lg:top-6'>
+              <Card>
+                <CardHeader className='pb-3'>
+                  <CardTitle className='text-base'>
+                    {t('Estimated price')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4'>
+                  <div>
+                    <p className='text-lg font-semibold tabular-nums'>
+                      {priceEstimate ? priceEstimate.formatted : t('—')}
+                    </p>
+                    {priceEstimate ? (
+                      <p className='text-muted-foreground mt-1 text-sm'>
+                        {t(
+                          'Based on model unit price × {{seconds}}s × group ratio. Reference only — final charge follows actual billing.',
+                          { seconds: priceEstimate.seconds }
+                        )}
+                      </p>
+                    ) : (
+                      <p className='text-muted-foreground mt-1 text-sm'>
+                        {t(
+                          'Unable to estimate for the current selection. Configure model pricing first.'
+                        )}
+                      </p>
+                    )}
+                  </div>
+                  <div className='flex flex-wrap items-center gap-3'>
+                    <Button
+                      type='button'
+                      size='lg'
+                      onClick={() => void handleSubmit()}
+                      disabled={
+                        submitting || isPolling || !tokenId || !safeModelId
+                      }
+                    >
+                      {submitting || isPolling
+                        ? t('Generating...')
+                        : t('Generate video')}
+                    </Button>
+                    <Link
+                      to='/usage-logs/$section'
+                      params={{ section: 'task' }}
+                      className={cn(buttonVariants({ variant: 'outline' }))}
+                    >
+                      {t('Open Task Logs')}
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
 
-      <div className='flex flex-wrap items-center gap-3'>
-        <Button
-          type='button'
-          size='lg'
-          onClick={() => void handleSubmit()}
-          disabled={submitting || isPolling || !tokenId || !safeModelId}
-        >
-          {submitting || isPolling
-            ? t('Generating...')
-            : t('Generate video')}
-        </Button>
-        <Link
-          to='/usage-logs/$section'
-          params={{ section: 'task' }}
-          className={cn(buttonVariants({ variant: 'outline' }))}
-        >
-          {t('Open Task Logs')}
-        </Link>
-      </div>
-
-      {(taskId || pollError || previewUrl) && (
-        <Card>
-          <CardHeader className='pb-3'>
-            <CardTitle className='text-base'>{t('Result')}</CardTitle>
-            <CardDescription>
-              {taskId && (
-                <>
-                  {t('Task ID')}: <span className='font-mono'>{taskId}</span>
-                  {taskStatus ? ` · ${taskStatus}` : ''}
-                </>
+              {(taskId || pollError || previewUrl) && (
+                <Card>
+                  <CardHeader className='pb-3'>
+                    <CardTitle className='text-base'>{t('Result')}</CardTitle>
+                    <CardDescription>
+                      {taskId && (
+                        <>
+                          {t('Task ID')}:{' '}
+                          <span className='font-mono'>{taskId}</span>
+                          {taskStatus ? ` · ${taskStatus}` : ''}
+                        </>
+                      )}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className='space-y-3'>
+                    {isPolling && (
+                      <div className='space-y-1 text-sm'>
+                        <p className='text-muted-foreground'>
+                          {t('Refreshing task status automatically...')}
+                        </p>
+                        <p>
+                          {t('Progress')}:{' '}
+                          <span className='font-medium'>
+                            {taskProgress || t('Waiting for update')}
+                          </span>
+                        </p>
+                      </div>
+                    )}
+                    {!isPolling &&
+                      taskProgress &&
+                      !pollError &&
+                      !previewUrl && (
+                        <p className='text-sm'>
+                          {t('Progress')}:{' '}
+                          <span className='font-medium'>{taskProgress}</span>
+                        </p>
+                      )}
+                    {pollError && (
+                      <p className='text-destructive text-sm'>{pollError}</p>
+                    )}
+                    {previewUrl && (
+                      <div className='space-y-2'>
+                        <video
+                          className='bg-muted aspect-video w-full rounded-md'
+                          src={previewUrl}
+                          controls
+                          playsInline
+                        />
+                        <a
+                          href={previewUrl}
+                          target='_blank'
+                          rel='noopener noreferrer'
+                          className='text-muted-foreground text-sm hover:underline'
+                        >
+                          {t('Download link')}
+                        </a>
+                      </div>
+                    )}
+                    {taskId && (
+                      <Link
+                        to='/usage-logs/$section'
+                        params={{ section: 'task' }}
+                        search={{ filter: taskId }}
+                        className={cn(
+                          buttonVariants({ variant: 'link' }),
+                          'h-auto p-0'
+                        )}
+                      >
+                        {t('View this task in Task Logs')}
+                      </Link>
+                    )}
+                  </CardContent>
+                </Card>
               )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className='space-y-3'>
-            {isPolling && (
-              <div className='space-y-1 text-sm'>
-                <p className='text-muted-foreground'>
-                  {t('Refreshing task status automatically...')}
-                </p>
-                <p>
-                  {t('Progress')}:{' '}
-                  <span className='font-medium'>
-                    {taskProgress || t('Waiting for update')}
-                  </span>
-                </p>
-              </div>
-            )}
-            {!isPolling && taskProgress && !pollError && !previewUrl && (
-              <p className='text-sm'>
-                {t('Progress')}:{' '}
-                <span className='font-medium'>{taskProgress}</span>
-              </p>
-            )}
-            {pollError && (
-              <p className='text-destructive text-sm'>{pollError}</p>
-            )}
-            {previewUrl && (
-              <div className='space-y-2'>
-                <video
-                  className='bg-muted aspect-video w-full rounded-md'
-                  src={previewUrl}
-                  controls
-                  playsInline
-                />
-                <a
-                  href={previewUrl}
-                  target='_blank'
-                  rel='noopener noreferrer'
-                  className='text-muted-foreground text-sm hover:underline'
-                >
-                  {t('Download link')}
-                </a>
-              </div>
-            )}
-            {taskId && (
-              <Link
-                to='/usage-logs/$section'
-                params={{ section: 'task' }}
-                search={{ filter: taskId }}
-                className={cn(buttonVariants({ variant: 'link' }), 'h-auto p-0')}
-              >
-                {t('View this task in Task Logs')}
-              </Link>
-            )}
-          </CardContent>
-        </Card>
-      )}
+
+              <Card>
+                <CardHeader className='pb-3'>
+                  <CardTitle className='text-base'>
+                    {t('Request JSON (auto-generated)')}
+                  </CardTitle>
+                  <CardDescription>
+                    {t(
+                      'Preview only — image/audio base64 is shortened here. On submit, full data:…;base64,… payloads are sent.'
+                    )}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <pre className='bg-muted max-h-[28rem] overflow-auto rounded-md p-3 text-xs'>
+                    {requestPreview}
+                  </pre>
+                </CardContent>
+              </Card>
+            </aside>
+          </div>
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

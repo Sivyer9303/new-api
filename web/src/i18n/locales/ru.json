@@ -3147,6 +3147,7 @@
     "No rules yet": "Правила отсутствуют",
     "No rules yet. Add a group below to get started.": "Правил пока нет. Добавьте группу ниже, чтобы начать.",
     "No Seedance models available for this key": "Для этого ключа нет доступных моделей Seedance",
+    "No Seedance models with configured pricing are available. Set a model price in Model Pricing first.": "Нет моделей Seedance с настроенной ценой. Сначала задайте цену в разделе ценообразования моделей.",
     "No separate media pricing configured.": "Отдельные цены для медиа не настроены.",
     "No status code mappings configured.": "Сопоставления кодов состояния не настроены.",
     "No stores on this merchant yet. Set a return URL and click Create to mint your first pair.": "У этого продавца пока нет магазинов. Укажите URL возврата и нажмите Создать, чтобы создать первую пару.",

@@ -3147,6 +3147,7 @@
     "No rules yet": "暫無規則",
     "No rules yet. Add a group below to get started.": "暫無規則。請在下方新增分組以開始。",
     "No Seedance models available for this key": "此金鑰下沒有可用的 Seedance 模型",
+    "No Seedance models with configured pricing are available. Set a model price in Model Pricing first.": "沒有已設定價格的 Seedance 模型可用。請先在模型定價中設定模型單價。",
     "No separate media pricing configured.": "未設定單獨的媒體定價。",
     "No status code mappings configured.": "未設定狀態碼映射。",
     "No stores on this merchant yet. Set a return URL and click Create to mint your first pair.": "此商戶暫無店鋪。設定返回 URL 後點擊建立來生成第一組配對。",

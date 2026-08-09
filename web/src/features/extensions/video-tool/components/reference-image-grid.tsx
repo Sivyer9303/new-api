@@ -141,13 +141,13 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
         disabled={props.disabled}
         onChange={(e) => handleFilesSelected(e.target.files)}
       />
-      <div className='grid grid-cols-3 gap-2 sm:gap-3'>
+      <div className='grid w-fit grid-cols-3 gap-2'>
         {slots.map((item, index) => {
           if (item) {
             return (
               <div
                 key={item.id}
-                className='bg-muted/40 group relative aspect-square overflow-hidden rounded-lg border'
+                className='bg-muted/40 group relative size-28 overflow-hidden rounded-md border sm:size-32'
               >
                 <button
                   type='button'
@@ -165,16 +165,16 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
                 <button
                   type='button'
                   className={cn(
-                    'bg-background/90 text-foreground absolute top-1 right-1 inline-flex size-7 items-center justify-center rounded-full border shadow-sm',
+                    'bg-background/90 text-foreground absolute top-1 right-1 inline-flex size-6 items-center justify-center rounded-full border shadow-sm',
                     'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
                   )}
                   onClick={() => removeAt(index)}
                   disabled={props.disabled}
                   aria-label={t('Remove image {{n}}', { n: index + 1 })}
                 >
-                  <HugeiconsIcon icon={Cancel01Icon} className='size-3.5' />
+                  <HugeiconsIcon icon={Cancel01Icon} className='size-3' />
                 </button>
-                <span className='bg-background/80 absolute bottom-1 left-1 rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums'>
+                <span className='bg-background/80 absolute bottom-1 left-1 rounded px-1 py-0.5 text-[10px] font-medium tabular-nums'>
                   {index + 1}
                 </span>
               </div>
@@ -190,14 +190,14 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
               disabled={props.disabled || !canAdd}
               onClick={() => openPicker(null)}
               className={cn(
-                'border-muted-foreground/30 text-muted-foreground flex aspect-square flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-xs transition-colors',
+                'border-muted-foreground/30 text-muted-foreground flex size-28 flex-col items-center justify-center gap-0.5 rounded-md border border-dashed text-xs transition-colors sm:size-32',
                 canAdd && !props.disabled
                   ? 'hover:border-primary hover:text-primary cursor-pointer'
                   : 'cursor-not-allowed opacity-40'
               )}
               aria-label={t('Add image')}
             >
-              <span className='text-2xl leading-none font-light'>+</span>
+              <span className='text-xl leading-none font-light'>+</span>
               <span>{t('Add')}</span>
             </button>
           )
