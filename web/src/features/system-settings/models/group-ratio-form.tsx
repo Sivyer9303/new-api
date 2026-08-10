@@ -70,6 +70,7 @@ type GroupFormValues = {
   AutoGroups: string
   DefaultUseAutoGroup: boolean
   GroupSpecialUsableGroup: string
+  GroupAllowSubscription: string
 }
 
 type GroupRatioFormProps = {
@@ -170,6 +171,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               groupGroupRatio={form.watch('GroupGroupRatio')}
               autoGroups={form.watch('AutoGroups')}
               groupSpecialUsableGroup={form.watch('GroupSpecialUsableGroup')}
+              groupAllowSubscription={form.watch('GroupAllowSubscription')}
               onChange={(field, value) =>
                 handleFieldChange(field as keyof GroupFormValues, value)
               }
@@ -357,6 +359,31 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                   <FormDescription>
                     {t(
                       'Nested JSON defining per-group rules for adding (+:), removing (-:), or appending usable groups.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='GroupAllowSubscription'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Allow subscription by group')}</FormLabel>
+                  <FormControl>
+                    <JsonCodeEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      textareaRef={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'JSON map of token using-group → whether subscription billing is allowed. Missing groups default to true.'
                     )}
                   </FormDescription>
                   <FormMessage />

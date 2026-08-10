@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
@@ -338,13 +339,26 @@ func (s *BillingSession) syncRelayInfo() {
 // NewBillingSession 工厂 — 根据计费偏好创建会话并处理回退
 // ---------------------------------------------------------------------------
 
+// EffectiveBillingPreference resolves the user billing preference against the
+// token using-group policy. Groups that disallow subscription are forced to wallet_only.
+func EffectiveBillingPreference(userPreference, usingGroup string) string {
+	pref := common.NormalizeBillingPreference(userPreference)
+	if !ratio_setting.IsGroupAllowSubscription(usingGroup) {
+		return "wallet_only"
+	}
+	return pref
+}
+
 // NewBillingSession 根据用户计费偏好创建 BillingSession，处理 subscription_first / wallet_first 的回退。
 func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preConsumedQuota int) (*BillingSession, *types.NewAPIError) {
 	if relayInfo == nil {
 		return nil, types.NewError(fmt.Errorf("relayInfo is nil"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 
-	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
+	pref := EffectiveBillingPreference(
+		relayInfo.UserSetting.BillingPreference,
+		relayInfo.UsingGroup,
+	)
 
 	// 钱包路径需要先检查用户额度
 	tryWallet := func() (*BillingSession, *types.NewAPIError) {

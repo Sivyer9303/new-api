@@ -77,6 +77,7 @@ type GroupRatioVisualEditorProps = {
   groupGroupRatio: string
   autoGroups: string
   groupSpecialUsableGroup: string
+  groupAllowSubscription: string
   onChange: (field: string, value: string) => void
 }
 
@@ -86,6 +87,7 @@ type GroupPricingRow = {
   ratio: string
   topupRatio: string
   selectable: boolean
+  allowSubscription: boolean
   description: string
 }
 
@@ -123,6 +125,13 @@ function parseUsableMap(value: string): Record<string, string> {
   })
 }
 
+function parseAllowSubscriptionMap(value: string): Record<string, boolean> {
+  return safeJsonParse<Record<string, boolean>>(value, {
+    fallback: {},
+    silent: true,
+  })
+}
+
 function parseNestedRatioMap(
   value: string
 ): Record<string, Record<string, number>> {
@@ -135,15 +144,18 @@ function parseNestedRatioMap(
 function buildGroupPricingRows(
   groupRatio: string,
   userUsableGroups: string,
-  topupGroupRatio: string
+  topupGroupRatio: string,
+  groupAllowSubscription: string
 ): GroupPricingRow[] {
   const ratioMap = parseRatioMap(groupRatio)
   const usableMap = parseUsableMap(userUsableGroups)
   const topupMap = parseRatioMap(topupGroupRatio)
+  const allowMap = parseAllowSubscriptionMap(groupAllowSubscription)
   const names = new Set([
     ...Object.keys(ratioMap),
     ...Object.keys(usableMap),
     ...Object.keys(topupMap),
+    ...Object.keys(allowMap),
   ])
 
   return [...names].map((name) => ({
@@ -152,6 +164,8 @@ function buildGroupPricingRows(
     ratio: String(normalizeRatio(ratioMap[name])),
     topupRatio: Object.hasOwn(topupMap, name) ? String(topupMap[name]) : '',
     selectable: Object.hasOwn(usableMap, name),
+    // Missing keys default to true (subscription allowed).
+    allowSubscription: allowMap[name] !== false,
     description: String(usableMap[name] ?? ''),
   }))
 }
@@ -160,6 +174,7 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
   const groupRatio: Record<string, number> = {}
   const userUsableGroups: Record<string, string> = {}
   const topupGroupRatio: Record<string, number> = {}
+  const groupAllowSubscription: Record<string, boolean> = {}
 
   for (const row of rows) {
     const name = row.name.trim()
@@ -172,12 +187,17 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
     if (topup !== '' && Number.isFinite(Number(topup))) {
       topupGroupRatio[name] = Number(topup)
     }
+    // Persist only explicit denials so missing groups keep the default allow.
+    if (!row.allowSubscription) {
+      groupAllowSubscription[name] = false
+    }
   }
 
   return {
     GroupRatio: JSON.stringify(groupRatio, null, 2),
     UserUsableGroups: JSON.stringify(userUsableGroups, null, 2),
     TopupGroupRatio: JSON.stringify(topupGroupRatio, null, 2),
+    GroupAllowSubscription: JSON.stringify(groupAllowSubscription, null, 2),
   }
 }
 
@@ -187,18 +207,23 @@ function groupPricingSignature(rows: GroupPricingRow[]): string {
     groupRatio: parseRatioMap(serialized.GroupRatio),
     userUsableGroups: parseUsableMap(serialized.UserUsableGroups),
     topupGroupRatio: parseRatioMap(serialized.TopupGroupRatio),
+    groupAllowSubscription: parseAllowSubscriptionMap(
+      serialized.GroupAllowSubscription
+    ),
   })
 }
 
 function sourceGroupPricingSignature(
   groupRatio: string,
   userUsableGroups: string,
-  topupGroupRatio: string
+  topupGroupRatio: string,
+  groupAllowSubscription: string
 ): string {
   return JSON.stringify({
     groupRatio: parseRatioMap(groupRatio),
     userUsableGroups: parseUsableMap(userUsableGroups),
     topupGroupRatio: parseRatioMap(topupGroupRatio),
+    groupAllowSubscription: parseAllowSubscriptionMap(groupAllowSubscription),
   })
 }
 
@@ -258,6 +283,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   groupGroupRatio,
   autoGroups,
   groupSpecialUsableGroup,
+  groupAllowSubscription,
   onChange,
 }: GroupRatioVisualEditorProps) {
   const { t } = useTranslation()
@@ -329,6 +355,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
         groupRatio={groupRatio}
         userUsableGroups={userUsableGroups}
         topupGroupRatio={topupGroupRatio}
+        groupAllowSubscription={groupAllowSubscription}
         onChange={onChange}
         onShowDetail={setDetailGroup}
       />
@@ -420,6 +447,7 @@ type GroupPricingTableProps = {
   groupRatio: string
   userUsableGroups: string
   topupGroupRatio: string
+  groupAllowSubscription: string
   onChange: (field: string, value: string) => void
   onShowDetail: (name: string) => void
 }
@@ -428,19 +456,26 @@ function GroupPricingTable({
   groupRatio,
   userUsableGroups,
   topupGroupRatio,
+  groupAllowSubscription,
   onChange,
   onShowDetail,
 }: GroupPricingTableProps) {
   const { t } = useTranslation()
   const [rows, setRows] = useState<GroupPricingRow[]>(() =>
-    buildGroupPricingRows(groupRatio, userUsableGroups, topupGroupRatio)
+    buildGroupPricingRows(
+      groupRatio,
+      userUsableGroups,
+      topupGroupRatio,
+      groupAllowSubscription
+    )
   )
 
   useEffect(() => {
     const incomingSignature = sourceGroupPricingSignature(
       groupRatio,
       userUsableGroups,
-      topupGroupRatio
+      topupGroupRatio,
+      groupAllowSubscription
     )
     setRows((currentRows) => {
       if (groupPricingSignature(currentRows) === incomingSignature) {
@@ -449,10 +484,11 @@ function GroupPricingTable({
       return buildGroupPricingRows(
         groupRatio,
         userUsableGroups,
-        topupGroupRatio
+        topupGroupRatio,
+        groupAllowSubscription
       )
     })
-  }, [groupRatio, userUsableGroups, topupGroupRatio])
+  }, [groupRatio, userUsableGroups, topupGroupRatio, groupAllowSubscription])
 
   const emitRows = useCallback(
     (nextRows: GroupPricingRow[]) => {
@@ -461,6 +497,7 @@ function GroupPricingTable({
       onChange('GroupRatio', serialized.GroupRatio)
       onChange('UserUsableGroups', serialized.UserUsableGroups)
       onChange('TopupGroupRatio', serialized.TopupGroupRatio)
+      onChange('GroupAllowSubscription', serialized.GroupAllowSubscription)
     },
     [onChange]
   )
@@ -494,6 +531,7 @@ function GroupPricingTable({
         ratio: '1',
         topupRatio: '',
         selectable: true,
+        allowSubscription: true,
         description: '',
       },
     ])
@@ -603,6 +641,26 @@ function GroupPricingTable({
                         updateRow(row._id, 'selectable', checked === true)
                       }
                       aria-label={t('User selectable')}
+                    />
+                  </div>
+                ),
+              },
+              {
+                id: 'allow-subscription',
+                header: t('Allow subscription'),
+                className: 'w-32 text-center',
+                cell: (row) => (
+                  <div className='flex justify-center'>
+                    <Checkbox
+                      checked={row.allowSubscription}
+                      onCheckedChange={(checked) =>
+                        updateRow(
+                          row._id,
+                          'allowSubscription',
+                          checked === true
+                        )
+                      }
+                      aria-label={t('Allow subscription')}
                     />
                   </div>
                 ),

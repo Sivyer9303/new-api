@@ -1,0 +1,441 @@
+<!--
+  AI补给站自定义首页（定稿 v9）
+  用法：复制本文件全部内容 → 系统设置 → 站点与品牌 → 系统信息 → 首页内容 → 保存
+  粒子动画由前端 HomeHtmlFrame 平台桥接负责（#ais-fx），无需在本 HTML 内写粒子脚本
+  保存后请硬刷新首页（Ctrl+F5）
+-->
+<style>
+  .ais {
+    --bg: #f7f9fc;
+    --card: #ffffff;
+    --text: #0f172a;
+    --muted: #64748b;
+    --faint: #94a3b8;
+    --line: #e2e8f0;
+    --line-soft: #e8eef6;
+    --blue: #3b82f6;
+    --blue-deep: #2563eb;
+    --green: #10b981;
+    --green-dot: #22c55e;
+    --shadow: 0 22px 56px rgba(15, 23, 42, 0.09);
+    --demo-bg: rgba(255, 255, 255, 0.94);
+    --demo-head-bg: #fff;
+    --code-color: #334155;
+    --pre-bg: #f8fafc;
+    --meta-bg: #f8fafc;
+    --step-ring: #eff6ff;
+    --particle-a: #2563eb;
+    --particle-b: #3b82f6;
+    --particle-c: #60a5fa;
+    --particle-d: #38bdf8;
+    --particle-e: #93c5fd;
+    position: relative;
+    isolation: isolate;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  html.dark .ais,
+  html[data-theme="dark"] .ais {
+    --bg: #0b1220;
+    --card: #111827;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --faint: #64748b;
+    --line: #334155;
+    --line-soft: #1e293b;
+    --blue: #60a5fa;
+    --blue-deep: #93c5fd;
+    --green: #34d399;
+    --green-dot: #4ade80;
+    --shadow: 0 22px 56px rgba(0, 0, 0, 0.55);
+    --demo-bg: rgba(17, 24, 39, 0.96);
+    --demo-head-bg: #111827;
+    --code-color: #cbd5e1;
+    --pre-bg: #0f172a;
+    --meta-bg: #0f172a;
+    --step-ring: rgba(37, 99, 235, 0.22);
+    --particle-a: #93c5fd;
+    --particle-b: #60a5fa;
+    --particle-c: #38bdf8;
+    --particle-d: #818cf8;
+    --particle-e: #a5b4fc;
+  }
+
+  .ais *,
+  .ais *::before,
+  .ais *::after { box-sizing: border-box; }
+
+  .ais-fx {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+  }
+
+  .ais-fx::before {
+    content: "";
+    position: absolute;
+    width: 70vmax;
+    height: 70vmax;
+    right: -12%;
+    top: -18%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(59, 130, 246, 0.18) 0%, rgba(59, 130, 246, 0) 70%);
+  }
+
+  html.dark .ais-fx::before,
+  html[data-theme="dark"] .ais-fx::before {
+    background: radial-gradient(circle, rgba(96, 165, 250, 0.16) 0%, rgba(96, 165, 250, 0) 70%);
+  }
+
+  .ais-inner {
+    position: relative;
+    z-index: 1;
+    width: min(1180px, calc(100% - 48px));
+    margin: 0 auto;
+    padding: 88px 0 64px;
+  }
+
+  .ais-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 40px; }
+  .ais-brand img {
+    width: 56px; height: 56px; border-radius: 14px; object-fit: cover;
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.2); background: var(--card);
+  }
+  .ais-brand-title { font-size: 22px; font-weight: 700; line-height: 1.1; letter-spacing: 0.01em; }
+  .ais-brand-sub { margin-top: 2px; font-size: 13px; color: var(--muted); }
+
+  .ais-hero {
+    display: grid;
+    grid-template-columns: minmax(300px, 0.95fr) minmax(380px, 1.2fr);
+    gap: 40px; align-items: start; margin-bottom: 56px;
+  }
+
+  .ais-online {
+    display: inline-flex; align-items: center; gap: 10px; margin-bottom: 18px;
+    font-size: 14px; font-weight: 600; color: var(--blue-deep);
+  }
+  .ais-online i {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--green-dot);
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12);
+  }
+
+  .ais-hero h1 {
+    margin: 0 0 18px; font-size: clamp(36px, 4.2vw, 52px);
+    line-height: 1.12; font-weight: 700; letter-spacing: -0.035em;
+  }
+  .ais-lead {
+    margin: 0 0 28px; font-size: 18px; line-height: 1.7; color: var(--muted); max-width: 22em;
+  }
+
+  .ais-points { display: grid; gap: 16px; max-width: 28em; padding: 0; margin: 0; list-style: none; }
+  .ais-points li { display: flex; gap: 12px; align-items: flex-start; }
+  .ais-points li::before {
+    content: ""; width: 7px; height: 7px; margin-top: 9px; flex: none;
+    border-radius: 50%; background: var(--blue);
+  }
+  .ais-points strong { display: block; font-size: 17px; font-weight: 600; }
+  .ais-points span { display: block; margin-top: 2px; font-size: 14px; color: var(--muted); }
+
+  .ais-demo-wrap { position: relative; }
+  .ais-demo-wrap input { position: absolute; opacity: 0; pointer-events: none; }
+  .ais-demo {
+    background: var(--demo-bg); border: 1px solid var(--line); border-radius: 20px;
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .ais-demo-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--demo-head-bg);
+  }
+  .ais-tabs { display: flex; gap: 18px; }
+  .ais-tabs label {
+    padding: 16px 0; border-bottom: 2px solid transparent; font-size: 14px;
+    font-weight: 600; color: var(--faint); cursor: pointer; user-select: none;
+  }
+  .ais-status {
+    display: flex; align-items: center; gap: 7px; font-size: 13px;
+    font-weight: 600; color: var(--green); white-space: nowrap;
+  }
+  .ais-status i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .ais-demo-body { display: grid; }
+  .ais-panel {
+    grid-area: 1 / 1; visibility: hidden; opacity: 0; pointer-events: none; z-index: 0;
+  }
+
+  #ais-tab-chat:checked ~ .ais-demo .ais-tabs label[for="ais-tab-chat"],
+  #ais-tab-responses:checked ~ .ais-demo .ais-tabs label[for="ais-tab-responses"],
+  #ais-tab-claude:checked ~ .ais-demo .ais-tabs label[for="ais-tab-claude"],
+  #ais-tab-gemini:checked ~ .ais-demo .ais-tabs label[for="ais-tab-gemini"] {
+    color: var(--blue-deep); border-bottom-color: var(--blue);
+  }
+  #ais-tab-chat:checked ~ .ais-demo .ais-panel-chat,
+  #ais-tab-responses:checked ~ .ais-demo .ais-panel-responses,
+  #ais-tab-claude:checked ~ .ais-demo .ais-panel-claude,
+  #ais-tab-gemini:checked ~ .ais-demo .ais-panel-gemini {
+    visibility: visible; opacity: 1; pointer-events: auto; z-index: 1;
+  }
+
+  .ais-endpoint { display: flex; align-items: center; gap: 10px; padding: 16px 18px 10px; }
+  .ais-method {
+    font-size: 12px; font-weight: 700; color: var(--blue-deep);
+    background: rgba(59, 130, 246, 0.1); padding: 4px 10px; border-radius: 999px;
+  }
+  .ais-endpoint code {
+    font-size: 14px; color: var(--code-color);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all;
+  }
+  .ais-block { padding: 0 18px 14px; }
+  .ais-block-label { margin-bottom: 7px; font-size: 11px; letter-spacing: 0.12em; color: var(--faint); }
+  .ais-block pre {
+    margin: 0; padding: 14px; border-radius: 14px; background: var(--pre-bg);
+    border: 1px solid var(--line); font-size: 12.5px; line-height: 1.6; color: var(--code-color);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .ais-meta {
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    padding: 12px 18px; border-top: 1px solid var(--line); background: var(--meta-bg);
+    font-size: 12px; color: var(--faint);
+  }
+
+  .ais-works {
+    margin-bottom: 48px; padding-top: 22px; border-top: 1px solid var(--line-soft);
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px 22px;
+    color: var(--faint); font-size: 16px;
+  }
+  .ais-works strong { color: var(--muted); font-size: 14px; font-weight: 600; }
+
+  .ais-how { margin-bottom: 40px; }
+  .ais-how-kicker { margin-bottom: 10px; font-size: 15px; font-weight: 600; color: var(--blue-deep); }
+  .ais-how h2 { margin: 0 0 32px; font-size: 30px; letter-spacing: -0.025em; font-weight: 700; }
+
+  .ais-steps { position: relative; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 28px; }
+  .ais-steps::before {
+    content: ""; position: absolute; left: 8%; right: 8%; top: 13px; height: 2px;
+    background: linear-gradient(90deg, #bfdbfe, #60a5fa, #bfdbfe);
+  }
+  html.dark .ais-steps::before,
+  html[data-theme="dark"] .ais-steps::before {
+    background: linear-gradient(90deg, #1e3a8a, #60a5fa, #1e3a8a);
+  }
+  .ais-step-dot {
+    width: 14px; height: 14px; border-radius: 50%; background: var(--blue);
+    margin-bottom: 16px; position: relative; z-index: 1;
+    box-shadow: 0 0 0 6px var(--step-ring);
+  }
+  .ais-step-idx { margin-bottom: 6px; font-size: 14px; color: var(--faint); }
+  .ais-step-title { margin-bottom: 8px; font-size: 18px; font-weight: 600; }
+  .ais-step-desc { font-size: 15px; line-height: 1.6; color: var(--muted); }
+
+  .ais-footer {
+    border-top: 1px solid var(--line-soft); padding-top: 20px;
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    color: var(--faint); font-size: 14px;
+  }
+
+  @media (max-width: 900px) {
+    .ais-inner { width: min(1180px, calc(100% - 32px)); padding-top: 32px; }
+    .ais-hero { grid-template-columns: 1fr; gap: 28px; }
+    .ais-steps { grid-template-columns: 1fr; gap: 22px; }
+    .ais-steps::before { display: none; }
+  }
+</style>
+
+<div class="ais" id="ais-root">
+  <div class="ais-fx" id="ais-fx" aria-hidden="true"></div>
+
+  <div class="ais-inner">
+    <header class="ais-brand">
+      <img src="https://i.ibb.co/G4My37tG/logo.png" width="56" height="56" alt="AI补给站" />
+      <div>
+        <div class="ais-brand-title">AI补给站</div>
+        <div class="ais-brand-sub">AI Supply Station</div>
+      </div>
+    </header>
+
+    <section class="ais-hero">
+      <div>
+        <div class="ais-online"><i></i>Online for builders</div>
+        <h1>为你的灵感<br />持续补给算力</h1>
+        <p class="ais-lead">
+          Unified AI gateway for builders.<br />
+          多模型聚合，高可用路由，开发者友好的兼容 API。
+        </p>
+        <ul class="ais-points">
+          <li><div><strong>多模型聚合</strong><span>One gateway, many models</span></div></li>
+          <li><div><strong>高可用路由</strong><span>Failover-ready routing</span></div></li>
+          <li><div><strong>开发者友好 API</strong><span>OpenAI-compatible endpoints</span></div></li>
+        </ul>
+      </div>
+
+      <div class="ais-demo-wrap">
+        <input type="radio" name="ais-demo" id="ais-tab-chat" checked />
+        <input type="radio" name="ais-demo" id="ais-tab-responses" />
+        <input type="radio" name="ais-demo" id="ais-tab-claude" />
+        <input type="radio" name="ais-demo" id="ais-tab-gemini" />
+
+        <div class="ais-demo">
+          <div class="ais-demo-head">
+            <div class="ais-tabs">
+              <label for="ais-tab-chat">Chat</label>
+              <label for="ais-tab-responses">Responses</label>
+              <label for="ais-tab-claude">Claude</label>
+              <label for="ais-tab-gemini">Gemini</label>
+            </div>
+            <div class="ais-status"><i></i>200 OK</div>
+          </div>
+
+          <div class="ais-demo-body">
+            <div class="ais-panel ais-panel-chat">
+              <div class="ais-endpoint"><span class="ais-method">POST</span><code>/v1/chat/completions</code></div>
+              <div class="ais-block">
+                <div class="ais-block-label">REQUEST</div>
+                <pre>curl -X POST "/v1/chat/completions" \
+  -H "Authorization: Bearer sk-••••" \
+  -d '{
+    "model": "your-model",
+    "messages": [{ "role": "user", "content": "..." }]
+  }'</pre>
+              </div>
+              <div class="ais-block">
+                <div class="ais-block-label">RESPONSE</div>
+                <pre>{
+  "choices": [{ "message": { "content": "Chat request routed." } }],
+  "usage": { "total_tokens": 27 }
+}</pre>
+              </div>
+              <div class="ais-meta"><span>142 MS · 27 TOKENS · COST $0.00062</span><span>STREAM · SSE</span></div>
+            </div>
+
+            <div class="ais-panel ais-panel-responses">
+              <div class="ais-endpoint"><span class="ais-method">POST</span><code>/v1/responses</code></div>
+              <div class="ais-block">
+                <div class="ais-block-label">REQUEST</div>
+                <pre>curl -X POST "/v1/responses" \
+  -H "Authorization: Bearer sk-••••" \
+  -d '{
+    "model": "your-model",
+    "input": "..."
+  }'</pre>
+              </div>
+              <div class="ais-block">
+                <div class="ais-block-label">RESPONSE</div>
+                <pre>{
+  "output": [{ "type": "output_text", "text": "Response workflow ready." }],
+  "usage": { "total_tokens": 31 }
+}</pre>
+              </div>
+              <div class="ais-meta"><span>168 MS · 31 TOKENS · COST $0.00071</span><span>STREAM · SSE</span></div>
+            </div>
+
+            <div class="ais-panel ais-panel-claude">
+              <div class="ais-endpoint"><span class="ais-method">POST</span><code>/v1/messages</code></div>
+              <div class="ais-block">
+                <div class="ais-block-label">REQUEST</div>
+                <pre>curl -X POST "/v1/messages" \
+  -H "x-api-key: sk-••••" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "your-model",
+    "max_tokens": 1024,
+    "messages": [{ "role": "user", "content": "..." }]
+  }'</pre>
+              </div>
+              <div class="ais-block">
+                <div class="ais-block-label">RESPONSE</div>
+                <pre>{
+  "content": [{ "type": "text", "text": "Claude message routed." }],
+  "usage": { "input_tokens": 11, "output_tokens": 18 }
+}</pre>
+              </div>
+              <div class="ais-meta"><span>156 MS · 29 TOKENS · COST $0.00087</span><span>STREAM · SSE</span></div>
+            </div>
+
+            <div class="ais-panel ais-panel-gemini">
+              <div class="ais-endpoint"><span class="ais-method">POST</span><code>/v1beta/models/{model}:generateContent</code></div>
+              <div class="ais-block">
+                <div class="ais-block-label">REQUEST</div>
+                <pre>curl -X POST "/v1beta/models/{model}:generateContent" \
+  -H "x-goog-api-key: sk-••••" \
+  -d '{
+    "contents": [{ "role": "user", "parts": [{ "text": "..." }] }]
+  }'</pre>
+              </div>
+              <div class="ais-block">
+                <div class="ais-block-label">RESPONSE</div>
+                <pre>{
+  "candidates": [{ "content": { "parts": [{ "text": "Gemini request served." }] } }],
+  "usageMetadata": { "totalTokenCount": 25 }
+}</pre>
+              </div>
+              <div class="ais-meta"><span>93 MS · 25 TOKENS · COST $0.00054</span><span>STREAM · SSE</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="ais-works">
+      <strong>Works with</strong>
+      <span>OpenAI</span><span>Claude</span><span>Gemini</span>
+      <span>DeepSeek</span><span>Qwen</span><span>Llama</span>
+    </section>
+
+    <section class="ais-how">
+      <div class="ais-how-kicker">How it works</div>
+      <h2>三步开始补给</h2>
+      <div class="ais-steps">
+        <div>
+          <div class="ais-step-dot"></div>
+          <div class="ais-step-idx">01 · Configure</div>
+          <div class="ais-step-title">配置渠道与权限</div>
+          <div class="ais-step-desc">添加密钥、渠道，设定访问范围。</div>
+        </div>
+        <div>
+          <div class="ais-step-dot"></div>
+          <div class="ais-step-idx">02 · Connect</div>
+          <div class="ais-step-title">用兼容 API 接入</div>
+          <div class="ais-step-desc">OpenAI / Claude / Gemini 路由即用。</div>
+        </div>
+        <div>
+          <div class="ais-step-dot"></div>
+          <div class="ais-step-idx">03 · Monitor</div>
+          <div class="ais-step-title">观测用量与性能</div>
+          <div class="ais-step-desc">实时查看成本、延迟与成功率。</div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="ais-footer">
+      <span>AI补给站 · AI Supply Station</span>
+      <span>Built for developers</span>
+    </footer>
+  </div>
+</div>
+
+<script>
+(function () {
+  var reduceMotion =
+    window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduceMotion) return;
+  var ids = ["ais-tab-chat", "ais-tab-responses", "ais-tab-claude", "ais-tab-gemini"];
+  var tabIndex = 0;
+  var timer = setInterval(function () {
+    tabIndex = (tabIndex + 1) % ids.length;
+    var tab = document.getElementById(ids[tabIndex]);
+    if (tab) tab.checked = true;
+  }, 4500);
+  document.querySelectorAll('label[for^="ais-tab-"]').forEach(function (label) {
+    label.addEventListener("click", function () {
+      clearInterval(timer);
+    });
+  });
+})();
+</script>
