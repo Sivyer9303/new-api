@@ -100,6 +100,7 @@ export function Home() {
         <PublicLayout showMainContainer={false}>
           <HomeHtmlFrame
             html={content}
+            theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
             iframeRef={iframeRef}
             onLoad={syncIframePreferences}
           />

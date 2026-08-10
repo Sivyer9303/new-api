@@ -34,6 +34,7 @@ import {
   Ticket,
   User,
   Users,
+  Video,
   Wallet,
 } from 'lucide-react'
 import { useMemo } from 'react'
@@ -67,6 +68,10 @@ export function useSidebarData(): SidebarData {
     const lotteryEnabled = Boolean(
       status?.lottery_enabled ?? status?.data?.lottery_enabled
     )
+    const silkroadVideoToolEnabled = Boolean(
+      status?.silkroad_video_tool_enabled ??
+        status?.data?.silkroad_video_tool_enabled
+    )
     const items: NavItem[] = []
     if (lotteryEnabled) {
       items.push({
@@ -80,6 +85,13 @@ export function useSidebarData(): SidebarData {
         title: t('Availability Monitor'),
         url: '/extensions/availability',
         icon: ActivitySquare,
+      })
+    }
+    if (silkroadVideoToolEnabled) {
+      items.push({
+        title: t('Seedance video tool'),
+        url: '/extensions/seedance',
+        icon: Video,
       })
     }
     if (Array.isArray(pages)) {

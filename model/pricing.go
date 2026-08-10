@@ -423,7 +423,10 @@ func updatePricing() {
 		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
 		if findPrice {
 			pricing.ModelPrice = modelPrice
-			pricing.QuotaType = 1
+			pricing.QuotaType = resolveModelQuotaType(model, true)
+			if pricing.QuotaType == 2 {
+				pricing.BillingMode = billing_setting.BillingModePerSecond
+			}
 		} else {
 			modelRatio, _, _ := ratio_setting.GetModelRatio(model)
 			pricing.ModelRatio = modelRatio
@@ -447,7 +450,7 @@ func updatePricing() {
 			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(model)
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
-		if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
+		if billingMode := billing_setting.GetBillingMode(model); billingMode == billing_setting.BillingModeTieredExpr {
 			if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = expr
@@ -472,6 +475,18 @@ func updatePricing() {
 	modelEnableGroupsLock.Unlock()
 
 	lastGetPricingTime = time.Now()
+}
+
+// resolveModelQuotaType maps ModelPrice + billing_mode to plaza quota_type.
+// 0 = token, 1 = per-request, 2 = per-second.
+func resolveModelQuotaType(model string, findPrice bool) int {
+	if !findPrice {
+		return 0
+	}
+	if billing_setting.GetBillingMode(model) == billing_setting.BillingModePerSecond {
+		return 2
+	}
+	return 1
 }
 
 // GetSupportedEndpointMap 返回全局端点到路径的映射

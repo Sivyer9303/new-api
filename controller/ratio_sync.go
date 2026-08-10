@@ -417,7 +417,10 @@ func FetchUpstreamRatios(c *gin.Context) {
 					billingModeMap[item.ModelName] = billing_setting.BillingModeTieredExpr
 					billingExprMap[item.ModelName] = item.BillingExpr
 				}
-				if item.QuotaType == 1 {
+				if item.BillingMode == billing_setting.BillingModePerSecond {
+					billingModeMap[item.ModelName] = billing_setting.BillingModePerSecond
+				}
+				if item.QuotaType == 1 || item.QuotaType == 2 {
 					modelPriceMap[item.ModelName] = item.ModelPrice
 				} else {
 					modelRatioMap[item.ModelName] = item.ModelRatio

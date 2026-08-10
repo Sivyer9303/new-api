@@ -485,6 +485,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		taskResult.TaskID = t.TaskID
 		taskResult.Status = string(t.Status)
 		taskResult.Url = t.GetResultURL()
+		if taskResult.Url == "" || isSilkRoadContentProxyURL(taskResult.Url) {
+			taskResult.Url = ExtractUpstreamVideoURLFromJSON(responseBody)
+		}
 		taskResult.Progress = t.Progress
 		taskResult.Reason = t.FailReason
 		task.Data = t.Data
@@ -539,9 +542,29 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		if task.FinishTime == 0 {
 			task.FinishTime = now
 		}
-		if strings.HasPrefix(taskResult.Url, "data:") {
+		if shouldSilkRoadStore(task) {
+			// Always queue local ingest + redact outbound Data; never put upstream CDN in ResultURL.
+			applySilkRoadSuccessStore(task, taskResult.Url, responseBody)
+		} else if strings.HasPrefix(taskResult.Url, "data:") {
 			// data: URI (e.g. Vertex base64 encoded video) — keep in Data, not in ResultURL
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
+		} else if silkRoadNewAPIAvoidUpstreamResultURL(task) {
+			// Storage enabled but ingest/public incomplete — never expose upstream CDN URL.
+			logger.LogWarn(ctx, fmt.Sprintf(
+				"silkroad storage enabled but incomplete config; using proxy ResultURL for task %s",
+				task.TaskID,
+			))
+			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
+			cleaned, redactErr := applySilkRoadDataRedaction(task.Data)
+			if redactErr != nil {
+				logger.LogWarn(ctx, fmt.Sprintf(
+					"silkroad redact failed task=%s: %s; clearing task.Data",
+					task.TaskID, redactErr.Error(),
+				))
+				task.Data = []byte("{}")
+			} else {
+				task.Data = cleaned
+			}
 		} else if taskResult.Url != "" {
 			// Direct upstream URL (e.g. Kling, Ali, Doubao, etc.)
 			task.PrivateData.ResultURL = taskResult.Url
@@ -561,7 +584,15 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		logger.LogInfo(ctx, fmt.Sprintf("Task %s failed: %s", task.TaskID, task.FailReason))
 		taskResult.Progress = taskcommon.ProgressComplete
 		if quota != 0 {
-			shouldRefund = true
+			if taskResult.NoRefund {
+				// 适配器判定需人工介入（如上游返回未知终态）：保留预扣额度，不自动退款。
+				logger.LogWarn(ctx, fmt.Sprintf(
+					"Task %s failed but refund is withheld pending manual review, quota %d retained: %s",
+					task.TaskID, quota, task.FailReason,
+				))
+			} else {
+				shouldRefund = true
+			}
 		}
 	default:
 		return fmt.Errorf("unknown task status %s for task %s", taskResult.Status, task.TaskID)

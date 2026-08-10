@@ -3,6 +3,7 @@ package ratio_setting
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -27,10 +28,17 @@ var groupGroupRatioMap = types.NewRWMap[string, map[string]float64]()
 
 var defaultGroupSpecialUsableGroup = map[string]map[string]string{}
 
+// defaultGroupAllowSubscription is intentionally empty: missing groups default to
+// allowing subscription billing (see IsGroupAllowSubscription).
+var defaultGroupAllowSubscription = map[string]bool{}
+
 type GroupRatioSetting struct {
 	GroupRatio              *types.RWMap[string, float64]            `json:"group_ratio"`
 	GroupGroupRatio         *types.RWMap[string, map[string]float64] `json:"group_group_ratio"`
 	GroupSpecialUsableGroup *types.RWMap[string, map[string]string]  `json:"group_special_usable_group"`
+	// GroupAllowSubscription controls whether requests using a token group may
+	// bill against subscription quota. Missing keys default to true.
+	GroupAllowSubscription *types.RWMap[string, bool] `json:"group_allow_subscription"`
 }
 
 var groupRatioSetting GroupRatioSetting
@@ -38,12 +46,15 @@ var groupRatioSetting GroupRatioSetting
 func init() {
 	groupSpecialUsableGroup := types.NewRWMap[string, map[string]string]()
 	groupSpecialUsableGroup.AddAll(defaultGroupSpecialUsableGroup)
+	groupAllowSubscription := types.NewRWMap[string, bool]()
+	groupAllowSubscription.AddAll(defaultGroupAllowSubscription)
 
 	groupRatioMap.AddAll(defaultGroupRatio)
 	groupGroupRatioMap.AddAll(defaultGroupGroupRatio)
 
 	groupRatioSetting = GroupRatioSetting{
 		GroupSpecialUsableGroup: groupSpecialUsableGroup,
+		GroupAllowSubscription:  groupAllowSubscription,
 		GroupRatio:              groupRatioMap,
 		GroupGroupRatio:         groupGroupRatioMap,
 	}
@@ -56,7 +67,29 @@ func GetGroupRatioSetting() *GroupRatioSetting {
 		groupRatioSetting.GroupSpecialUsableGroup = types.NewRWMap[string, map[string]string]()
 		groupRatioSetting.GroupSpecialUsableGroup.AddAll(defaultGroupSpecialUsableGroup)
 	}
+	if groupRatioSetting.GroupAllowSubscription == nil {
+		groupRatioSetting.GroupAllowSubscription = types.NewRWMap[string, bool]()
+		groupRatioSetting.GroupAllowSubscription.AddAll(defaultGroupAllowSubscription)
+	}
 	return &groupRatioSetting
+}
+
+// IsGroupAllowSubscription reports whether the token using-group may bill from
+// subscription. Unconfigured groups default to true for backward compatibility.
+func IsGroupAllowSubscription(usingGroup string) bool {
+	usingGroup = strings.TrimSpace(usingGroup)
+	if usingGroup == "" {
+		return true
+	}
+	setting := GetGroupRatioSetting()
+	if setting.GroupAllowSubscription == nil {
+		return true
+	}
+	allowed, ok := setting.GroupAllowSubscription.Get(usingGroup)
+	if !ok {
+		return true
+	}
+	return allowed
 }
 
 func GetGroupRatioCopy() map[string]float64 {

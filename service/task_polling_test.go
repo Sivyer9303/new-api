@@ -372,6 +372,111 @@ func TestUpdateVideoTasksMixedChannelSleepSettings(t *testing.T) {
 	assert.ElementsMatch(t, []string{"upstream_sleepy_1", "upstream_fast_1", "upstream_fast_2"}, adaptor.fetchedTaskIDs())
 }
 
+// videoFailurePollingAdaptor simulates an upstream whose poll result fails the
+// task; noRefund toggles the manual-review path (unknown upstream status).
+type videoFailurePollingAdaptor struct {
+	noRefund bool
+	reason   string
+}
+
+func (a *videoFailurePollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
+
+func (a *videoFailurePollingAdaptor) FetchTask(_ string, _ string, _ map[string]any, _ string) (*http.Response, error) {
+	// Non-envelope body so updateVideoSingleTask falls through to ParseTaskResult.
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader([]byte(`{"status":"expired"}`))),
+	}, nil
+}
+
+func (a *videoFailurePollingAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+	return &relaycommon.TaskInfo{
+		Status:   model.TaskStatusFailure,
+		Reason:   a.reason,
+		NoRefund: a.noRefund,
+	}, nil
+}
+
+func (a *videoFailurePollingAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
+	return 0
+}
+
+// 上游返回未知终态（NoRefund=true）时：任务标记失败，但预扣额度必须保留、
+// 不产生退款日志，等待人工介入 —— 防止"用户已退款、上游已扣费"的资金损失。
+func TestUpdateVideoTasksNoRefundFailureRetainsQuota(t *testing.T) {
+	truncate(t)
+
+	const userID, tokenID, channelID = 501, 501, 501
+	const initialUserQuota, initialTokenQuota, taskQuota = 10_000, 6_000, 2_500
+
+	seedUser(t, userID, initialUserQuota)
+	seedToken(t, tokenID, userID, "sk-video-no-refund", initialTokenQuota)
+	seedTaskPollingChannel(t, channelID, true)
+
+	task := makeTask(userID, channelID, taskQuota, tokenID, BillingSourceWallet, 0)
+	task.TaskID = "video_public_no_refund"
+	task.Platform = constant.TaskPlatform("kling")
+	task.PrivateData.UpstreamTaskID = "video_upstream_no_refund"
+	require.NoError(t, model.DB.Create(task).Error)
+
+	adaptor := &videoFailurePollingAdaptor{noRefund: true, reason: "上游返回未知状态，需人工介入"}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	require.NoError(t, UpdateVideoTasks(context.Background(), constant.TaskPlatform("kling"), map[int][]string{
+		channelID: {task.GetUpstreamTaskID()},
+	}, map[string]*model.Task{
+		task.GetUpstreamTaskID(): task,
+	}))
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Contains(t, reloaded.FailReason, "人工介入")
+	// 额度保留在任务上，未退款、无退款日志
+	assert.Equal(t, taskQuota, reloaded.Quota)
+	assert.Equal(t, initialUserQuota, getUserQuota(t, userID))
+	assert.Equal(t, initialTokenQuota, getTokenRemainQuota(t, tokenID))
+	assert.Equal(t, int64(0), countLogs(t))
+}
+
+// 对照：普通失败（NoRefund=false）仍然正常退款，确保新增开关没有反向影响。
+func TestUpdateVideoTasksNormalFailureStillRefunds(t *testing.T) {
+	truncate(t)
+
+	const userID, tokenID, channelID = 502, 502, 502
+	const initialUserQuota, initialTokenQuota, taskQuota = 10_000, 6_000, 2_500
+
+	seedUser(t, userID, initialUserQuota)
+	seedToken(t, tokenID, userID, "sk-video-refund", initialTokenQuota)
+	seedTaskPollingChannel(t, channelID, true)
+
+	task := makeTask(userID, channelID, taskQuota, tokenID, BillingSourceWallet, 0)
+	task.TaskID = "video_public_refund"
+	task.Platform = constant.TaskPlatform("kling")
+	task.PrivateData.UpstreamTaskID = "video_upstream_refund"
+	require.NoError(t, model.DB.Create(task).Error)
+
+	adaptor := &videoFailurePollingAdaptor{noRefund: false, reason: "task failed"}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	require.NoError(t, UpdateVideoTasks(context.Background(), constant.TaskPlatform("kling"), map[int][]string{
+		channelID: {task.GetUpstreamTaskID()},
+	}, map[string]*model.Task{
+		task.GetUpstreamTaskID(): task,
+	}))
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Zero(t, reloaded.Quota)
+	assert.Equal(t, initialUserQuota+taskQuota, getUserQuota(t, userID))
+	assert.Equal(t, int64(1), countLogs(t))
+}
+
 func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	truncate(t)
 

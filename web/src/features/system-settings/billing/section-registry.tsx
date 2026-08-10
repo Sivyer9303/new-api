@@ -49,7 +49,9 @@ const getGroupDefaults = (settings: BillingSettings) => ({
   MaxTokenAutoGroups: settings.MaxTokenAutoGroups,
   DefaultUseAutoGroup: settings.DefaultUseAutoGroup,
   GroupSpecialUsableGroup:
-    settings['group_ratio_setting.group_special_usable_group'],
+    settings['group_ratio_setting.group_special_usable_group'] ?? '{}',
+  GroupAllowSubscription:
+    settings['group_ratio_setting.group_allow_subscription'] ?? '{}',
 })
 
 const BILLING_SECTIONS = [

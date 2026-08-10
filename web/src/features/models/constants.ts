@@ -149,6 +149,7 @@ export function getQuotaTypeConfig(
   return {
     0: { label: t('Usage-based'), color: 'violet' },
     1: { label: t('Per-call'), color: 'teal' },
+    2: { label: t('Per-second'), color: 'purple' },
   }
 }
 

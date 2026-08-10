@@ -18,7 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, KeyRound, Settings2, WalletCards } from 'lucide-react'
+import {
+  ChevronDown,
+  CreditCard,
+  KeyRound,
+  Settings2,
+  WalletCards,
+} from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -86,6 +92,7 @@ import {
   ApiKeyGroupCombobox,
   type ApiKeyGroupOption,
 } from './api-key-group-combobox'
+import { SubscriptionAllowLabel } from './api-keys-cells'
 import { useApiKeys } from './api-keys-provider'
 import { AutoGroupOrderEditor } from './auto-group-order-editor'
 
@@ -164,6 +171,12 @@ export function ApiKeysMutateDrawer({
         ratio: info.ratio,
       })),
     [groupsData]
+  )
+  const groupAllowSubscription = Object.fromEntries(
+    Object.entries(groupsData?.data || {}).map(([key, info]) => [
+      key,
+      info.allow_subscription !== false,
+    ])
   )
   const backendHasAuto = groups.some((g) => g.value === 'auto')
   const availableAutoGroupNames = useMemo(
@@ -359,6 +372,8 @@ export function ApiKeysMutateDrawer({
     : t('Enter quota in {{currency}}', { currency: currencyLabel })
   const autoGroupsMode = form.watch('auto_groups_mode')
   const unlimitedQuota = form.watch('unlimited_quota')
+  const subscriptionAllowed =
+    !selectedGroup || groupAllowSubscription[selectedGroup] !== false
 
   return (
     <Sheet
@@ -599,6 +614,32 @@ export function ApiKeysMutateDrawer({
                   )}
                 />
               )}
+            </SideDrawerSection>
+
+            <SideDrawerSection>
+              <SideDrawerSectionHeader
+                title={t('Allow subscription')}
+                description={t(
+                  'Based on the selected token group billing policy. This is not editable here.'
+                )}
+                icon={<CreditCard className='size-4' />}
+                iconTone={subscriptionAllowed ? 'success' : 'destructive'}
+              />
+              <div className='rounded-md border px-3 py-3'>
+                <div className='flex flex-wrap items-center justify-between gap-2'>
+                  <span className='text-muted-foreground text-sm'>
+                    {t('Subscription billing')}
+                  </span>
+                  <SubscriptionAllowLabel allowed={subscriptionAllowed} />
+                </div>
+                {!subscriptionAllowed && (
+                  <p className='text-destructive mt-2 text-xs font-medium'>
+                    {t(
+                      'Requests using this token group can only bill from wallet balance.'
+                    )}
+                  </p>
+                )}
+              </div>
             </SideDrawerSection>
 
             <SideDrawerSection>

@@ -42,6 +42,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { getUserGroups } from '@/lib/api'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -53,7 +54,11 @@ import {
   ERROR_MESSAGES,
 } from '../constants'
 import type { ApiKey } from '../types'
-import { ApiKeyCell, UnlimitedQuotaBadge } from './api-keys-cells'
+import {
+  ApiKeyCell,
+  SubscriptionAllowLabel,
+  UnlimitedQuotaBadge,
+} from './api-keys-cells'
 import { useApiKeysColumns } from './api-keys-columns'
 import { useApiKeys } from './api-keys-provider'
 import { DataTableBulkActions } from './data-table-bulk-actions'
@@ -102,6 +107,17 @@ function ApiKeysMobileList({
 }) {
   const { t } = useTranslation()
   const rows = table.getRowModel().rows
+  const { data: groupsData } = useQuery({
+    queryKey: ['user-groups'],
+    queryFn: getUserGroups,
+    staleTime: 0,
+  })
+  const allowSubscription = Object.fromEntries(
+    Object.entries(groupsData?.data || {}).map(([key, info]) => [
+      key,
+      info.allow_subscription !== false,
+    ])
+  )
 
   if (isLoading) return <ApiKeysMobileSkeleton />
 
@@ -178,6 +194,17 @@ function ApiKeysMobileList({
                   </span>
                 </span>
               )}
+            </div>
+            <div className='flex items-center justify-between gap-2 text-xs'>
+              <span className='text-muted-foreground'>
+                {t('Allow subscription')}
+              </span>
+              <SubscriptionAllowLabel
+                allowed={
+                  !apiKey.group ||
+                  allowSubscription[apiKey.group] !== false
+                }
+              />
             </div>
           </div>
         )

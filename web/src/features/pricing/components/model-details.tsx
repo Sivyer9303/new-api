@@ -67,7 +67,7 @@ import {
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
+import { getAvailableGroups, isPerSecondModel, isTokenBasedModel } from '../lib/model-helpers'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import type {
   ModelCapability,
@@ -79,6 +79,7 @@ import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
+import { PriceWithRatio } from './price-with-ratio'
 
 // ----------------------------------------------------------------------------
 // Local UI helpers
@@ -662,8 +663,8 @@ function PriceSection(props: {
                 <div className='text-muted-foreground text-xs'>
                   {t(entry.shortLabel)}
                 </div>
-                <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
-                  {entry.formatted}
+                <div className='mt-1 text-base'>
+                  <PriceWithRatio value={entry.formatted} />
                   <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
                     / {tokenUnitLabel}
                   </span>
@@ -687,8 +688,11 @@ function PriceSection(props: {
                   <span className='text-muted-foreground/70 text-sm'>
                     {t(entry.shortLabel)}
                   </span>
-                  <span className='text-muted-foreground font-mono text-sm tabular-nums'>
-                    {entry.formatted}
+                  <span className='text-sm'>
+                    <PriceWithRatio
+                      value={entry.formatted}
+                      actualClassName='font-semibold'
+                    />
                     <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
                       / {tokenUnitLabel}
                     </span>
@@ -708,17 +712,21 @@ function PriceSection(props: {
         <SectionTitle>{t('Base Price')}</SectionTitle>
         <div className='flex items-baseline justify-between'>
           <span className='text-muted-foreground text-sm'>
-            {t('Per request')}
+            {isPerSecondModel(props.model)
+              ? t('Per second')
+              : t('Per request')}
           </span>
-          <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
-            {formatFixedPrice(
-              props.model,
-              baseGroupKey,
-              props.showRechargePrice,
-              props.priceRate,
-              props.usdExchangeRate,
-              baseGroupRatioMap
-            )}
+          <span className='text-sm'>
+            <PriceWithRatio
+              value={formatFixedPrice(
+                props.model,
+                baseGroupKey,
+                props.showRechargePrice,
+                props.priceRate,
+                props.usdExchangeRate,
+                baseGroupRatioMap
+              )}
+            />
           </span>
         </div>
       </section>
@@ -728,16 +736,18 @@ function PriceSection(props: {
   const secondaryItems = secondaryPriceTypes.filter((p) => p.available)
   const renderPrice = (type: PriceType) => (
     <>
-      {formatGroupPrice(
-        props.model,
-        baseGroupKey,
-        type,
-        props.tokenUnit,
-        props.showRechargePrice,
-        props.priceRate,
-        props.usdExchangeRate,
-        baseGroupRatioMap
-      )}
+      <PriceWithRatio
+        value={formatGroupPrice(
+          props.model,
+          baseGroupKey,
+          type,
+          props.tokenUnit,
+          props.showRechargePrice,
+          props.priceRate,
+          props.usdExchangeRate,
+          baseGroupRatioMap
+        )}
+      />
       <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
         / {tokenUnitLabel}
       </span>
@@ -751,9 +761,7 @@ function PriceSection(props: {
         {primaryPriceTypes.map((item) => (
           <div key={item.type} className='bg-muted/20 rounded-lg border p-3'>
             <div className='text-muted-foreground text-xs'>{item.label}</div>
-            <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
-              {renderPrice(item.type)}
-            </div>
+            <div className='mt-1 text-base'>{renderPrice(item.type)}</div>
           </div>
         ))}
       </div>
@@ -768,9 +776,7 @@ function PriceSection(props: {
                 <span className='text-muted-foreground/70 text-sm'>
                   {item.label}
                 </span>
-                <span className='text-muted-foreground font-mono text-sm tabular-nums'>
-                  {renderPrice(item.type)}
-                </span>
+                <span className='text-sm'>{renderPrice(item.type)}</span>
               </div>
             ))}
           </div>
@@ -1003,10 +1009,15 @@ function GroupPricingSection(props: {
                       header: t(fieldEntry.shortLabel),
                       className: `${thClass} text-right`,
                       cellClassName: 'py-2.5 text-right font-mono',
-                      cell: (tier: (typeof dynamicTiers)[number]) =>
-                        formattedPricesByTier
-                          .get(tier)
-                          ?.get(fieldEntry.field) ?? '-',
+                      cell: (tier: (typeof dynamicTiers)[number]) => (
+                        <PriceWithRatio
+                          value={
+                            formattedPricesByTier
+                              .get(tier)
+                              ?.get(fieldEntry.field) ?? '-'
+                          }
+                        />
+                      ),
                     })),
                   ]}
                 />
@@ -1021,26 +1032,32 @@ function GroupPricingSection(props: {
     )
   }
 
-  const renderGroupPrice = (group: string, type: PriceType) =>
-    formatGroupPrice(
-      props.model,
-      group,
-      type,
-      props.tokenUnit,
-      showRechargePrice,
-      props.priceRate,
-      props.usdExchangeRate,
-      props.groupRatio
-    )
-  const renderFixedGroupPrice = (group: string) =>
-    formatFixedPrice(
-      props.model,
-      group,
-      showRechargePrice,
-      props.priceRate,
-      props.usdExchangeRate,
-      props.groupRatio
-    )
+  const renderGroupPrice = (group: string, type: PriceType) => (
+    <PriceWithRatio
+      value={formatGroupPrice(
+        props.model,
+        group,
+        type,
+        props.tokenUnit,
+        showRechargePrice,
+        props.priceRate,
+        props.usdExchangeRate,
+        props.groupRatio
+      )}
+    />
+  )
+  const renderFixedGroupPrice = (group: string) => (
+    <PriceWithRatio
+      value={formatFixedPrice(
+        props.model,
+        group,
+        showRechargePrice,
+        props.priceRate,
+        props.usdExchangeRate,
+        props.groupRatio
+      )}
+    />
+  )
 
   return (
     <section>

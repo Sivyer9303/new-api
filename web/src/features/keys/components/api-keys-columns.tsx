@@ -43,6 +43,7 @@ import {
   ApiKeyCell,
   IpRestrictionsCell,
   ModelLimitsCell,
+  SubscriptionAllowLabel,
   UnlimitedQuotaBadge,
 } from './api-keys-cells'
 import { DataTableRowActions } from './data-table-row-actions'
@@ -53,29 +54,37 @@ function getQuotaProgressColor(percentage: number): string {
   return '[&_[data-slot=progress-indicator]]:bg-emerald-500'
 }
 
-function useGroupRatios(): Record<string, number | string> {
+function useGroupPolicy(): {
+  ratios: Record<string, number | string>
+  allowSubscription: Record<string, boolean>
+} {
   const { data } = useQuery({
     queryKey: ['user-groups'],
     queryFn: getUserGroups,
     staleTime: 0,
     select: (res) => {
-      if (!res.success || !res.data) return {}
+      if (!res.success || !res.data) {
+        return { ratios: {}, allowSubscription: {} }
+      }
       const ratios: Record<string, number | string> = {}
+      const allowSubscription: Record<string, boolean> = {}
       for (const [group, info] of Object.entries(res.data)) {
         if (typeof info.ratio === 'number' || typeof info.ratio === 'string') {
           ratios[group] = info.ratio
         }
+        // Missing flag defaults to allowed (same as backend).
+        allowSubscription[group] = info.allow_subscription !== false
       }
-      return ratios
+      return { ratios, allowSubscription }
     },
   })
 
-  return data ?? {}
+  return data ?? { ratios: {}, allowSubscription: {} }
 }
 
 export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
-  const groupRatios = useGroupRatios()
+  const { ratios: groupRatios, allowSubscription } = useGroupPolicy()
   const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const justNowLabel = t('Just now')
@@ -206,6 +215,20 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
         )
       },
       size: 220,
+      meta: { mobileHidden: true },
+    },
+    {
+      id: 'allow_subscription',
+      accessorKey: 'group',
+      header: t('Allow subscription'),
+      cell: ({ row }) => {
+        const group = (row.getValue('group') as string) || ''
+        const allowed =
+          !group || allowSubscription[group] !== false
+        return <SubscriptionAllowLabel allowed={allowed} />
+      },
+      enableSorting: false,
+      size: 140,
       meta: { mobileHidden: true },
     },
     {

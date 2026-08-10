@@ -103,7 +103,12 @@ func (m Properties) Value() (driver.Value, error) {
 type TaskPrivateData struct {
 	Key            string `json:"key,omitempty"`
 	UpstreamTaskID string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL      string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	ResultURL          string `json:"result_url,omitempty"`           // 任务成功后的结果 URL（视频地址等）
+	UpstreamResultURL  string `json:"upstream_result_url,omitempty"`  // 上游原始结果 URL（转存前）
+	StorageStatus      string `json:"storage_status,omitempty"`       // pending|ready|failed|expired
+	StoragePath        string `json:"storage_path,omitempty"`         // 转存后的存储路径
+	StorageExpiresAt   int64  `json:"storage_expires_at,omitempty"`   // 存储链接过期时间（Unix 秒）
+	StorageRetryCount  int    `json:"storage_retry_count,omitempty"`  // 转存重试次数
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款

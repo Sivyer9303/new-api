@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/tooltip'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { formatQuota } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 import type { ApiKey } from '../types'
 import { useApiKeys } from './api-keys-provider'
@@ -139,6 +140,33 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
         <TooltipContent>{copyTooltip}</TooltipContent>
       </Tooltip>
     </div>
+  )
+}
+
+type SubscriptionAllowLabelProps = {
+  allowed: boolean
+  className?: string
+}
+
+/** Read-only subscription policy for a token using-group. */
+export function SubscriptionAllowLabel(props: SubscriptionAllowLabelProps) {
+  const { t } = useTranslation()
+  if (props.allowed) {
+    return (
+      <span className={cn('text-sm font-medium', props.className)}>
+        {t('Allowed')}
+      </span>
+    )
+  }
+  return (
+    <span
+      className={cn(
+        'text-destructive text-sm font-bold',
+        props.className
+      )}
+    >
+      {t('Not allowed')}
+    </span>
   )
 }
 

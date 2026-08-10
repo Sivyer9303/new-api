@@ -34,7 +34,7 @@ import {
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { isTokenBasedModel } from '../lib/model-helpers'
+import { isPerSecondModel, isTokenBasedModel } from '../lib/model-helpers'
 import {
   formatPrice,
   formatRequestPrice,
@@ -42,6 +42,7 @@ import {
 } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
+import { PriceWithRatio } from './price-with-ratio'
 
 // ----------------------------------------------------------------------------
 // Pricing Table Columns
@@ -159,7 +160,9 @@ export function usePricingColumns(
                     {index > 0 && (
                       <span className='text-muted-foreground/40 mx-1'>/</span>
                     )}
-                    {stripTrailingZeros(entry.formatted)}
+                    <PriceWithRatio
+                      value={stripTrailingZeros(entry.formatted)}
+                    />
                   </span>
                 ))}
               </span>
@@ -202,10 +205,10 @@ export function usePricingColumns(
 
           return (
             <div className='max-w-full min-w-0'>
-              <span className='font-mono text-sm tabular-nums'>
-                {inputPrice}
+              <span className='text-sm'>
+                <PriceWithRatio value={inputPrice} />
                 <span className='text-muted-foreground/40 mx-1'>/</span>
-                {outputPrice}
+                <PriceWithRatio value={outputPrice} />
               </span>
               <div className='text-muted-foreground/50 text-[10px]'>
                 / {tokenUnitLabel} tokens
@@ -226,9 +229,11 @@ export function usePricingColumns(
 
         return (
           <div className='max-w-full min-w-0'>
-            <span className='font-mono text-sm tabular-nums'>{price}</span>
+            <span className='text-sm'>
+              <PriceWithRatio value={price} />
+            </span>
             <div className='text-muted-foreground/50 text-[10px]'>
-              / {t('request')}
+              / {isPerSecondModel(model) ? t('sec') : t('request')}
             </div>
           </div>
         )
@@ -272,8 +277,10 @@ export function usePricingColumns(
 
           return (
             <div className='max-w-full min-w-0'>
-              <span className='font-mono text-sm tabular-nums'>
-                {stripTrailingZeros(cacheEntry.formatted)}
+              <span className='text-sm'>
+                <PriceWithRatio
+                  value={stripTrailingZeros(cacheEntry.formatted)}
+                />
               </span>
               <div className='text-muted-foreground/50 text-[10px]'>
                 / {tokenUnitLabel}
@@ -302,8 +309,8 @@ export function usePricingColumns(
 
         return (
           <div className='max-w-full min-w-0'>
-            <span className='font-mono text-sm tabular-nums'>
-              {cachedPrice}
+            <span className='text-sm'>
+              <PriceWithRatio value={cachedPrice} />
             </span>
             <div className='text-muted-foreground/50 text-[10px]'>
               / {tokenUnitLabel}

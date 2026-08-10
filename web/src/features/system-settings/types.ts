@@ -201,6 +201,10 @@ export type ExtensionsSettings = {
   'lottery_setting.require_redemption': boolean
   'lottery_setting.free_prizes': string
   'lottery_setting.bet_prizes': string
+  // GlobalConfig serializes nested Storage as one JSON blob (not dotted leaf keys).
+  'silkroad_setting.storage': string
+  'silkroad_setting.profiles': string
+  'silkroad_setting.video_tool_groups': string
 }
 
 export type ModelSettings = {
@@ -242,6 +246,7 @@ export type ModelSettings = {
   MaxTokenAutoGroups: number
   DefaultUseAutoGroup: boolean
   'group_ratio_setting.group_special_usable_group': string
+  'group_ratio_setting.group_allow_subscription': string
   RetryTimes: number
   ChannelDisableThreshold: string
   AutomaticDisableChannelEnabled: boolean
@@ -300,6 +305,7 @@ export type BillingSettings = {
   MaxTokenAutoGroups: number
   DefaultUseAutoGroup: boolean
   'group_ratio_setting.group_special_usable_group': string
+  'group_ratio_setting.group_allow_subscription': string
   PayAddress: string
   EpayId: string
   EpayKey: string

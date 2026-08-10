@@ -220,6 +220,7 @@ export function ConnectToolDialog(props: Props) {
         model_limits: '',
         allow_ips: '',
         group,
+        auto_groups: [],
         cross_group_retry: false,
       })
 
