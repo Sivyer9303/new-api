@@ -56,9 +56,35 @@ func TestServeSilkRoadVideoContent_ReadyServesLocalFile(t *testing.T) {
 	w := silkRoadContentRequest(t, task)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "video/mp4", w.Header().Get("Content-Type"))
+	assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
 	assert.Equal(t, payload, w.Body.Bytes())
 	assert.NotContains(t, w.Body.String(), "upstream.example")
 	assert.NotContains(t, w.Header().Get("Location"), "upstream.example")
+}
+
+func TestServeSilkRoadVideoContent_RejectsActiveContentType(t *testing.T) {
+	dir := t.TempDir()
+	withSilkRoadLocalDir(t, dir)
+	taskID := "task_active_content"
+	_, _, err := service.WriteSilkRoadVideoFile(
+		taskID,
+		bytes.NewReader([]byte("<script>alert(1)</script>")),
+	)
+	require.NoError(t, err)
+
+	task := &model.Task{
+		TaskID: taskID,
+		Status: model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			StorageStatus:      "ready",
+			StorageContentType: "text/html; charset=utf-8",
+			StorageExpiresAt:   time.Now().Add(time.Hour).Unix(),
+		},
+	}
+
+	w := silkRoadContentRequest(t, task)
+	assert.Equal(t, http.StatusUnsupportedMediaType, w.Code)
+	assert.NotEqual(t, "text/html; charset=utf-8", w.Header().Get("Content-Type"))
 }
 
 func TestServeSilkRoadVideoContent_PendingConflict(t *testing.T) {

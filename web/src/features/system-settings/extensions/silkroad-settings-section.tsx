@@ -5,19 +5,9 @@ This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -32,254 +22,296 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
-import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
-
 import {
-  SettingsForm,
-  SettingsSwitchContent,
-  SettingsSwitchItem,
-} from '../components/settings-form-layout'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+
+import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import {
+  defaultProfileExists,
+  optionItemSchema,
+  parseProfilesToForm,
+  profileFormSchema,
+  profilesFormToApi,
+  type OptionItemForm,
+} from './silkroad-profile-schemas'
+import {
+  OptionRowsEditor,
+  SilkRoadProfilesEditor,
+} from './silkroad-profiles-editor'
 
-import { profileFormSchema, parseProfilesToForm, profilesFormToApi } from './silkroad-profile-schemas'
-import { SilkRoadProfilesEditor } from './silkroad-profiles-editor'
+const MAX_DURATION_SECONDS = 3600
+const ALLOWED_ASPECT_RATIOS = new Set([
+  '16:9',
+  '9:16',
+  '1:1',
+  '4:3',
+  '3:4',
+  '21:9',
+])
 
-const DEFAULT_STORAGE = {
-  enabled: true,
-  driver: 'local' as const,
-  local_dir: 'data/silkroad-videos',
-  retention_days: 7,
-  max_retry: 5,
-  ingest_node_name: '',
-  public_download_base_url: '',
+function createSilkRoadSettingsSchema(
+  translate: (key: string, options?: Record<string, number>) => string
+) {
+  return z
+    .object({
+      default_profile_id: z.string().min(1),
+      common_durations: z.array(optionItemSchema).min(1),
+      common_aspect_ratios: z.array(optionItemSchema).min(1),
+      profiles: z.array(profileFormSchema).min(1),
+    })
+    .superRefine((values, context) => {
+      const profileIDs = new Set<string>()
+      const exactModels = new Set<string>()
+      const prefixes = new Set<string>()
+      values.profiles.forEach((profile, index) => {
+        if (profileIDs.has(profile.id.trim())) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: translate('Profile IDs must be unique'),
+            path: ['profiles', index, 'id'],
+          })
+        }
+        profileIDs.add(profile.id.trim())
+        for (const exact of splitList(profile.exact_models_text)) {
+          if (exactModels.has(exact)) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: translate('Exact model IDs must be unique'),
+              path: ['profiles', index, 'exact_models_text'],
+            })
+          }
+          exactModels.add(exact)
+        }
+        for (const prefix of splitList(profile.model_prefixes_text)) {
+          if (prefixes.has(prefix)) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: translate('Model prefixes must be unique'),
+              path: ['profiles', index, 'model_prefixes_text'],
+            })
+          }
+          prefixes.add(prefix)
+        }
+        validateDurations(
+          profile.durations,
+          ['profiles', index, 'durations'],
+          context,
+          translate
+        )
+        validateAspectRatios(
+          profile.aspect_ratios,
+          ['profiles', index, 'aspect_ratios'],
+          context,
+          translate
+        )
+      })
+      if (!defaultProfileExists(values.default_profile_id, values.profiles)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: translate(
+            'Default profile must reference an existing profile'
+          ),
+          path: ['default_profile_id'],
+        })
+      }
+      validateDurations(
+        values.common_durations,
+        ['common_durations'],
+        context,
+        translate
+      )
+      validateAspectRatios(
+        values.common_aspect_ratios,
+        ['common_aspect_ratios'],
+        context,
+        translate
+      )
+    })
 }
 
-type StorageValues = {
-  enabled: boolean
-  driver: 'local'
-  local_dir: string
-  retention_days: number
-  max_retry: number
-  ingest_node_name: string
-  public_download_base_url: string
+type Values = z.infer<ReturnType<typeof createSilkRoadSettingsSchema>>
+
+function splitList(value: string): string[] {
+  return value
+    .split(/[,，\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
-function parseStorage(raw: string | undefined): StorageValues {
-  if (!raw || !raw.trim()) return { ...DEFAULT_STORAGE }
-  try {
-    const parsed = JSON.parse(raw) as Partial<StorageValues>
-    return {
-      enabled: Boolean(parsed.enabled ?? DEFAULT_STORAGE.enabled),
-      driver: 'local',
-      local_dir:
-        typeof parsed.local_dir === 'string' && parsed.local_dir.trim()
-          ? parsed.local_dir
-          : DEFAULT_STORAGE.local_dir,
-      retention_days:
-        typeof parsed.retention_days === 'number' && parsed.retention_days >= 1
-          ? parsed.retention_days
-          : DEFAULT_STORAGE.retention_days,
-      max_retry:
-        typeof parsed.max_retry === 'number' && parsed.max_retry >= 1
-          ? parsed.max_retry
-          : DEFAULT_STORAGE.max_retry,
-      ingest_node_name:
-        typeof parsed.ingest_node_name === 'string'
-          ? parsed.ingest_node_name
-          : '',
-      public_download_base_url:
-        typeof parsed.public_download_base_url === 'string'
-          ? parsed.public_download_base_url
-          : '',
+function validateDurations(
+  items: OptionItemForm[],
+  path: Array<string | number>,
+  context: z.RefinementCtx,
+  translate: (key: string, options?: Record<string, number>) => string
+) {
+  items.forEach((item, index) => {
+    if (!item.enabled) return
+    const seconds = Number(item.value)
+    if (
+      !Number.isInteger(seconds) ||
+      seconds < 1 ||
+      seconds > MAX_DURATION_SECONDS
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: translate('Duration must be between 1 and {{max}} seconds', {
+          max: MAX_DURATION_SECONDS,
+        }),
+        path: [...path, index, 'value'],
+      })
     }
-  } catch {
-    return { ...DEFAULT_STORAGE }
-  }
-}
-
-function parseVideoToolGroupsText(raw: string | undefined): string {
-  if (!raw || !raw.trim()) return ''
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return ''
-    return parsed
-      .map((item) => (typeof item === 'string' ? item.trim() : ''))
-      .filter(Boolean)
-      .join(', ')
-  } catch {
-    return ''
-  }
-}
-
-function videoToolGroupsTextToApi(text: string): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const part of text.split(/[,，\n]/)) {
-    const name = part.trim()
-    if (!name || seen.has(name)) continue
-    seen.add(name)
-    out.push(name)
-  }
-  return out
-}
-
-const schema = z
-  .object({
-    enabled: z.boolean(),
-    driver: z.literal('local'),
-    local_dir: z.string(),
-    retention_days: z.coerce.number().int().min(1),
-    max_retry: z.coerce.number().int().min(1),
-    ingest_node_name: z.string(),
-    public_download_base_url: z.string(),
-    video_tool_groups_text: z.string(),
-    profiles: z.array(profileFormSchema).min(1),
   })
-  .superRefine((values, ctx) => {
-    if (values.enabled) {
-      if (!values.local_dir.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Local directory is required when storage is enabled',
-          path: ['local_dir'],
-        })
-      }
-      if (!values.ingest_node_name.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Ingest node name is required when storage is enabled',
-          path: ['ingest_node_name'],
-        })
-      }
-      if (!values.public_download_base_url.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message:
-            'Public download base URL is required when storage is enabled',
-          path: ['public_download_base_url'],
-        })
-      }
-    }
+}
 
-    for (let i = 0; i < values.profiles.length; i++) {
-      const prefixes = values.profiles[i].model_prefixes_text
-        .split(/[,，\n]/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-      if (prefixes.length === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'At least one model prefix is required',
-          path: ['profiles', i, 'model_prefixes_text'],
-        })
-      }
+function validateAspectRatios(
+  items: OptionItemForm[],
+  path: Array<string | number>,
+  context: z.RefinementCtx,
+  translate: (key: string) => string
+) {
+  items.forEach((item, index) => {
+    if (item.enabled && !ALLOWED_ASPECT_RATIOS.has(item.value)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: translate(
+          'Aspect ratio is outside SilkRoad hard capabilities'
+        ),
+        path: [...path, index, 'value'],
+      })
     }
   })
+}
 
-type Values = z.infer<typeof schema>
+function parseOptions(raw: string, key: 'durations' | 'aspect_ratios') {
+  try {
+    const common = JSON.parse(raw) as Record<string, unknown>
+    const values = common[key]
+    return Array.isArray(values) ? (values as OptionItemForm[]) : []
+  } catch {
+    return []
+  }
+}
 
-export function SilkRoadSettingsSection({
-  defaultValues,
-}: {
+export function SilkRoadSettingsSection(props: {
   defaultValues: {
-    storageJson: string
+    commonJson: string
     profilesJson: string
-    videoToolGroupsJson: string
+    defaultProfileID: string
   }
 }) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-
-  const storage = parseStorage(defaultValues.storageJson)
-
-  const form = useForm<Values>({
-    resolver: zodResolver(schema) as unknown as Resolver<Values>,
-    defaultValues: {
-      ...storage,
-      video_tool_groups_text: parseVideoToolGroupsText(
-        defaultValues.videoToolGroupsJson
+  const formSchema = useMemo(
+    () => createSilkRoadSettingsSchema((key, options) => t(key, options)),
+    [t]
+  )
+  const defaults = useMemo<Values>(() => {
+    const profiles = parseProfilesToForm(props.defaultValues.profilesJson)
+    return {
+      default_profile_id:
+        props.defaultValues.defaultProfileID || profiles[0]?.id || '',
+      common_durations: parseOptions(
+        props.defaultValues.commonJson,
+        'durations'
       ),
-      profiles: parseProfilesToForm(defaultValues.profilesJson),
-    },
+      common_aspect_ratios: parseOptions(
+        props.defaultValues.commonJson,
+        'aspect_ratios'
+      ),
+      profiles,
+    }
+  }, [props.defaultValues])
+  const form = useForm<Values>({
+    resolver: zodResolver(formSchema) as Resolver<Values>,
+    defaultValues: defaults,
   })
 
   useEffect(() => {
-    const next = parseStorage(defaultValues.storageJson)
-    form.reset({
-      ...next,
-      video_tool_groups_text: parseVideoToolGroupsText(
-        defaultValues.videoToolGroupsJson
-      ),
-      profiles: parseProfilesToForm(defaultValues.profilesJson),
-    })
-  }, [defaultValues, form])
-
-  const { isDirty, isSubmitting } = form.formState
+    form.reset(defaults)
+  }, [defaults, form])
 
   async function onSubmit(values: Values) {
-    const profilesPayload = profilesFormToApi(values.profiles)
-    if (profilesPayload.length === 0) {
-      toast.error(t('Profiles cannot be empty'))
-      return
-    }
-    for (const profile of profilesPayload) {
-      if (profile.model_prefixes.length === 0) {
-        toast.error(t('Each profile needs at least one model prefix'))
-        return
-      }
-    }
-
-    const storagePayload = {
-      enabled: values.enabled,
-      driver: 'local' as const,
-      local_dir: values.local_dir.trim(),
-      retention_days: values.retention_days,
-      max_retry: values.max_retry,
-      ingest_node_name: values.ingest_node_name.trim(),
-      public_download_base_url: values.public_download_base_url.trim(),
-    }
-    const videoToolGroupsPayload = videoToolGroupsTextToApi(
-      values.video_tool_groups_text
+    const profilePayload = profilesFormToApi(values.profiles)
+    const currentProfiles = profilesFormToApi(
+      parseProfilesToForm(props.defaultValues.profilesJson)
     )
-
+    const currentProfileIDs = new Set(
+      currentProfiles.map((profile) => profile.id)
+    )
     const updates: Array<{ key: string; value: string }> = [
       {
-        key: 'silkroad_setting.storage',
-        value: JSON.stringify(storagePayload),
-      },
-      {
-        key: 'silkroad_setting.profiles',
-        value: JSON.stringify(profilesPayload),
-      },
-      {
-        key: 'silkroad_setting.video_tool_groups',
-        value: JSON.stringify(videoToolGroupsPayload),
+        key: 'silkroad_setting.common',
+        value: JSON.stringify({
+          durations: values.common_durations,
+          aspect_ratios: values.common_aspect_ratios,
+        }),
       },
     ]
-
+    if (
+      values.default_profile_id !== props.defaultValues.defaultProfileID &&
+      currentProfileIDs.has(values.default_profile_id)
+    ) {
+      updates.push({
+        key: 'silkroad_setting.default_profile_id',
+        value: values.default_profile_id,
+      })
+      updates.push({
+        key: 'silkroad_setting.profiles',
+        value: JSON.stringify(profilePayload),
+      })
+    } else if (
+      values.default_profile_id !== props.defaultValues.defaultProfileID
+    ) {
+      const oldDefault = currentProfiles.find(
+        (profile) => profile.id === props.defaultValues.defaultProfileID
+      )
+      const interimProfiles =
+        oldDefault &&
+        !profilePayload.some((profile) => profile.id === oldDefault.id)
+          ? [...profilePayload, oldDefault]
+          : profilePayload
+      updates.push({
+        key: 'silkroad_setting.profiles',
+        value: JSON.stringify(interimProfiles),
+      })
+      updates.push({
+        key: 'silkroad_setting.default_profile_id',
+        value: values.default_profile_id,
+      })
+      if (interimProfiles !== profilePayload) {
+        updates.push({
+          key: 'silkroad_setting.profiles',
+          value: JSON.stringify(profilePayload),
+        })
+      }
+    } else {
+      updates.push({
+        key: 'silkroad_setting.profiles',
+        value: JSON.stringify(profilePayload),
+      })
+    }
     try {
-      for (const item of updates) {
-        const result = await updateOption.mutateAsync(item)
-        if (!result.success) {
-          return
-        }
+      for (const update of updates) {
+        const result = await updateOption.mutateAsync(update)
+        if (!result.success) return
       }
       toast.success(t('Settings saved'))
-      form.reset({
-        ...values,
-        driver: 'local',
-        video_tool_groups_text: videoToolGroupsPayload.join(', '),
-        profiles: parseProfilesToForm(JSON.stringify(profilesPayload)),
-      })
+      form.reset(values)
     } catch {
       toast.error(t('Failed to save settings'))
     }
   }
 
-  const busy = updateOption.isPending || isSubmitting
+  const busy = updateOption.isPending || form.formState.isSubmitting
+  const profiles = form.watch('profiles')
 
   return (
     <SettingsSection title={t('SilkRoad Video')}>
@@ -288,182 +320,71 @@ export function SilkRoadSettingsSection({
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={busy}
-            isSaveDisabled={!isDirty}
+            isSaveDisabled={!form.formState.isDirty}
           />
-
           <FormField
             control={form.control}
-            name='video_tool_groups_text'
+            name='default_profile_id'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Video tool allowed groups')}</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder='default, silkroad'
-                    {...field}
-                    disabled={busy}
-                  />
-                </FormControl>
+                <FormLabel>{t('Default profile')}</FormLabel>
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={busy}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={t('Select a default profile')}
+                      />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {profiles.map((profile) => (
+                      <SelectItem key={profile.id} value={profile.id}>
+                        {profile.label || profile.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <FormDescription>
                   {t(
-                    'Comma-separated group names whose API keys can be used in the Seedance video tool. Leave empty to allow no keys.'
+                    'Models without an exact or prefix match use this profile. Review fallback diagnostics before saving.'
                   )}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
-
-          <FormField
-            control={form.control}
-            name='enabled'
-            render={({ field }) => (
-              <SettingsSwitchItem>
-                <SettingsSwitchContent>
-                  <FormLabel>{t('Enable SilkRoad video storage')}</FormLabel>
-                  <FormDescription>
-                    {t(
-                      'When enabled, completed NewAPI SilkRoad videos are ingested on the configured node and served from local storage.'
-                    )}
-                  </FormDescription>
-                </SettingsSwitchContent>
-                <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                    disabled={busy}
-                  />
-                </FormControl>
-              </SettingsSwitchItem>
-            )}
-          />
-
-          <div className='space-y-6'>
-            <FormField
-              control={form.control}
-              name='driver'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Storage driver')}</FormLabel>
-                  <FormControl>
-                    <Input {...field} value='local' disabled readOnly />
-                  </FormControl>
-                  <FormDescription>
-                    {t('Only the local driver is supported.')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='local_dir'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Local directory')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder='data/silkroad-videos'
-                      {...field}
-                      disabled={busy}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Directory on the ingest node where video files are stored.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className='grid gap-4 sm:grid-cols-2'>
-              <FormField
-                control={form.control}
-                name='retention_days'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Retention days')}</FormLabel>
-                    <FormControl>
-                      <Input type='number' min={1} {...field} disabled={busy} />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Stored videos older than this many days are deleted.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
+          <div className='space-y-4'>
+            <div>
+              <h3 className='text-sm font-medium'>
+                {t('Common capabilities')}
+              </h3>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Profiles inherit these options unless they define their own overrides.'
                 )}
-              />
-              <FormField
-                control={form.control}
-                name='max_retry'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Max ingest retries')}</FormLabel>
-                    <FormControl>
-                      <Input type='number' min={1} {...field} disabled={busy} />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'Maximum download attempts before marking ingest as failed.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              </p>
             </div>
-
-            <FormField
+            <OptionRowsEditor
               control={form.control}
-              name='ingest_node_name'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Ingest node name')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder='node-1'
-                      {...field}
-                      disabled={busy}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Must match NODE_NAME on the node that downloads and stores videos. Required when storage is enabled.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
+              name='common_durations'
+              title={t('Common durations')}
+              disabled={busy}
+              minRows={1}
+              defaultOpen
             />
-
-            <FormField
+            <OptionRowsEditor
               control={form.control}
-              name='public_download_base_url'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Public download base URL')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder='https://video.example.com'
-                      {...field}
-                      disabled={busy}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Public origin used to build client download URLs. Required when storage is enabled.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
+              name='common_aspect_ratios'
+              title={t('Common aspect ratios')}
+              disabled={busy}
+              minRows={1}
             />
-
-            <SilkRoadProfilesEditor control={form.control} disabled={busy} />
           </div>
+          <SilkRoadProfilesEditor control={form.control} disabled={busy} />
         </SettingsForm>
       </Form>
     </SettingsSection>

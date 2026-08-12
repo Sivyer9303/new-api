@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { SectionPageLayout } from '@/components/layout'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
@@ -41,7 +42,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { SectionPageLayout } from '@/components/layout'
 import { getApiKeys, fetchTokenKey } from '@/features/keys/api'
 import type { ApiKey } from '@/features/keys/types'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
@@ -56,40 +56,19 @@ import {
   fetchVideoToolConfig,
   submitVideoGeneration,
 } from '../api'
-import type { PublicGenerationType, PublicProfile } from '../types'
-import { HARDCODED_GENERATION_TYPES } from '../types'
+import {
+  filterModelsForProfile,
+  isVideoStoragePhase,
+  modelHasConfiguredMatch,
+  resolveVideoProfile,
+} from '../lib/capabilities'
 import {
   revokeReferenceImageItems,
   type ReferenceImageItem,
 } from '../lib/reference-image'
+import { buildVideoGenerationRequest } from '../lib/request'
+import type { PublicGenerationType } from '../types'
 import { ReferenceImageGrid } from './reference-image-grid'
-
-function matchProfile(
-  profiles: PublicProfile[],
-  modelId: string
-): PublicProfile | null {
-  for (const p of profiles) {
-    if (p.model_prefixes.some((prefix) => modelId.startsWith(prefix))) {
-      return p
-    }
-  }
-  return null
-}
-
-function filterModelsForProfile(
-  models: string[],
-  profile: PublicProfile,
-  requireRef: boolean
-): string[] {
-  const matched = models.filter((id) =>
-    profile.model_prefixes.some((prefix) => id.startsWith(prefix))
-  )
-  if (!requireRef) {
-    return matched
-  }
-  const refs = matched.filter((id) => id.includes('-ref'))
-  return refs.length > 0 ? refs : matched
-}
 
 function generationTypeDisplayLabel(
   gt: PublicGenerationType,
@@ -119,15 +98,18 @@ function isTerminalSuccess(status: string | undefined): boolean {
 function isTerminalFailure(status: string | undefined): boolean {
   const s = (status || '').toLowerCase()
   return (
-    s === 'failed' ||
-    s === 'failure' ||
-    s === 'cancelled' ||
-    s === 'canceled'
+    s === 'failed' || s === 'failure' || s === 'cancelled' || s === 'canceled'
   )
 }
 
 function isTerminalStatus(status: string | undefined): boolean {
   return isTerminalSuccess(status) || isTerminalFailure(status)
+}
+
+function apiKeySelectLabel(key: ApiKey): string {
+  const name = key.name?.trim() || `Key #${key.id}`
+  const group = key.group?.trim() || 'default'
+  return `${name} (${group})`
 }
 
 const POLL_INTERVAL_MS = 3000
@@ -179,11 +161,14 @@ export function VideoToolPage() {
   const loadModelsRequestRef = useRef(0)
 
   const configQuery = useQuery({
-    queryKey: ['silkroad-video-tool-config'],
+    queryKey: ['video-tool-config', 1],
     queryFn: async () => {
       const res = await fetchVideoToolConfig()
       if (!res.success || !res.data) {
         throw new Error(res.message || 'Failed to load video tool config')
+      }
+      if (res.data.version !== 1) {
+        throw new Error(t('Unsupported video tool capability version'))
       }
       return res.data
     },
@@ -200,10 +185,7 @@ export function VideoToolPage() {
     },
   })
 
-  const {
-    models: pricingModels,
-    groupRatio,
-  } = usePricingData()
+  const { models: pricingModels, groupRatio } = usePricingData()
 
   // Models with a configured ModelPrice (> 0). Unpriced models are hidden
   // from the selector so users cannot submit without an estimate path.
@@ -267,15 +249,17 @@ export function VideoToolPage() {
         }
         const all = await fetchModelsWithTokenKey(keyRes.data.key)
         if (cancelled || requestId !== loadModelsRequestRef.current) return
-        const matched = all.filter((id) =>
-          profiles.some((p) =>
-            p.model_prefixes.some((prefix) => id.startsWith(prefix))
-          )
+        const defaultProfileID = configQuery.data?.default_profile_id ?? ''
+        const hasDefaultProfile = profiles.some(
+          (profile) => profile.id === defaultProfileID
         )
+        const matched = hasDefaultProfile
+          ? all
+          : all.filter((id) => modelHasConfiguredMatch(profiles, id))
         setModels(matched)
         if (matched.length === 0) {
           setModelId('')
-          toast.error(t('No Seedance models available for this key'))
+          toast.error(t('No video models available for this key'))
         }
         // Selection is synced from filteredModels (priced + mode) via safeModelId.
       } catch (err) {
@@ -296,7 +280,7 @@ export function VideoToolPage() {
     return () => {
       cancelled = true
     }
-  }, [tokenId, profiles, t])
+  }, [tokenId, profiles, configQuery.data?.default_profile_id, t])
 
   const selectedApiKey = useMemo(
     () => keys.find((k) => String(k.id) === tokenId) ?? null,
@@ -305,11 +289,19 @@ export function VideoToolPage() {
 
   const selectedProfile = useMemo(() => {
     const id = modelId || ''
-    return id ? matchProfile(profiles, id) : null
-  }, [modelId, profiles])
+    return id
+      ? resolveVideoProfile(
+          profiles,
+          id,
+          configQuery.data?.default_profile_id ?? ''
+        )
+      : null
+  }, [modelId, profiles, configQuery.data?.default_profile_id])
 
-  // Generation modes are fixed in code (not profile-configurable).
-  const generationTypes = HARDCODED_GENERATION_TYPES
+  const generationTypes = useMemo(
+    () => configQuery.data?.generation_types ?? [],
+    [configQuery.data?.generation_types]
+  )
 
   const selectedGenType = useMemo(() => {
     if (!generationType) return null
@@ -398,7 +390,7 @@ export function VideoToolPage() {
   )
 
   const noPricedModelsToastKeyRef = useRef('')
-  // Key returned Seedance models, but none have ModelPrice configured.
+  // The key returned video models, but none have ModelPrice configured.
   useEffect(() => {
     if (loadingModels || !tokenId) return
     if (models.length === 0 || availableModels.length > 0) return
@@ -408,7 +400,7 @@ export function VideoToolPage() {
     noPricedModelsToastKeyRef.current = toastKey
     toast.error(
       t(
-        'No Seedance models with configured pricing are available. Set a model price in Model Pricing first.'
+        'No video models with configured pricing are available. Set a model price in Model Pricing first.'
       )
     )
   }, [
@@ -421,19 +413,29 @@ export function VideoToolPage() {
   ])
 
   const filteredModels = useMemo(() => {
+    const defaultProfileID = configQuery.data?.default_profile_id ?? ''
+    const hasDefaultProfile = profiles.some(
+      (profile) => profile.id === defaultProfileID
+    )
     if (!selectedProfile) {
-      return availableModels.filter((id) =>
-        profiles.some((p) =>
-          p.model_prefixes.some((prefix) => id.startsWith(prefix))
-        )
-      )
+      return hasDefaultProfile
+        ? availableModels
+        : availableModels.filter((id) => modelHasConfiguredMatch(profiles, id))
     }
     return filterModelsForProfile(
       availableModels,
       selectedProfile,
-      Boolean(selectedGenType?.require_ref_model)
+      Boolean(selectedGenType?.require_ref_model),
+      selectedProfile.id === defaultProfileID,
+      profiles
     )
-  }, [availableModels, profiles, selectedProfile, selectedGenType])
+  }, [
+    availableModels,
+    profiles,
+    selectedProfile,
+    selectedGenType,
+    configQuery.data?.default_profile_id,
+  ])
 
   // Base UI Select throws if value is not among items. When switching to a
   // require_ref generation type, filteredModels shrinks to *-ref ids before
@@ -458,9 +460,7 @@ export function VideoToolPage() {
     const seconds = Number(durationValue)
     if (!Number.isFinite(seconds) || seconds <= 0) return null
     const group =
-      (selectedApiKey?.group || '').trim() ||
-      videoToolGroups[0] ||
-      'default'
+      (selectedApiKey?.group || '').trim() || videoToolGroups[0] || 'default'
     const ratios = pricing.group_ratio || groupRatio || {}
     const ratio = getConfiguredGroupRatio(ratios, group)
     // NewAPI video adaptor always multiplies ModelPrice by duration seconds.
@@ -530,12 +530,18 @@ export function VideoToolPage() {
       toast.error(t('Please select an API key'))
       return
     }
-    if (!safeModelId || !generationType || !prompt.trim() || !durationValue || !aspectRatio) {
+    if (
+      !safeModelId ||
+      !generationType ||
+      !prompt.trim() ||
+      !durationValue ||
+      !aspectRatio
+    ) {
       toast.error(t('Please fill in all required fields'))
       return
     }
     if (!selectedProfile || !selectedGenType) {
-      toast.error(t('Selected model is not supported by SilkRoad video profiles'))
+      toast.error(t('Selected model is not supported by video capabilities'))
       return
     }
 
@@ -594,23 +600,16 @@ export function VideoToolPage() {
         }
       }
 
-      const body: Record<string, unknown> = {
+      const body = buildVideoGenerationRequest({
         model: submitModel,
         prompt: prompt.trim(),
-        generation_type: generationType,
-        aspect_ratio: aspectRatio,
-      }
-      if (durationFieldKey === 'duration') {
-        body.duration = Number(durationValue)
-      } else {
-        body.seconds = durationValue
-      }
-      if (images.length > 0) {
-        body.images = images
-      }
-      if (audioURL) {
-        body.audio_url = audioURL
-      }
+        generationType,
+        aspectRatio,
+        durationFieldKey,
+        durationValue,
+        images,
+        audioURL,
+      })
 
       const submitRes = await submitVideoGeneration(tokenKey, body)
       const publicId = submitRes.id || submitRes.task_id
@@ -633,9 +632,7 @@ export function VideoToolPage() {
   }
 
   const isPolling =
-    Boolean(taskId) &&
-    Boolean(pollingTokenKey) &&
-    !isTerminalStatus(taskStatus)
+    Boolean(taskId) && Boolean(pollingTokenKey) && !isTerminalStatus(taskStatus)
 
   useEffect(() => {
     if (!taskId || !pollingTokenKey) return
@@ -721,7 +718,7 @@ export function VideoToolPage() {
     return (
       <SectionPageLayout>
         <SectionPageLayout.Title>
-          {t('Seedance video tool')}
+          {t('Video Generation')}
         </SectionPageLayout.Title>
         <SectionPageLayout.Content>
           <div className='text-muted-foreground p-4 text-sm'>
@@ -736,7 +733,7 @@ export function VideoToolPage() {
     return (
       <SectionPageLayout>
         <SectionPageLayout.Title>
-          {t('Seedance video tool')}
+          {t('Video Generation')}
         </SectionPageLayout.Title>
         <SectionPageLayout.Content>
           <Card>
@@ -744,7 +741,7 @@ export function VideoToolPage() {
               <CardTitle>{t('Video generation unavailable')}</CardTitle>
               <CardDescription>
                 {t(
-                  'SilkRoad video profiles are not configured or enabled. Ask an admin to set up the SilkRoad extension.'
+                  'Video generation is not configured or enabled. Ask an administrator to review Video Configuration.'
                 )}
               </CardDescription>
             </CardHeader>
@@ -759,9 +756,7 @@ export function VideoToolPage() {
 
   return (
     <SectionPageLayout>
-      <SectionPageLayout.Title>
-        {t('Seedance video tool')}
-      </SectionPageLayout.Title>
+      <SectionPageLayout.Title>{t('Video Generation')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
         <div className='mx-auto flex w-full max-w-6xl flex-col gap-4 pb-8'>
           <Alert className='border-amber-500/40 bg-amber-500/10 px-4 py-3'>
@@ -787,278 +782,292 @@ export function VideoToolPage() {
 
           <div className='grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]'>
             <div className='flex min-w-0 flex-col gap-4'>
-      <Card>
-        <CardHeader className='pb-3'>
-          <CardTitle className='text-base'>{t('API key')}</CardTitle>
-          <CardDescription>
-            {t(
-              'You must select a key. The key is fetched only for this session request and is not stored in the page.'
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className='space-y-2'>
-          <Label>{t('Your API key')}</Label>
-          <Select
-            value={tokenId || null}
-            onValueChange={(v) => setTokenId(v ?? '')}
-            disabled={keys.length === 0}
-          >
-            <SelectTrigger className='w-full'>
-              <SelectValue
-                placeholder={
-                  loadingModels
-                    ? t('Loading models...')
-                    : t('Select an API key')
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {keys.length === 0 ? (
-                <div className='text-muted-foreground px-2 py-1.5 text-sm'>
-                  {t(
-                    'No API keys in the allowed groups. Create a key for those groups on the API Keys page.'
-                  )}
-                </div>
-              ) : (
-                keys.map((k) => (
-                  <SelectItem key={k.id} value={String(k.id)}>
-                    {k.name || `Key #${k.id}`} ({k.group || 'default'}) ·{' '}
-                    {k.key}
-                  </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
-          {loadingModels && (
-            <p className='text-muted-foreground text-sm'>
-              {t('Loading models...')}
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className='pb-3'>
-          <CardTitle className='text-base'>{t('Model')}</CardTitle>
-          {selectedProfile && (
-            <CardDescription>
-              {t('Tier')}: {selectedProfile.label} · {t('Duration field')}:{' '}
-              {durationFieldKey}
-            </CardDescription>
-          )}
-        </CardHeader>
-        <CardContent>
-          <Select
-            value={safeModelId || null}
-            onValueChange={(v) => setModelId(v ?? '')}
-            disabled={filteredModels.length === 0 || loadingModels}
-          >
-            <SelectTrigger className='w-full'>
-              <SelectValue
-                placeholder={
-                  loadingModels
-                    ? t('Loading models...')
-                    : t('Select an API key first')
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {filteredModels.map((id) => (
-                <SelectItem key={id} value={id}>
-                  {id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className='pb-3'>
-          <CardTitle className='text-base'>{t('Generation mode')}</CardTitle>
-        </CardHeader>
-        <CardContent className='space-y-4'>
-          <div className='flex flex-wrap gap-2'>
-            {generationTypes.map((gt) => (
-              <Button
-                key={gt.value}
-                type='button'
-                size='sm'
-                variant={generationType === gt.value ? 'default' : 'outline'}
-                className={cn(
-                  'h-auto min-h-9 max-w-full whitespace-normal px-3 py-2 text-left leading-snug',
-                  generationType === gt.value &&
-                    'bg-primary text-primary-foreground'
-                )}
-                onClick={() => {
-                  setGenerationType(gt.value)
-                  // Keep model selection inside the filtered list for this mode
-                  // (e.g. image/reference requires *-ref) in the same click.
-                  if (selectedProfile) {
-                    const next = filterModelsForProfile(
-                      availableModels,
-                      selectedProfile,
-                      Boolean(gt.require_ref_model)
-                    )
-                    if (
-                      next.length > 0 &&
-                      (!modelId || !next.includes(modelId))
-                    ) {
-                      setModelId(next[0])
-                    }
-                  }
-                }}
-                disabled={!selectedProfile}
-              >
-                {generationTypeDisplayLabel(gt, t)}
-              </Button>
-            ))}
-          </div>
-          {selectedGenType?.require_ref_model && (
-              <p className='text-muted-foreground text-sm'>
-                {t(
-                  'This mode requires a model whose name contains -ref.'
-                )}
-              </p>
-            )}
-
-          <div className='space-y-2'>
-            <Label>{t('Prompt')}</Label>
-            <Textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={4}
-              placeholder={t('Describe the video you want to generate')}
-            />
-          </div>
-
-          <div className='grid gap-4 sm:grid-cols-2'>
-            <div className='space-y-2'>
-              <Label>
-                {durationFieldKey === 'duration'
-                  ? t('Duration (seconds)')
-                  : t('Seconds')}
-              </Label>
-              <Select
-                value={durationValue || null}
-                onValueChange={(v) => setDurationValue(v ?? '')}
-              >
-                <SelectTrigger className='w-full'>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {durationOptions.map((d) => (
-                    <SelectItem key={d.value} value={d.value}>
-                      {d.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className='space-y-2'>
-              <Label>{t('Aspect ratio')}</Label>
-              <Select
-                value={aspectRatio || null}
-                onValueChange={(v) => setAspectRatio(v ?? '')}
-              >
-                <SelectTrigger className='w-full'>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {aspectOptions.map((a) => (
-                    <SelectItem key={a.value} value={a.value}>
-                      {a.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {(selectedGenType?.images_max ?? 0) > 0 && (
-            <div className='space-y-2'>
-              <Label>
-                {t('Reference images')} ({selectedGenType?.images_min}-
-                {selectedGenType?.images_max})
-              </Label>
-              <ReferenceImageGrid
-                items={referenceImages}
-                onChange={setReferenceImages}
-                min={selectedGenType?.images_min ?? 0}
-                max={selectedGenType?.images_max ?? 1}
-                disabled={submitting || isPolling}
-              />
-            </div>
-          )}
-
-          {selectedGenType?.allow_audio && (
-            <div className='space-y-2'>
-              <Label>
-                {selectedGenType.require_audio
-                  ? t('Reference audio (required, MP3)')
-                  : t('Reference audio (optional, MP3)')}
-              </Label>
-              <Input
-                type='file'
-                accept='audio/mpeg,audio/mp3,.mp3'
-                disabled={submitting || isPolling}
-                onChange={(e) => {
-                  const file = e.target.files?.[0] ?? null
-                  setAudioPreviewUrl((prev) => {
-                    if (prev) URL.revokeObjectURL(prev)
-                    return file ? URL.createObjectURL(file) : ''
-                  })
-                  if (file && !/audio\/(mpeg|mp3)/i.test(file.type) && !file.name.toLowerCase().endsWith('.mp3')) {
-                    toast.error(t('Reference audio must be an MP3 file'))
-                    e.target.value = ''
-                    setAudioFile(null)
-                    return
-                  }
-                  setAudioFile(file)
-                }}
-              />
-              {audioFile && (
-                <div className='flex flex-col gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center'>
-                  <p className='text-muted-foreground min-w-0 flex-1 truncate text-sm'>
-                    {audioFile.name}
-                  </p>
-                  {audioPreviewUrl && (
-                    <audio
-                      controls
-                      src={audioPreviewUrl}
-                      className='h-8 w-full max-w-xs'
-                    />
-                  )}
-                  <Button
-                    type='button'
-                    size='sm'
-                    variant='outline'
-                    disabled={submitting || isPolling}
-                    onClick={() => {
-                      setAudioFile(null)
-                      setAudioPreviewUrl((prev) => {
-                        if (prev) URL.revokeObjectURL(prev)
-                        return ''
-                      })
-                    }}
-                  >
-                    {t('Remove')}
-                  </Button>
-                </div>
-              )}
-              <p className='text-muted-foreground text-xs'>
-                {selectedGenType.require_audio
-                  ? t(
-                      'Required. Sent as data:audio/mpeg;base64,… in audio_url. MP3 only. Images are optional.'
-                    )
-                  : t(
-                      'Optional. Sent as data:audio/mpeg;base64,… in audio_url. MP3 only.'
+              <Card>
+                <CardHeader className='pb-3'>
+                  <CardTitle className='text-base'>{t('API key')}</CardTitle>
+                  <CardDescription>
+                    {t(
+                      'You must select a key. The key is fetched only for this session request and is not stored in the page.'
                     )}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className='space-y-2'>
+                  <Label>{t('Your API key')}</Label>
+                  <Select
+                    value={tokenId || null}
+                    onValueChange={(v) => setTokenId(v ?? '')}
+                    disabled={keys.length === 0}
+                  >
+                    <SelectTrigger className='w-full'>
+                      <SelectValue
+                        placeholder={
+                          loadingModels
+                            ? t('Loading models...')
+                            : t('Select an API key')
+                        }
+                      >
+                        {selectedApiKey
+                          ? apiKeySelectLabel(selectedApiKey)
+                          : null}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {keys.length === 0 ? (
+                        <div className='text-muted-foreground px-2 py-1.5 text-sm'>
+                          {t(
+                            'No API keys in the allowed groups. Create a key for those groups on the API Keys page.'
+                          )}
+                        </div>
+                      ) : (
+                        keys.map((k) => (
+                          <SelectItem key={k.id} value={String(k.id)}>
+                            {apiKeySelectLabel(k)}
+                            {k.key ? ` · ${k.key}` : ''}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {loadingModels && (
+                    <p className='text-muted-foreground text-sm'>
+                      {t('Loading models...')}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className='pb-3'>
+                  <CardTitle className='text-base'>{t('Model')}</CardTitle>
+                  {selectedProfile && (
+                    <CardDescription>
+                      {t('Tier')}: {selectedProfile.label} ·{' '}
+                      {t('Duration field')}: {durationFieldKey}
+                    </CardDescription>
+                  )}
+                </CardHeader>
+                <CardContent>
+                  <Select
+                    value={safeModelId || null}
+                    onValueChange={(v) => setModelId(v ?? '')}
+                    disabled={filteredModels.length === 0 || loadingModels}
+                  >
+                    <SelectTrigger className='w-full'>
+                      <SelectValue
+                        placeholder={
+                          loadingModels
+                            ? t('Loading models...')
+                            : t('Select an API key first')
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredModels.map((id) => (
+                        <SelectItem key={id} value={id}>
+                          {id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className='pb-3'>
+                  <CardTitle className='text-base'>
+                    {t('Generation mode')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4'>
+                  <div className='flex flex-wrap gap-2'>
+                    {generationTypes.map((gt) => (
+                      <Button
+                        key={gt.value}
+                        type='button'
+                        size='sm'
+                        variant={
+                          generationType === gt.value ? 'default' : 'outline'
+                        }
+                        className={cn(
+                          'h-auto min-h-9 max-w-full whitespace-normal px-3 py-2 text-left leading-snug',
+                          generationType === gt.value &&
+                            'bg-primary text-primary-foreground'
+                        )}
+                        onClick={() => {
+                          setGenerationType(gt.value)
+                          // Keep model selection inside the filtered list for this mode
+                          // (e.g. image/reference requires *-ref) in the same click.
+                          if (selectedProfile) {
+                            const next = filterModelsForProfile(
+                              availableModels,
+                              selectedProfile,
+                              Boolean(gt.require_ref_model)
+                            )
+                            if (
+                              next.length > 0 &&
+                              (!modelId || !next.includes(modelId))
+                            ) {
+                              setModelId(next[0])
+                            }
+                          }
+                        }}
+                        disabled={!selectedProfile}
+                      >
+                        {generationTypeDisplayLabel(gt, t)}
+                      </Button>
+                    ))}
+                  </div>
+                  {selectedGenType?.require_ref_model && (
+                    <p className='text-muted-foreground text-sm'>
+                      {t(
+                        'This mode requires a model whose name contains -ref.'
+                      )}
+                    </p>
+                  )}
+
+                  <div className='space-y-2'>
+                    <Label>{t('Prompt')}</Label>
+                    <Textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      rows={4}
+                      placeholder={t('Describe the video you want to generate')}
+                    />
+                  </div>
+
+                  <div className='grid gap-4 sm:grid-cols-2'>
+                    <div className='space-y-2'>
+                      <Label>
+                        {durationFieldKey === 'duration'
+                          ? t('Duration (seconds)')
+                          : t('Seconds')}
+                      </Label>
+                      <Select
+                        value={durationValue || null}
+                        onValueChange={(v) => setDurationValue(v ?? '')}
+                      >
+                        <SelectTrigger className='w-full'>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {durationOptions.map((d) => (
+                            <SelectItem key={d.value} value={d.value}>
+                              {d.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className='space-y-2'>
+                      <Label>{t('Aspect ratio')}</Label>
+                      <Select
+                        value={aspectRatio || null}
+                        onValueChange={(v) => setAspectRatio(v ?? '')}
+                      >
+                        <SelectTrigger className='w-full'>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {aspectOptions.map((a) => (
+                            <SelectItem key={a.value} value={a.value}>
+                              {a.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {(selectedGenType?.images_max ?? 0) > 0 && (
+                    <div className='space-y-2'>
+                      <Label>
+                        {t('Reference images')} ({selectedGenType?.images_min}-
+                        {selectedGenType?.images_max})
+                      </Label>
+                      <ReferenceImageGrid
+                        items={referenceImages}
+                        onChange={setReferenceImages}
+                        min={selectedGenType?.images_min ?? 0}
+                        max={selectedGenType?.images_max ?? 1}
+                        disabled={submitting || isPolling}
+                      />
+                    </div>
+                  )}
+
+                  {selectedGenType?.allow_audio && (
+                    <div className='space-y-2'>
+                      <Label>
+                        {selectedGenType.require_audio
+                          ? t('Reference audio (required, MP3)')
+                          : t('Reference audio (optional, MP3)')}
+                      </Label>
+                      <Input
+                        type='file'
+                        accept='audio/mpeg,audio/mp3,.mp3'
+                        disabled={submitting || isPolling}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] ?? null
+                          setAudioPreviewUrl((prev) => {
+                            if (prev) URL.revokeObjectURL(prev)
+                            return file ? URL.createObjectURL(file) : ''
+                          })
+                          if (
+                            file &&
+                            !/audio\/(mpeg|mp3)/i.test(file.type) &&
+                            !file.name.toLowerCase().endsWith('.mp3')
+                          ) {
+                            toast.error(
+                              t('Reference audio must be an MP3 file')
+                            )
+                            e.target.value = ''
+                            setAudioFile(null)
+                            return
+                          }
+                          setAudioFile(file)
+                        }}
+                      />
+                      {audioFile && (
+                        <div className='flex flex-col gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center'>
+                          <p className='text-muted-foreground min-w-0 flex-1 truncate text-sm'>
+                            {audioFile.name}
+                          </p>
+                          {audioPreviewUrl && (
+                            <audio
+                              controls
+                              src={audioPreviewUrl}
+                              className='h-8 w-full max-w-xs'
+                            />
+                          )}
+                          <Button
+                            type='button'
+                            size='sm'
+                            variant='outline'
+                            disabled={submitting || isPolling}
+                            onClick={() => {
+                              setAudioFile(null)
+                              setAudioPreviewUrl((prev) => {
+                                if (prev) URL.revokeObjectURL(prev)
+                                return ''
+                              })
+                            }}
+                          >
+                            {t('Remove')}
+                          </Button>
+                        </div>
+                      )}
+                      <p className='text-muted-foreground text-xs'>
+                        {selectedGenType.require_audio
+                          ? t(
+                              'Required. Sent as data:audio/mpeg;base64,… in audio_url. MP3 only. Images are optional.'
+                            )
+                          : t(
+                              'Optional. Sent as data:audio/mpeg;base64,… in audio_url. MP3 only.'
+                            )}
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
 
             <aside className='flex min-w-0 flex-col gap-4 lg:sticky lg:top-6'>
@@ -1130,7 +1139,9 @@ export function VideoToolPage() {
                     {isPolling && (
                       <div className='space-y-1 text-sm'>
                         <p className='text-muted-foreground'>
-                          {t('Refreshing task status automatically...')}
+                          {isVideoStoragePhase(taskProgress)
+                            ? t('Storing generated video locally...')
+                            : t('Refreshing task status automatically...')}
                         </p>
                         <p>
                           {t('Progress')}:{' '}

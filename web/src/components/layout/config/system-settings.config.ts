@@ -25,6 +25,7 @@ import {
   Settings,
   Shield,
   ShieldAlert,
+  Video,
   Wrench,
 } from 'lucide-react'
 
@@ -36,6 +37,7 @@ import { getModelsSectionNavItems } from '@/features/system-settings/models/sect
 import { getOperationsSectionNavItems } from '@/features/system-settings/operations/section-registry.tsx'
 import { getSecuritySectionNavItems } from '@/features/system-settings/security/section-registry.tsx'
 import { getSiteSectionNavItems } from '@/features/system-settings/site/section-registry.tsx'
+import { getVideoSectionNavItems } from '@/features/system-settings/video/section-registry'
 
 import type { NavGroup, SidebarView } from '../types'
 
@@ -81,6 +83,11 @@ function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
           title: t('Console Content'),
           icon: Layout,
           items: getContentSectionNavItems(t),
+        },
+        {
+          title: t('Video Configuration'),
+          icon: Video,
+          items: getVideoSectionNavItems(t),
         },
         {
           title: t('Extensions'),

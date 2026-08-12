@@ -47,7 +47,11 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 
-import { emptyOptionItem, emptyProfile, type ProfileForm } from './silkroad-profile-schemas'
+import {
+  emptyOptionItem,
+  emptyProfile,
+  type ProfileForm,
+} from './silkroad-profile-schemas'
 
 type ProfilesFormValues = {
   profiles: ProfileForm[]
@@ -87,7 +91,9 @@ function FoldSection({
             </Badge>
           ) : null}
         </CollapsibleTrigger>
-        {headerRight ? <div className='shrink-0 py-2'>{headerRight}</div> : null}
+        {headerRight ? (
+          <div className='shrink-0 py-2'>{headerRight}</div>
+        ) : null}
       </div>
       <CollapsibleContent>
         <div className='space-y-3 border-t px-3 py-3'>
@@ -101,7 +107,7 @@ function FoldSection({
   )
 }
 
-function OptionRowsEditor<T extends FieldValues & ProfilesFormValues>({
+export function OptionRowsEditor<T extends FieldValues>({
   control,
   name,
   title,
@@ -253,7 +259,7 @@ export function SilkRoadProfilesEditor<
           <h3 className='text-sm font-medium'>{t('Model profiles')}</h3>
           <p className='text-muted-foreground text-xs'>
             {t(
-              'Configure model prefixes, durations, and aspect ratios. Generation modes are fixed in the video tool.'
+              'Match exact model IDs or prefixes, then override only the capabilities that differ from the common settings.'
             )}
           </p>
         </div>
@@ -381,6 +387,29 @@ function ProfileCard<T extends FieldValues & ProfilesFormValues>({
 
             <FormField
               control={control}
+              name={`profiles.${index}.exact_models_text` as Path<T>}
+              render={({ field: f }) => (
+                <FormItem>
+                  <FormLabel>{t('Exact model IDs')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder='seedance-2.0-pro'
+                      {...f}
+                      disabled={disabled}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Comma-separated model IDs. Exact matches take precedence over prefixes.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={control}
               name={`profiles.${index}.model_prefixes_text` as Path<T>}
               render={({ field: f }) => (
                 <FormItem>
@@ -393,9 +422,7 @@ function ProfileCard<T extends FieldValues & ProfilesFormValues>({
                     />
                   </FormControl>
                   <FormDescription>
-                    {t(
-                      'Comma-separated model ID prefixes for this profile.'
-                    )}
+                    {t('Comma-separated model ID prefixes for this profile.')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -408,18 +435,19 @@ function ProfileCard<T extends FieldValues & ProfilesFormValues>({
             name={`profiles.${index}.durations` as FieldArrayPath<T>}
             title={t('Durations')}
             description={t(
-              'Allowed duration values and the upstream field name (seconds / duration).'
+              'Optional duration overrides. Leave empty to inherit the common durations.'
             )}
             disabled={disabled}
-            minRows={1}
           />
 
           <OptionRowsEditor
             control={control}
             name={`profiles.${index}.aspect_ratios` as FieldArrayPath<T>}
             title={t('Aspect ratios')}
+            description={t(
+              'Optional aspect-ratio overrides. Leave empty to inherit the common aspect ratios.'
+            )}
             disabled={disabled}
-            minRows={1}
           />
         </div>
       </CollapsibleContent>

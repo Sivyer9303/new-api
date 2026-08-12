@@ -39,6 +39,7 @@ import {
 } from '../dialogs/audio-preview-dialog'
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
 import { useUsageLogsContext } from '../usage-logs-provider'
+import { VideoRecoveryActions } from '../video-recovery-actions'
 import {
   createDurationColumn,
   createChannelColumn,
@@ -253,9 +254,7 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
 
         if (isSuccess && isVideoTask) {
           const proxyUrl = `/v1/videos/${log.task_id}/content`
-          const openPreview = async (
-            event: MouseEvent<HTMLAnchorElement>
-          ) => {
+          const openPreview = async (event: MouseEvent<HTMLAnchorElement>) => {
             event.preventDefault()
             try {
               const headers = await getFreshAuthHeaders()
@@ -290,16 +289,20 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
               >
                 {t('Click to preview video')}
               </a>
+              {isAdmin && <VideoRecoveryActions taskID={log.task_id} />}
             </div>
           )
         }
 
         if (!failReason) {
+          if (isAdmin && isVideoTask) {
+            return <VideoRecoveryActions taskID={log.task_id} />
+          }
           return <span className='text-muted-foreground/60 text-xs'>-</span>
         }
 
         return (
-          <>
+          <div className='flex max-w-[220px] flex-col gap-1'>
             <button
               type='button'
               className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
@@ -315,7 +318,10 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
               open={dialogOpen}
               onOpenChange={setDialogOpen}
             />
-          </>
+            {isAdmin && isVideoTask && (
+              <VideoRecoveryActions taskID={log.task_id} />
+            )}
+          </div>
         )
       },
       size: 200,

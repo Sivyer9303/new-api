@@ -38,10 +38,6 @@ const defaultExtensionsSettings: ExtensionsSettings = {
   'lottery_setting.require_redemption': true,
   'lottery_setting.free_prizes': '[]',
   'lottery_setting.bet_prizes': '[]',
-  'silkroad_setting.storage':
-    '{"enabled":true,"driver":"local","local_dir":"data/silkroad-videos","retention_days":7,"max_retry":5,"ingest_node_name":"","public_download_base_url":""}',
-  'silkroad_setting.profiles': '[]',
-  'silkroad_setting.video_tool_groups': '[]',
 }
 
 export function ExtensionsSettingsPage() {

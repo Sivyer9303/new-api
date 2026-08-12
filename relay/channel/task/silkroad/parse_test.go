@@ -1,4 +1,4 @@
-package newapi
+package silkroad
 
 import (
 	"testing"
@@ -76,4 +76,12 @@ func TestParseTaskResultWrappedTaskDtoWithNestedVideoURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, model.TaskStatusSuccess, info.Status)
 	assert.Equal(t, "https://cdn.example/nested.mp4", info.Url)
+}
+
+func TestParseTaskResultFindsMetadataURL(t *testing.T) {
+	a := &TaskAdaptor{}
+	info, err := a.ParseTaskResult([]byte(`{"data":{"status":"succeeded","metadata":{"url":"https://cdn.example/metadata.mp4"}}}`))
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatusSuccess, info.Status)
+	assert.Equal(t, "https://cdn.example/metadata.mp4", info.Url)
 }

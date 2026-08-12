@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -85,6 +86,35 @@ func TestValidateChannelRequiresNewAPIBaseURL(t *testing.T) {
 	}
 }
 
+func TestValidateChannelRequiresSilkRoadBaseURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL *string
+		wantErr bool
+	}{
+		{name: "missing", wantErr: true},
+		{name: "blank", baseURL: common.GetPointer("  "), wantErr: true},
+		{name: "configured", baseURL: common.GetPointer("https://silkroad.example")},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			channel := &model.Channel{
+				Type:    constant.ChannelTypeSilkRoad,
+				BaseURL: test.baseURL,
+			}
+
+			err := validateChannel(channel, false)
+
+			if test.wantErr {
+				require.ErrorContains(t, err, "SilkRoad channel base URL cannot be empty")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestNewAPIChannelRegistration(t *testing.T) {
 	apiType, ok := common.ChannelType2APIType(constant.ChannelTypeNewAPI)
 
@@ -93,6 +123,41 @@ func TestNewAPIChannelRegistration(t *testing.T) {
 	assert.Equal(t, "New API", constant.GetChannelTypeName(constant.ChannelTypeNewAPI))
 	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeNewAPI)
 	assert.Empty(t, constant.ChannelBaseURLs[constant.ChannelTypeNewAPI])
+}
+
+func TestSilkRoadChannelRegistration(t *testing.T) {
+	apiType, ok := common.ChannelType2APIType(constant.ChannelTypeSilkRoad)
+
+	assert.False(t, ok)
+	assert.Equal(t, constant.APITypeOpenAI, apiType)
+	assert.Equal(t, 61, constant.ChannelTypeSilkRoad)
+	assert.Equal(t, constant.ChannelTypeSilkRoad+1, constant.ChannelTypeDummy)
+	assert.Equal(t, "SilkRoad", constant.GetChannelTypeName(constant.ChannelTypeSilkRoad))
+	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeSilkRoad)
+	assert.Empty(t, constant.ChannelBaseURLs[constant.ChannelTypeSilkRoad])
+	assert.Equal(
+		t,
+		[]constant.EndpointType{constant.EndpointTypeOpenAIVideo},
+		common.GetEndpointTypesByChannelType(constant.ChannelTypeSilkRoad, "seedance-2.0"),
+	)
+	assert.Equal(
+		t,
+		[]constant.EndpointType{constant.EndpointTypeOpenAIVideo},
+		common.GetEndpointTypesByChannelType(constant.ChannelTypeSilkRoad, "dall-e-3"),
+	)
+}
+
+func TestSilkRoadChannelSkipsSynchronousChannelTest(t *testing.T) {
+	result := testChannel(
+		context.Background(),
+		&model.Channel{Type: constant.ChannelTypeSilkRoad},
+		0,
+		"seedance-2.0",
+		"",
+		false,
+	)
+
+	require.ErrorContains(t, result.localErr, "SilkRoad channel test is not supported")
 }
 
 func TestResponsesCompactAPITypeSupport(t *testing.T) {

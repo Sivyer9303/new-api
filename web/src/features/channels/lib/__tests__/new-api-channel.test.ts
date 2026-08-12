@@ -22,6 +22,7 @@ import { describe, test } from 'node:test'
 import {
   CHANNEL_TYPE_NEW_API,
   CHANNEL_TYPE_OPTIONS,
+  CHANNEL_TYPE_SILKROAD,
   MODEL_FETCHABLE_TYPES,
 } from '../../constants'
 import { CHANNEL_FORM_DEFAULT_VALUES, channelFormSchema } from '../channel-form'
@@ -52,6 +53,14 @@ describe('New API channel', () => {
     assert.equal(
       CHANNEL_TYPE_OPTIONS.findIndex(
         (item) => item.value === CHANNEL_TYPE_NEW_API
+      ) + 1,
+      CHANNEL_TYPE_OPTIONS.findIndex(
+        (item) => item.value === CHANNEL_TYPE_SILKROAD
+      )
+    )
+    assert.equal(
+      CHANNEL_TYPE_OPTIONS.findIndex(
+        (item) => item.value === CHANNEL_TYPE_SILKROAD
       ) + 1,
       CHANNEL_TYPE_OPTIONS.findIndex((item) => item.value === 58)
     )

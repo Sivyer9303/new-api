@@ -20,8 +20,46 @@ func TestMatchProfileDreamina(t *testing.T) {
 }
 
 func TestMatchProfileMiss(t *testing.T) {
-	_, ok := MatchProfile("gpt-4o")
-	assert.False(t, ok)
+	p, ok := MatchProfile("unmatched-video-model")
+	require.True(t, ok)
+	assert.Equal(t, defaultSilkRoadSetting().DefaultProfileID, p.ID)
+}
+
+func TestResolveProfilePrefersExactThenLongestPrefixThenDefault(t *testing.T) {
+	s := defaultSilkRoadSetting()
+	s.Profiles = []Profile{
+		{ID: "default", Label: "Default"},
+		{ID: "short", Label: "Short", ModelPrefixes: []string{"video-"}},
+		{ID: "long", Label: "Long", ModelPrefixes: []string{"video-pro-"}},
+		{ID: "exact", Label: "Exact", ExactModels: []string{"video-pro-special"}},
+	}
+	s.DefaultProfileID = "default"
+
+	resolution, ok := resolveProfileFromSetting(&s, "video-pro-special")
+	require.True(t, ok)
+	assert.Equal(t, "exact", resolution.Profile.ID)
+	assert.Equal(t, ProfileMatchExact, resolution.MatchKind)
+
+	resolution, ok = resolveProfileFromSetting(&s, "video-pro-other")
+	require.True(t, ok)
+	assert.Equal(t, "long", resolution.Profile.ID)
+	assert.Equal(t, ProfileMatchPrefix, resolution.MatchKind)
+
+	resolution, ok = resolveProfileFromSetting(&s, "unknown")
+	require.True(t, ok)
+	assert.Equal(t, "default", resolution.Profile.ID)
+	assert.Equal(t, ProfileMatchDefault, resolution.MatchKind)
+}
+
+func TestResolveProfileInheritsCommonOptionsForSparseOverrides(t *testing.T) {
+	s := defaultSilkRoadSetting()
+	s.Profiles[0].Durations = nil
+	s.Profiles[0].AspectRatios = nil
+
+	resolution, ok := resolveProfileFromSetting(&s, "seedance-2.0-720")
+	require.True(t, ok)
+	assert.Equal(t, s.Common.Durations, resolution.Profile.Durations)
+	assert.Equal(t, s.Common.AspectRatios, resolution.Profile.AspectRatios)
 }
 
 func TestFindEnabledOptionDisabledSkipped(t *testing.T) {

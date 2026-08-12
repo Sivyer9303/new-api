@@ -307,6 +307,46 @@ export interface TaskLog {
   updated_at?: number
 }
 
+export interface VideoTaskDiagnostics {
+  task_id: string
+  upstream_task_id?: string
+  user_id: number
+  channel_id: number
+  platform: string
+  status: string
+  progress?: string
+  fail_reason?: string
+  quota: number
+  storage: {
+    status?: string
+    object_key?: string
+    path?: string
+    content_type?: string
+    size?: number
+    ready_at?: number
+    expires_at?: number
+    retry_count?: number
+    last_error?: string
+    upstream_result_url?: string
+    no_automatic_refund?: boolean
+  }
+  manual_refund: {
+    refunded_at?: number
+    admin_id?: number
+    reason?: string
+    quota?: number
+  }
+}
+
+export interface VideoProviderConfirmation {
+  status: string
+  progress?: string
+  failure_reason?: string
+  result_url?: string
+  upstream_task_id?: string
+  checked_at: number
+}
+
 // ============================================================================
 // Common Log Types
 // ============================================================================

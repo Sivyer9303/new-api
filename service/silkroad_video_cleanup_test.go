@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -69,16 +70,45 @@ func TestExpireOneSilkRoadVideoDeletesFileAndMarksExpired(t *testing.T) {
 	task := &model.Task{
 		TaskID: taskID,
 		PrivateData: model.TaskPrivateData{
-			StorageStatus:    "ready",
-			StorageExpiresAt: time.Now().Unix() - 60,
-			StoragePath:      SilkRoadVideoLocalPath(taskID),
+			StorageStatus:     "ready",
+			StorageExpiresAt:  time.Now().Unix() - 60,
+			StoragePath:       SilkRoadVideoLocalPath(taskID),
+			StorageObjectKey:  taskID,
+			ResultURL:         BuildSilkRoadPublicURL(taskID),
+			UpstreamResultURL: "https://cdn.example/private.mp4",
 		},
 	}
-	expireOneSilkRoadVideo(task)
+	require.NoError(t, expireOneSilkRoadVideo(task))
 
 	assert.Equal(t, "expired", task.PrivateData.StorageStatus)
+	assert.Equal(t, model.TaskStatusExpired, task.Status)
+	assert.Empty(t, task.PrivateData.ResultURL)
+	assert.Empty(t, task.PrivateData.UpstreamResultURL)
+	assert.Empty(t, task.PrivateData.StorageObjectKey)
 	_, statErr := os.Stat(SilkRoadVideoLocalPath(taskID))
 	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestExpireOneSilkRoadVideoPreservesMetadataWhenDeleteFails(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "child"), []byte("x"), 0o600))
+	task := &model.Task{
+		TaskID: "task_cleanup_delete_failure",
+		Status: model.TaskStatusStorageDeleting,
+		PrivateData: model.TaskPrivateData{
+			StorageStatus:    "ready",
+			StoragePath:      dir,
+			StorageObjectKey: "",
+			ResultURL:        "/v1/videos/task_cleanup_delete_failure/content",
+		},
+	}
+
+	err := expireOneSilkRoadVideo(task)
+	require.Error(t, err)
+	assert.Equal(t, model.TaskStatusStorageDeleting, task.Status)
+	assert.Equal(t, "ready", task.PrivateData.StorageStatus)
+	assert.Equal(t, dir, task.PrivateData.StoragePath)
+	assert.NotEmpty(t, task.PrivateData.ResultURL)
 }
 
 func TestRunSilkRoadVideoCleanupOnceExpiresReadyPastRetention(t *testing.T) {
@@ -168,4 +198,33 @@ func TestRunSilkRoadVideoCleanupOnceSkipsNonIngestNode(t *testing.T) {
 	assert.Equal(t, "ready", reloaded.PrivateData.StorageStatus)
 	_, statErr := os.Stat(SilkRoadVideoLocalPath(taskID))
 	require.NoError(t, statErr)
+}
+
+func TestCleanupClaimCASPreventsOverlappingDelete(t *testing.T) {
+	truncate(t)
+	now := time.Now().Unix()
+	task := &model.Task{
+		TaskID:   "task_cleanup_cas",
+		Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeSilkRoad)),
+		Status:   model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			StorageStatus:    "ready",
+			StorageExpiresAt: now - 1,
+		},
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	var first, staleSecond model.Task
+	require.NoError(t, model.DB.First(&first, task.ID).Error)
+	require.NoError(t, model.DB.First(&staleSecond, task.ID).Error)
+
+	first.Status = model.TaskStatusStorageDeleting
+	won, err := first.UpdateWithStatus(model.TaskStatusSuccess)
+	require.NoError(t, err)
+	assert.True(t, won)
+
+	staleSecond.Status = model.TaskStatusStorageDeleting
+	won, err = staleSecond.UpdateWithStatus(model.TaskStatusSuccess)
+	require.NoError(t, err)
+	assert.False(t, won)
 }

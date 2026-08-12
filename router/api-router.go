@@ -24,6 +24,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/status", middleware.TryUserAuth(), controller.GetStatus)
 		apiRouter.GET("/uptime/status", controller.GetUptimeKumaStatus)
 		apiRouter.GET("/extensions/availability", middleware.UserAuth(), controller.GetExtensionsAvailability)
+		apiRouter.GET("/video/tool-config", middleware.UserAuth(), controller.GetVideoToolConfig)
 		apiRouter.GET("/silkroad/video-tool", middleware.UserAuth(), controller.GetSilkRoadVideoToolConfig)
 		apiRouter.GET("/models", middleware.UserAuth(), controller.DashboardListModels)
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)
@@ -334,6 +335,14 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			taskRoute.GET("/self", middleware.UserAuth(), controller.GetUserTask)
 			taskRoute.GET("/", middleware.AdminAuth(), controller.GetAllTask)
+			videoTaskRoute := taskRoute.Group("/video")
+			videoTaskRoute.Use(middleware.AdminAuth())
+			{
+				videoTaskRoute.GET("/:task_id/diagnostics", controller.GetAdminVideoDiagnostics)
+				videoTaskRoute.POST("/:task_id/storage/retry", controller.RetryAdminVideoStorage)
+				videoTaskRoute.POST("/:task_id/provider/confirm", controller.ConfirmAdminVideoProviderResult)
+				videoTaskRoute.POST("/:task_id/refund", controller.RefundAdminVideo)
+			}
 		}
 
 		vendorRoute := apiRouter.Group("/vendors")

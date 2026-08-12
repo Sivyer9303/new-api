@@ -624,6 +624,8 @@ func handleConfigUpdate(key, value string) bool {
 		return false // 未注册的配置
 	}
 
+	config.GlobalConfig.MarkExplicit(key)
+
 	// 更新配置
 	configMap := map[string]string{
 		configKey: value,

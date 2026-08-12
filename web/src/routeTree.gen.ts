@@ -43,6 +43,7 @@ import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenti
 import { Route as AuthenticatedExtensionsAvailabilityRouteImport } from './routes/_authenticated/extensions/availability'
 import { Route as AuthenticatedExtensionsLotteryRouteImport } from './routes/_authenticated/extensions/lottery'
 import { Route as AuthenticatedExtensionsSeedanceRouteImport } from './routes/_authenticated/extensions/seedance'
+import { Route as AuthenticatedExtensionsVideoRouteImport } from './routes/_authenticated/extensions/video'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
@@ -73,6 +74,8 @@ import { Route as AuthenticatedSystemSettingsSecurityIndexRouteImport } from './
 import { Route as AuthenticatedSystemSettingsSecuritySectionRouteImport } from './routes/_authenticated/system-settings/security/$section'
 import { Route as AuthenticatedSystemSettingsSiteIndexRouteImport } from './routes/_authenticated/system-settings/site/index'
 import { Route as AuthenticatedSystemSettingsSiteSectionRouteImport } from './routes/_authenticated/system-settings/site/$section'
+import { Route as AuthenticatedSystemSettingsVideoIndexRouteImport } from './routes/_authenticated/system-settings/video/index'
+import { Route as AuthenticatedSystemSettingsVideoSectionRouteImport } from './routes/_authenticated/system-settings/video/$section'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -249,6 +252,12 @@ const AuthenticatedExtensionsSeedanceRoute =
   AuthenticatedExtensionsSeedanceRouteImport.update({
     id: '/extensions/seedance',
     path: '/extensions/seedance',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedExtensionsVideoRoute =
+  AuthenticatedExtensionsVideoRouteImport.update({
+    id: '/extensions/video',
+    path: '/extensions/video',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedKeysIndexRoute = AuthenticatedKeysIndexRouteImport.update({
@@ -428,6 +437,18 @@ const AuthenticatedSystemSettingsSiteSectionRoute =
     path: '/site/$section',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
+const AuthenticatedSystemSettingsVideoIndexRoute =
+  AuthenticatedSystemSettingsVideoIndexRouteImport.update({
+    id: '/video/',
+    path: '/video/',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsVideoSectionRoute =
+  AuthenticatedSystemSettingsVideoSectionRouteImport.update({
+    id: '/video/$section',
+    path: '/video/$section',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -460,6 +481,7 @@ export interface FileRoutesByFullPath {
   '/extensions/availability': typeof AuthenticatedExtensionsAvailabilityRoute
   '/extensions/lottery': typeof AuthenticatedExtensionsLotteryRoute
   '/extensions/seedance': typeof AuthenticatedExtensionsSeedanceRoute
+  '/extensions/video': typeof AuthenticatedExtensionsVideoRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -484,6 +506,7 @@ export interface FileRoutesByFullPath {
   '/system-settings/operations/$section': typeof AuthenticatedSystemSettingsOperationsSectionRoute
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
+  '/system-settings/video/$section': typeof AuthenticatedSystemSettingsVideoSectionRoute
   '/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/system-settings/billing/': typeof AuthenticatedSystemSettingsBillingIndexRoute
   '/system-settings/content/': typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -492,6 +515,7 @@ export interface FileRoutesByFullPath {
   '/system-settings/operations/': typeof AuthenticatedSystemSettingsOperationsIndexRoute
   '/system-settings/security/': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/system-settings/site/': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/system-settings/video/': typeof AuthenticatedSystemSettingsVideoIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -523,6 +547,7 @@ export interface FileRoutesByTo {
   '/extensions/availability': typeof AuthenticatedExtensionsAvailabilityRoute
   '/extensions/lottery': typeof AuthenticatedExtensionsLotteryRoute
   '/extensions/seedance': typeof AuthenticatedExtensionsSeedanceRoute
+  '/extensions/video': typeof AuthenticatedExtensionsVideoRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
@@ -547,6 +572,7 @@ export interface FileRoutesByTo {
   '/system-settings/operations/$section': typeof AuthenticatedSystemSettingsOperationsSectionRoute
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
+  '/system-settings/video/$section': typeof AuthenticatedSystemSettingsVideoSectionRoute
   '/system-settings/auth': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/system-settings/billing': typeof AuthenticatedSystemSettingsBillingIndexRoute
   '/system-settings/content': typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -555,6 +581,7 @@ export interface FileRoutesByTo {
   '/system-settings/operations': typeof AuthenticatedSystemSettingsOperationsIndexRoute
   '/system-settings/security': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/system-settings/site': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/system-settings/video': typeof AuthenticatedSystemSettingsVideoIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -590,6 +617,7 @@ export interface FileRoutesById {
   '/_authenticated/extensions/availability': typeof AuthenticatedExtensionsAvailabilityRoute
   '/_authenticated/extensions/lottery': typeof AuthenticatedExtensionsLotteryRoute
   '/_authenticated/extensions/seedance': typeof AuthenticatedExtensionsSeedanceRoute
+  '/_authenticated/extensions/video': typeof AuthenticatedExtensionsVideoRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -614,6 +642,7 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/operations/$section': typeof AuthenticatedSystemSettingsOperationsSectionRoute
   '/_authenticated/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/_authenticated/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
+  '/_authenticated/system-settings/video/$section': typeof AuthenticatedSystemSettingsVideoSectionRoute
   '/_authenticated/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/_authenticated/system-settings/billing/': typeof AuthenticatedSystemSettingsBillingIndexRoute
   '/_authenticated/system-settings/content/': typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -622,6 +651,7 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/operations/': typeof AuthenticatedSystemSettingsOperationsIndexRoute
   '/_authenticated/system-settings/security/': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/_authenticated/system-settings/site/': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/_authenticated/system-settings/video/': typeof AuthenticatedSystemSettingsVideoIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -656,6 +686,7 @@ export interface FileRouteTypes {
     | '/extensions/availability'
     | '/extensions/lottery'
     | '/extensions/seedance'
+    | '/extensions/video'
     | '/models/$section'
     | '/usage-logs/$section'
     | '/channels/'
@@ -680,6 +711,7 @@ export interface FileRouteTypes {
     | '/system-settings/operations/$section'
     | '/system-settings/security/$section'
     | '/system-settings/site/$section'
+    | '/system-settings/video/$section'
     | '/system-settings/auth/'
     | '/system-settings/billing/'
     | '/system-settings/content/'
@@ -688,6 +720,7 @@ export interface FileRouteTypes {
     | '/system-settings/operations/'
     | '/system-settings/security/'
     | '/system-settings/site/'
+    | '/system-settings/video/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -719,6 +752,7 @@ export interface FileRouteTypes {
     | '/extensions/availability'
     | '/extensions/lottery'
     | '/extensions/seedance'
+    | '/extensions/video'
     | '/models/$section'
     | '/usage-logs/$section'
     | '/channels'
@@ -743,6 +777,7 @@ export interface FileRouteTypes {
     | '/system-settings/operations/$section'
     | '/system-settings/security/$section'
     | '/system-settings/site/$section'
+    | '/system-settings/video/$section'
     | '/system-settings/auth'
     | '/system-settings/billing'
     | '/system-settings/content'
@@ -751,6 +786,7 @@ export interface FileRouteTypes {
     | '/system-settings/operations'
     | '/system-settings/security'
     | '/system-settings/site'
+    | '/system-settings/video'
   id:
     | '__root__'
     | '/'
@@ -785,6 +821,7 @@ export interface FileRouteTypes {
     | '/_authenticated/extensions/availability'
     | '/_authenticated/extensions/lottery'
     | '/_authenticated/extensions/seedance'
+    | '/_authenticated/extensions/video'
     | '/_authenticated/models/$section'
     | '/_authenticated/usage-logs/$section'
     | '/_authenticated/channels/'
@@ -809,6 +846,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/operations/$section'
     | '/_authenticated/system-settings/security/$section'
     | '/_authenticated/system-settings/site/$section'
+    | '/_authenticated/system-settings/video/$section'
     | '/_authenticated/system-settings/auth/'
     | '/_authenticated/system-settings/billing/'
     | '/_authenticated/system-settings/content/'
@@ -817,6 +855,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/operations/'
     | '/_authenticated/system-settings/security/'
     | '/_authenticated/system-settings/site/'
+    | '/_authenticated/system-settings/video/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1078,6 +1117,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedExtensionsSeedanceRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/extensions/video': {
+      id: '/_authenticated/extensions/video'
+      path: '/extensions/video'
+      fullPath: '/extensions/video'
+      preLoaderRoute: typeof AuthenticatedExtensionsVideoRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/keys/': {
       id: '/_authenticated/keys/'
       path: '/keys'
@@ -1288,6 +1334,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsSiteSectionRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
+    '/_authenticated/system-settings/video/': {
+      id: '/_authenticated/system-settings/video/'
+      path: '/video'
+      fullPath: '/system-settings/video/'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsVideoIndexRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
+    '/_authenticated/system-settings/video/$section': {
+      id: '/_authenticated/system-settings/video/$section'
+      path: '/video/$section'
+      fullPath: '/system-settings/video/$section'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsVideoSectionRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
   }
 }
 
@@ -1327,6 +1387,7 @@ interface AuthenticatedSystemSettingsRouteRouteChildren {
   AuthenticatedSystemSettingsOperationsSectionRoute: typeof AuthenticatedSystemSettingsOperationsSectionRoute
   AuthenticatedSystemSettingsSecuritySectionRoute: typeof AuthenticatedSystemSettingsSecuritySectionRoute
   AuthenticatedSystemSettingsSiteSectionRoute: typeof AuthenticatedSystemSettingsSiteSectionRoute
+  AuthenticatedSystemSettingsVideoSectionRoute: typeof AuthenticatedSystemSettingsVideoSectionRoute
   AuthenticatedSystemSettingsAuthIndexRoute: typeof AuthenticatedSystemSettingsAuthIndexRoute
   AuthenticatedSystemSettingsBillingIndexRoute: typeof AuthenticatedSystemSettingsBillingIndexRoute
   AuthenticatedSystemSettingsContentIndexRoute: typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -1335,6 +1396,7 @@ interface AuthenticatedSystemSettingsRouteRouteChildren {
   AuthenticatedSystemSettingsOperationsIndexRoute: typeof AuthenticatedSystemSettingsOperationsIndexRoute
   AuthenticatedSystemSettingsSecurityIndexRoute: typeof AuthenticatedSystemSettingsSecurityIndexRoute
   AuthenticatedSystemSettingsSiteIndexRoute: typeof AuthenticatedSystemSettingsSiteIndexRoute
+  AuthenticatedSystemSettingsVideoIndexRoute: typeof AuthenticatedSystemSettingsVideoIndexRoute
 }
 
 const AuthenticatedSystemSettingsRouteRouteChildren: AuthenticatedSystemSettingsRouteRouteChildren =
@@ -1357,6 +1419,8 @@ const AuthenticatedSystemSettingsRouteRouteChildren: AuthenticatedSystemSettings
       AuthenticatedSystemSettingsSecuritySectionRoute,
     AuthenticatedSystemSettingsSiteSectionRoute:
       AuthenticatedSystemSettingsSiteSectionRoute,
+    AuthenticatedSystemSettingsVideoSectionRoute:
+      AuthenticatedSystemSettingsVideoSectionRoute,
     AuthenticatedSystemSettingsAuthIndexRoute:
       AuthenticatedSystemSettingsAuthIndexRoute,
     AuthenticatedSystemSettingsBillingIndexRoute:
@@ -1373,6 +1437,8 @@ const AuthenticatedSystemSettingsRouteRouteChildren: AuthenticatedSystemSettings
       AuthenticatedSystemSettingsSecurityIndexRoute,
     AuthenticatedSystemSettingsSiteIndexRoute:
       AuthenticatedSystemSettingsSiteIndexRoute,
+    AuthenticatedSystemSettingsVideoIndexRoute:
+      AuthenticatedSystemSettingsVideoIndexRoute,
   }
 
 const AuthenticatedSystemSettingsRouteRouteWithChildren =
@@ -1390,6 +1456,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedExtensionsAvailabilityRoute: typeof AuthenticatedExtensionsAvailabilityRoute
   AuthenticatedExtensionsLotteryRoute: typeof AuthenticatedExtensionsLotteryRoute
   AuthenticatedExtensionsSeedanceRoute: typeof AuthenticatedExtensionsSeedanceRoute
+  AuthenticatedExtensionsVideoRoute: typeof AuthenticatedExtensionsVideoRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
@@ -1418,6 +1485,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedExtensionsAvailabilityRoute,
   AuthenticatedExtensionsLotteryRoute: AuthenticatedExtensionsLotteryRoute,
   AuthenticatedExtensionsSeedanceRoute: AuthenticatedExtensionsSeedanceRoute,
+  AuthenticatedExtensionsVideoRoute: AuthenticatedExtensionsVideoRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,

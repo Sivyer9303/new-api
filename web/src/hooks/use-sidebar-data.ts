@@ -41,6 +41,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { NavGroup, NavItem, SidebarData } from '@/components/layout/types'
+import { VIDEO_TOOL_ROUTE } from '@/features/extensions/video-tool/lib/routes'
 import {
   resolveCustomPageIcon,
   type CustomPageStatusItem,
@@ -59,18 +60,21 @@ export function useSidebarData(): SidebarData {
   const { status } = useStatus()
 
   const extensionsGroup = useMemo((): NavGroup | null => {
-    const pages = (status?.custom_pages ??
-      status?.data?.custom_pages) as CustomPageStatusItem[] | undefined
+    const pages = (status?.custom_pages ?? status?.data?.custom_pages) as
+      | CustomPageStatusItem[]
+      | undefined
     const monitorVisible = Boolean(
       status?.availability_monitor_visible ??
-        status?.data?.availability_monitor_visible
+      status?.data?.availability_monitor_visible
     )
     const lotteryEnabled = Boolean(
       status?.lottery_enabled ?? status?.data?.lottery_enabled
     )
-    const silkroadVideoToolEnabled = Boolean(
+    const videoToolEnabled = Boolean(
+      status?.video_tool_enabled ??
+      status?.data?.video_tool_enabled ??
       status?.silkroad_video_tool_enabled ??
-        status?.data?.silkroad_video_tool_enabled
+      status?.data?.silkroad_video_tool_enabled
     )
     const items: NavItem[] = []
     if (lotteryEnabled) {
@@ -87,10 +91,10 @@ export function useSidebarData(): SidebarData {
         icon: ActivitySquare,
       })
     }
-    if (silkroadVideoToolEnabled) {
+    if (videoToolEnabled) {
       items.push({
-        title: t('Seedance video tool'),
-        url: '/extensions/seedance',
+        title: t('Video Generation'),
+        url: VIDEO_TOOL_ROUTE,
         icon: Video,
       })
     }

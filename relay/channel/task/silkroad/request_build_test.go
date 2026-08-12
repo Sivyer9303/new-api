@@ -1,4 +1,4 @@
-package newapi
+package silkroad
 
 import (
 	"io"

@@ -12,15 +12,17 @@ import (
 
 // ConfigManager 统一管理所有配置
 type ConfigManager struct {
-	configs map[string]interface{}
-	mutex   sync.RWMutex
+	configs      map[string]interface{}
+	explicitKeys map[string]struct{}
+	mutex        sync.RWMutex
 }
 
 var GlobalConfig = NewConfigManager()
 
 func NewConfigManager() *ConfigManager {
 	return &ConfigManager{
-		configs: make(map[string]interface{}),
+		configs:      make(map[string]interface{}),
+		explicitKeys: make(map[string]struct{}),
 	}
 }
 
@@ -38,6 +40,19 @@ func (cm *ConfigManager) Get(name string) interface{} {
 	return cm.configs[name]
 }
 
+func (cm *ConfigManager) MarkExplicit(key string) {
+	cm.mutex.Lock()
+	defer cm.mutex.Unlock()
+	cm.explicitKeys[key] = struct{}{}
+}
+
+func (cm *ConfigManager) IsExplicit(key string) bool {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+	_, ok := cm.explicitKeys[key]
+	return ok
+}
+
 // LoadFromDB 从数据库加载配置
 func (cm *ConfigManager) LoadFromDB(options map[string]string) error {
 	cm.mutex.Lock()
@@ -52,6 +67,7 @@ func (cm *ConfigManager) LoadFromDB(options map[string]string) error {
 			if strings.HasPrefix(key, prefix) {
 				configKey := strings.TrimPrefix(key, prefix)
 				configMap[configKey] = value
+				cm.explicitKeys[key] = struct{}{}
 			}
 		}
 

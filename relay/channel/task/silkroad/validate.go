@@ -1,7 +1,9 @@
-package newapi
+package silkroad
 
 import (
+	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,9 +41,9 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
 
-	var raw map[string]any
-	if err := common.Unmarshal(rawBytes, &raw); err != nil {
-		return service.TaskErrorWrapperLocal(err, "invalid_json", http.StatusBadRequest)
+	raw, err := parseVideoRequestMap(c, rawBytes)
+	if err != nil {
+		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
 
 	req, err := parseFriendlyRequest(raw)
@@ -49,10 +51,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
 
-	modelName := info.OriginModelName
-	if modelName == "" {
-		modelName = req.Model
-	}
+	modelName := silkRoadProfileModelName(info, req.Model)
 	if modelName == "" {
 		return service.TaskErrorWrapperLocal(fmt.Errorf("model is required"), "missing_model", http.StatusBadRequest)
 	}
@@ -65,6 +64,9 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 			"unknown_model_profile",
 			http.StatusBadRequest,
 		)
+	}
+	if c.Request.URL.Path == "/v1/videos" {
+		applyOpenAIVideoDefaults(&req, profile)
 	}
 
 	if err := validateFriendlyRequest(&req, profile, raw); err != nil {
@@ -103,6 +105,119 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 
 	storeFriendlyRequest(c, info, req)
 	return nil
+}
+
+func parseVideoRequestMap(c *gin.Context, rawBytes []byte) (map[string]any, error) {
+	if !strings.Contains(c.GetHeader("Content-Type"), "multipart/form-data") {
+		var raw map[string]any
+		if err := common.Unmarshal(rawBytes, &raw); err != nil {
+			return nil, err
+		}
+		normalizeOpenAIVideoFields(c.Request.URL.Path, raw)
+		return raw, nil
+	}
+
+	form, err := common.ParseMultipartFormReusable(c)
+	if err != nil {
+		return nil, err
+	}
+	raw := make(map[string]any)
+	for key, values := range form.Value {
+		if len(values) > 0 {
+			raw[key] = values[len(values)-1]
+		}
+	}
+	files := form.File["input_reference"]
+	if len(files) > 1 {
+		return nil, fmt.Errorf("input_reference accepts at most one file")
+	}
+	if len(files) == 1 {
+		file, err := files[0].Open()
+		if err != nil {
+			return nil, err
+		}
+		content, readErr := io.ReadAll(file)
+		closeErr := file.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		contentType := files[0].Header.Get("Content-Type")
+		if contentType == "" {
+			contentType = http.DetectContentType(content)
+		}
+		raw["images"] = []any{
+			"data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(content),
+		}
+	}
+	normalizeOpenAIVideoFields(c.Request.URL.Path, raw)
+	return raw, nil
+}
+
+func normalizeOpenAIVideoFields(requestPath string, raw map[string]any) {
+	if requestPath != "/v1/videos" {
+		return
+	}
+	if input, ok := raw["input_reference"].(string); ok && strings.TrimSpace(input) != "" {
+		raw["images"] = []any{strings.TrimSpace(input)}
+	}
+	delete(raw, "input_reference")
+	if _, exists := raw["aspect_ratio"]; !exists {
+		if size, ok := raw["size"].(string); ok {
+			switch strings.TrimSpace(size) {
+			case "1280x720", "1792x1024":
+				raw["aspect_ratio"] = "16:9"
+			case "720x1280", "1024x1792":
+				raw["aspect_ratio"] = "9:16"
+			case "1024x1024":
+				raw["aspect_ratio"] = "1:1"
+			}
+		}
+	}
+	delete(raw, "size")
+	if _, exists := raw["generation_type"]; !exists {
+		if images, ok := raw["images"].([]any); ok && len(images) > 0 {
+			raw["generation_type"] = silkroad_setting.GenerationImage2Video
+		} else {
+			raw["generation_type"] = silkroad_setting.GenerationText2Video
+		}
+	}
+}
+
+func applyOpenAIVideoDefaults(req *FriendlyRequest, profile *silkroad_setting.Profile) {
+	if req.DurationValue == "" {
+		if option, ok := firstEnabledOption(profile.Durations); ok {
+			req.DurationValue = option.Value
+		}
+	}
+	if req.AspectRatio == "" {
+		if option, ok := firstEnabledOption(profile.AspectRatios); ok {
+			req.AspectRatio = option.Value
+		}
+	}
+}
+
+func firstEnabledOption(items []silkroad_setting.OptionItem) (*silkroad_setting.OptionItem, bool) {
+	for i := range items {
+		if items[i].Enabled {
+			return &items[i], true
+		}
+	}
+	return nil, false
+}
+
+func silkRoadProfileModelName(info *relaycommon.RelayInfo, fallback string) string {
+	if info != nil {
+		if modelName := strings.TrimSpace(info.GetUpstreamModelName()); modelName != "" {
+			return modelName
+		}
+		if modelName := strings.TrimSpace(info.OriginModelName); modelName != "" {
+			return modelName
+		}
+	}
+	return strings.TrimSpace(fallback)
 }
 
 func storeFriendlyRequest(c *gin.Context, info *relaycommon.RelayInfo, req FriendlyRequest) {

@@ -1,6 +1,10 @@
 package common
 
-import "github.com/QuantumNous/new-api/constant"
+import (
+	"strings"
+
+	"github.com/QuantumNous/new-api/constant"
+)
 
 // GetEndpointTypesByChannelType 获取渠道最优先端点类型（所有的渠道都支持 OpenAI 端点）
 func GetEndpointTypesByChannelType(channelType int, modelName string) []constant.EndpointType {
@@ -30,6 +34,8 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse}
 	case constant.ChannelTypeSora:
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
+	case constant.ChannelTypeSilkRoad:
+		return []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
 	case constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI:
 		endpointTypes = []constant.EndpointType{
 			constant.EndpointTypeOpenAI,
@@ -57,4 +63,40 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 		endpointTypes = append([]constant.EndpointType{constant.EndpointTypeImageGeneration}, endpointTypes...)
 	}
 	return endpointTypes
+}
+
+// IsOpenAIVideoRequestPath recognizes the two public video API families.
+func IsOpenAIVideoRequestPath(requestPath string) bool {
+	path := strings.TrimSpace(requestPath)
+	return path == "/v1/videos" ||
+		strings.HasPrefix(path, "/v1/videos/") ||
+		path == "/v1/video/generations" ||
+		strings.HasPrefix(path, "/v1/video/generations/")
+}
+
+// IsVideoTaskRequestPath recognizes every asynchronous video submission route
+// that must fail closed when mandatory local result storage is unavailable.
+func IsVideoTaskRequestPath(requestPath string) bool {
+	path := strings.TrimSpace(requestPath)
+	return IsOpenAIVideoRequestPath(path) ||
+		strings.HasPrefix(path, "/kling/v1/videos/") ||
+		path == "/jimeng" ||
+		path == "/jimeng/"
+}
+
+// ChannelTypeSupportsRequestPath keeps dedicated video-only channels out of
+// non-video routing and prevents legacy NewAPI channels receiving new videos.
+func ChannelTypeSupportsRequestPath(channelType int, requestPath string) bool {
+	if requestPath == "" {
+		return true
+	}
+	isVideo := IsOpenAIVideoRequestPath(requestPath)
+	switch channelType {
+	case constant.ChannelTypeSilkRoad:
+		return isVideo
+	case constant.ChannelTypeNewAPI:
+		return !isVideo
+	default:
+		return true
+	}
 }

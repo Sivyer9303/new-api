@@ -12,13 +12,22 @@ import (
 )
 
 func TestExtractUpstreamVideoURLFromJSONNestedTaskDto(t *testing.T) {
+	withSilkRoadStorage(t, t.TempDir(), "node-a", "http://localhost:3000")
 	body := []byte(`{"code":"success","data":{"status":"SUCCESS","result_url":"http://localhost:3000/v1/videos/task_x/content","data":{"video_url":"https://cdn.upstream.example/a.mp4","url":"https://cdn.upstream.example/a.mp4"}}}`)
 	assert.Equal(t, "https://cdn.upstream.example/a.mp4", ExtractUpstreamVideoURLFromJSON(body))
 }
 
 func TestExtractUpstreamVideoURLFromJSONSkipsProxyOnly(t *testing.T) {
+	withSilkRoadStorage(t, t.TempDir(), "node-a", "http://127.0.0.1:8080")
 	body := []byte(`{"result_url":"http://127.0.0.1:8080/v1/videos/task_x/content"}`)
 	assert.Empty(t, ExtractUpstreamVideoURLFromJSON(body))
+}
+
+func TestExtractUpstreamVideoURLFromJSONKeepsExternalContentShapedURL(t *testing.T) {
+	withSilkRoadStorage(t, t.TempDir(), "node-a", "https://video.example.com")
+	const upstream = "https://upstream.example/v1/videos/provider-task/content"
+	body := []byte(`{"result_url":"` + upstream + `"}`)
+	assert.Equal(t, upstream, ExtractUpstreamVideoURLFromJSON(body))
 }
 
 func TestApplySilkRoadSuccessStoreQueuesIngestAndRedacts(t *testing.T) {
@@ -57,6 +66,23 @@ func TestSanitizeTaskForClientHidesUpstream(t *testing.T) {
 		},
 	}
 	resultURL, data := SanitizeTaskForClient(task)
-	assert.Equal(t, "https://video.example.com/v1/videos/task_sanitize/content", resultURL)
+	assert.Empty(t, resultURL)
 	assert.NotContains(t, string(data), "cdn.upstream.example")
+}
+
+func TestSanitizeTaskForClientHidesHistoricalVideoWhenStorageIsDisabled(t *testing.T) {
+	withSilkRoadStorage(t, t.TempDir(), "", "")
+	task := &model.Task{
+		TaskID:   "historical-kling-video",
+		Platform: constant.TaskPlatform("kling"),
+		Status:   model.TaskStatusSuccess,
+		Data:     []byte(`{"video_url":"https://upstream.example/private.mp4"}`),
+		PrivateData: model.TaskPrivateData{
+			ResultURL: "https://upstream.example/private.mp4",
+		},
+	}
+
+	resultURL, data := SanitizeTaskForClient(task)
+	assert.Empty(t, resultURL)
+	assert.NotContains(t, string(data), "upstream.example")
 }

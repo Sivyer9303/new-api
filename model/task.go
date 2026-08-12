@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -12,6 +13,8 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
+var ErrAmbiguousTaskID = errors.New("task_id matches multiple tasks")
+
 type TaskStatus string
 
 func (t TaskStatus) ToVideoStatus() string {
@@ -19,11 +22,11 @@ func (t TaskStatus) ToVideoStatus() string {
 	switch t {
 	case TaskStatusQueued, TaskStatusSubmitted:
 		status = dto.VideoStatusQueued
-	case TaskStatusInProgress:
+	case TaskStatusInProgress, TaskStatusStoring, TaskStatusStorageProcessing, TaskStatusStorageDeleting:
 		status = dto.VideoStatusInProgress
 	case TaskStatusSuccess:
 		status = dto.VideoStatusCompleted
-	case TaskStatusFailure:
+	case TaskStatusFailure, TaskStatusExpired, TaskStatusRefunded:
 		status = dto.VideoStatusFailed
 	default:
 		status = dto.VideoStatusUnknown // Default fallback
@@ -32,13 +35,18 @@ func (t TaskStatus) ToVideoStatus() string {
 }
 
 const (
-	TaskStatusNotStart   TaskStatus = "NOT_START"
-	TaskStatusSubmitted             = "SUBMITTED"
-	TaskStatusQueued                = "QUEUED"
-	TaskStatusInProgress            = "IN_PROGRESS"
-	TaskStatusFailure               = "FAILURE"
-	TaskStatusSuccess               = "SUCCESS"
-	TaskStatusUnknown               = "UNKNOWN"
+	TaskStatusNotStart          TaskStatus = "NOT_START"
+	TaskStatusSubmitted                    = "SUBMITTED"
+	TaskStatusQueued                       = "QUEUED"
+	TaskStatusInProgress                   = "IN_PROGRESS"
+	TaskStatusStoring           TaskStatus = "STORING"
+	TaskStatusStorageProcessing TaskStatus = "STORAGE_PROCESSING"
+	TaskStatusStorageDeleting   TaskStatus = "STORAGE_DELETING"
+	TaskStatusFailure                      = "FAILURE"
+	TaskStatusSuccess                      = "SUCCESS"
+	TaskStatusExpired           TaskStatus = "EXPIRED"
+	TaskStatusRefunded          TaskStatus = "REFUNDED"
+	TaskStatusUnknown                      = "UNKNOWN"
 )
 
 // TaskRefundLegacyCutoff separates tasks created before timeout refunds were
@@ -101,14 +109,25 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	Key            string `json:"key,omitempty"`
-	UpstreamTaskID string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
+	Key                string `json:"key,omitempty"`
+	UpstreamTaskID     string `json:"upstream_task_id,omitempty"`     // 上游真实 task ID
 	ResultURL          string `json:"result_url,omitempty"`           // 任务成功后的结果 URL（视频地址等）
 	UpstreamResultURL  string `json:"upstream_result_url,omitempty"`  // 上游原始结果 URL（转存前）
-	StorageStatus      string `json:"storage_status,omitempty"`       // pending|ready|failed|expired
-	StoragePath        string `json:"storage_path,omitempty"`         // 转存后的存储路径
-	StorageExpiresAt   int64  `json:"storage_expires_at,omitempty"`   // 存储链接过期时间（Unix 秒）
-	StorageRetryCount  int    `json:"storage_retry_count,omitempty"`  // 转存重试次数
+	StorageStatus      string `json:"storage_status,omitempty"`       // pending|processing|ready|failed|expired
+	StoragePath        string `json:"storage_path,omitempty"`         // Deprecated: existing local path compatibility
+	StorageObjectKey   string `json:"storage_object_key,omitempty"`   // Provider-neutral driver object key
+	StorageContentType string `json:"storage_content_type,omitempty"` // Stored object content type
+	StorageSize        int64  `json:"storage_size,omitempty"`         // Stored object size in bytes
+	StorageReadyAt     int64  `json:"storage_ready_at,omitempty"`     // Storage readiness time (Unix seconds)
+	StorageExpiresAt   int64  `json:"storage_expires_at,omitempty"`   // Fixed expiry time (Unix seconds)
+	StorageRetryCount  int    `json:"storage_retry_count,omitempty"`  // Transfer attempts
+	StorageLastError   string `json:"storage_last_error,omitempty"`   // Administrator-only transfer diagnostic
+	VideoTask          bool   `json:"video_task,omitempty"`           // Persisted task kind for storage/privacy policy
+	NoAutomaticRefund  bool   `json:"no_automatic_refund,omitempty"`  // Provider cost retained after delivery failure
+	ManualRefundedAt   int64  `json:"manual_refunded_at,omitempty"`
+	ManualRefundAdmin  int    `json:"manual_refund_admin,omitempty"`
+	ManualRefundReason string `json:"manual_refund_reason,omitempty"`
+	ManualRefundQuota  int    `json:"manual_refund_quota,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
@@ -302,7 +321,7 @@ func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*
 func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	var tasks []*Task
 	err := DB.Where("progress != ?", "100%").
-		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
+		Where("status NOT IN ?", videoStorageOwnedTaskStatuses()).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
 		Limit(limit).
@@ -317,7 +336,11 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 	var tasks []*Task
 	var err error
 	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
+	err = DB.Where("progress != ?", "100%").
+		Where("status NOT IN ?", videoStorageOwnedTaskStatuses()).
+		Limit(limit).
+		Order("id").
+		Find(&tasks).Error
 	if err != nil {
 		return nil
 	}
@@ -332,11 +355,22 @@ func HasUnfinishedSyncTasks() bool {
 	var id int64
 	err := DB.Model(&Task{}).
 		Where("progress != ?", "100%").
-		Where("status != ?", TaskStatusFailure).
-		Where("status != ?", TaskStatusSuccess).
+		Where("status NOT IN ?", videoStorageOwnedTaskStatuses()).
 		Limit(1).
 		Pluck("id", &id).Error
 	return err == nil && id != 0
+}
+
+func videoStorageOwnedTaskStatuses() []TaskStatus {
+	return []TaskStatus{
+		TaskStatusFailure,
+		TaskStatusSuccess,
+		TaskStatusStoring,
+		TaskStatusStorageProcessing,
+		TaskStatusStorageDeleting,
+		TaskStatusExpired,
+		TaskStatusRefunded,
+	}
 }
 
 func GetByTaskId(userId int, taskId string) (*Task, bool, error) {
@@ -352,6 +386,23 @@ func GetByTaskId(userId int, taskId string) (*Task, bool, error) {
 		return nil, false, err
 	}
 	return task, exist, err
+}
+
+func GetVideoTaskByTaskID(taskID string) (*Task, bool, error) {
+	if taskID == "" {
+		return nil, false, nil
+	}
+	var tasks []Task
+	if err := DB.Where("task_id = ?", taskID).Limit(2).Find(&tasks).Error; err != nil {
+		return nil, false, err
+	}
+	if len(tasks) == 0 {
+		return nil, false, nil
+	}
+	if len(tasks) > 1 {
+		return nil, false, ErrAmbiguousTaskID
+	}
+	return &tasks[0], true, nil
 }
 
 func GetByTaskIds(userId int, taskIds []any) ([]*Task, error) {

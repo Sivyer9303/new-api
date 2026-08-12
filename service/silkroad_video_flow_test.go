@@ -51,6 +51,7 @@ func TestSilkRoadVideoFlowPendingIngestReadyOpen(t *testing.T) {
 	// pending: public ResultURL only; upstream kept private
 	markSilkRoadPendingStore(task, upstreamURL)
 	assert.Equal(t, "pending", task.PrivateData.StorageStatus)
+	assert.Equal(t, model.TaskStatusStoring, task.Status)
 	assert.Equal(t, upstreamURL, task.PrivateData.UpstreamResultURL)
 	assert.Equal(t, "https://video.example.com/v1/videos/"+taskID+"/content", task.PrivateData.ResultURL)
 	assert.NotContains(t, task.PrivateData.ResultURL, "127.0.0.1")
@@ -72,6 +73,7 @@ func TestSilkRoadVideoFlowPendingIngestReadyOpen(t *testing.T) {
 
 	// ready: local file written, public URL unchanged
 	assert.Equal(t, "ready", task.PrivateData.StorageStatus)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), task.Status)
 	assert.Equal(t, filepath.Join(dir, taskID), task.PrivateData.StoragePath)
 	assert.GreaterOrEqual(t, task.PrivateData.StorageExpiresAt, before+7*86400)
 	assert.Equal(t, "https://video.example.com/v1/videos/"+taskID+"/content", task.PrivateData.ResultURL)

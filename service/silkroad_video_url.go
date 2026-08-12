@@ -2,12 +2,15 @@ package service
 
 import (
 	"encoding/json"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
-	"github.com/QuantumNous/new-api/setting/silkroad_setting"
+	"github.com/QuantumNous/new-api/setting"
 )
 
 const maxUpstreamVideoURLSearchDepth = 6
@@ -18,16 +21,38 @@ func ShouldHideSilkRoadUpstreamURLs(task *model.Task) bool {
 	if task == nil {
 		return false
 	}
-	if strings.TrimSpace(task.PrivateData.StorageStatus) != "" {
+	return IsVideoTask(task)
+}
+
+func IsVideoTask(task *model.Task) bool {
+	if task == nil {
+		return false
+	}
+	if task.PrivateData.VideoTask ||
+		strings.TrimSpace(task.PrivateData.StorageStatus) != "" ||
+		strings.TrimSpace(task.PrivateData.UpstreamResultURL) != "" {
 		return true
 	}
-	return shouldSilkRoadStore(task) || silkRoadNewAPIAvoidUpstreamResultURL(task)
+	switch task.Action {
+	case constant.TaskActionGenerate,
+		constant.TaskActionTextGenerate,
+		constant.TaskActionFirstTailGenerate,
+		constant.TaskActionReferenceGenerate,
+		constant.TaskActionRemix:
+		return true
+	}
+	switch strings.ToLower(string(task.Platform)) {
+	case "kling", "jimeng", "sora", "vidu", "doubao":
+		return true
+	}
+	return task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeNewAPI)) ||
+		task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeSilkRoad))
 }
 
 // PublicSilkRoadResultURL returns the only client-visible download URL for a
 // SilkRoad-stored (or storage-bound) task: this site's content endpoint.
 func PublicSilkRoadResultURL(taskID string) string {
-	if strings.TrimSpace(silkroad_setting.GetSilkRoadSetting().Storage.PublicDownloadBaseURL) != "" {
+	if strings.TrimSpace(setting.GetEffectiveVideoSetting().Storage.PublicDownloadBaseURL) != "" {
 		return BuildSilkRoadPublicURL(taskID)
 	}
 	return taskcommon.BuildProxyURL(taskID)
@@ -45,8 +70,12 @@ func SanitizeTaskForClient(task *model.Task) (resultURL string, data json.RawMes
 	if !ShouldHideSilkRoadUpstreamURLs(task) {
 		return resultURL, data
 	}
-	resultURL = PublicSilkRoadResultURL(task.TaskID)
-	cleaned, err := applySilkRoadDataRedaction(data)
+	if task.Status == model.TaskStatusSuccess && task.PrivateData.StorageStatus == "ready" {
+		resultURL = PublicSilkRoadResultURL(task.TaskID)
+	} else {
+		resultURL = ""
+	}
+	cleaned, err := applySilkRoadDataRedaction(data, task.TaskID)
 	if err != nil {
 		return resultURL, json.RawMessage(`{}`)
 	}
@@ -104,11 +133,28 @@ func collectUpstreamVideoURLCandidates(node any, depth int) []string {
 }
 
 func isSilkRoadContentProxyURL(raw string) bool {
-	u := strings.TrimSpace(raw)
-	if u == "" {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
 		return false
 	}
-	return strings.Contains(u, "/v1/videos/") && strings.HasSuffix(strings.TrimRight(u, "/"), "/content")
+	parsed, err := url.Parse(raw)
+	if err != nil ||
+		!strings.HasPrefix(parsed.Path, "/v1/videos/") ||
+		!strings.HasSuffix(strings.TrimRight(parsed.Path, "/"), "/content") {
+		return false
+	}
+	if !parsed.IsAbs() {
+		return strings.HasPrefix(raw, "/")
+	}
+	publicBase := strings.TrimSpace(
+		setting.GetEffectiveVideoSetting().Storage.PublicDownloadBaseURL,
+	)
+	base, err := url.Parse(publicBase)
+	if err != nil || !base.IsAbs() {
+		return false
+	}
+	return strings.EqualFold(parsed.Scheme, base.Scheme) &&
+		strings.EqualFold(parsed.Host, base.Host)
 }
 
 // applySilkRoadSuccessStore queues local ingest, forces public ResultURL, and
@@ -123,7 +169,7 @@ func applySilkRoadSuccessStore(task *model.Task, resultURL string, responseBody 
 	}
 
 	upstream := strings.TrimSpace(resultURL)
-	if upstream == "" || strings.HasPrefix(upstream, "data:") || isSilkRoadContentProxyURL(upstream) {
+	if upstream == "" || isSilkRoadContentProxyURL(upstream) {
 		upstream = ExtractUpstreamVideoURLFromJSON(responseBody)
 	}
 	if upstream == "" || isSilkRoadContentProxyURL(upstream) {
@@ -134,15 +180,10 @@ func applySilkRoadSuccessStore(task *model.Task, resultURL string, responseBody 
 	case "ready":
 		task.PrivateData.ResultURL = PublicSilkRoadResultURL(task.TaskID)
 	default:
-		if upstream != "" && !strings.HasPrefix(upstream, "data:") {
-			markSilkRoadPendingStore(task, upstream)
-		} else {
-			// No downloadable upstream URL yet — still never expose CDN fields.
-			task.PrivateData.ResultURL = PublicSilkRoadResultURL(task.TaskID)
-		}
+		markSilkRoadPendingStore(task, upstream)
 	}
 
-	cleaned, err := applySilkRoadDataRedaction(task.Data)
+	cleaned, err := applySilkRoadDataRedaction(task.Data, task.TaskID)
 	if err != nil {
 		task.Data = []byte("{}")
 		return

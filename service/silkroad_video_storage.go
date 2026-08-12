@@ -1,65 +1,98 @@
 package service
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/setting/silkroad_setting"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
 )
 
 // IsSilkRoadIngestNode reports whether this process is the configured SilkRoad
 // video ingest node. Empty IngestNodeName returns false to avoid dual-writer races.
-func IsSilkRoadIngestNode() bool {
-	ingest := silkroad_setting.GetSilkRoadSetting().Storage.IngestNodeName
+func IsVideoIngestNode() bool {
+	ingest := setting.GetEffectiveVideoSetting().Storage.IngestNodeName
 	if ingest == "" {
 		return false
 	}
 	return common.NodeName == ingest
 }
 
+func IsSilkRoadIngestNode() bool {
+	return IsVideoIngestNode()
+}
+
 // SilkRoadVideoLocalPath returns the local filesystem path for a task video.
+func VideoLocalPath(taskID string) string {
+	return filepath.Join(setting.GetEffectiveVideoSetting().Storage.LocalDir, taskID)
+}
+
 func SilkRoadVideoLocalPath(taskID string) string {
-	return filepath.Join(silkroad_setting.GetSilkRoadSetting().Storage.LocalDir, taskID)
+	return VideoLocalPath(taskID)
 }
 
 // WriteSilkRoadVideoFile writes video bytes for taskID under LocalDir.
 func WriteSilkRoadVideoFile(taskID string, r io.Reader) (absPath string, size int64, err error) {
-	path := SilkRoadVideoLocalPath(taskID)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", 0, err
-	}
-	f, err := os.Create(path)
+	driver := &LocalVideoStorageDriver{RootDir: setting.GetEffectiveVideoSetting().Storage.LocalDir}
+	stored, err := driver.Store(context.Background(), taskID, r, VideoObjectMetadata{})
 	if err != nil {
 		return "", 0, err
 	}
-	defer f.Close()
-
-	n, err := io.Copy(f, r)
+	abs, err := filepath.Abs(SilkRoadVideoLocalPath(stored.ObjectKey))
 	if err != nil {
 		return "", 0, err
 	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", 0, err
-	}
-	return abs, n, nil
+	return abs, stored.Size, nil
 }
 
 // OpenSilkRoadVideoFile opens the local video file for reading.
 func OpenSilkRoadVideoFile(taskID string) (*os.File, error) {
-	return os.Open(SilkRoadVideoLocalPath(taskID))
+	driver := &LocalVideoStorageDriver{RootDir: setting.GetEffectiveVideoSetting().Storage.LocalDir}
+	handle, err := driver.Open(context.Background(), taskID)
+	if err != nil {
+		return nil, err
+	}
+	file, ok := handle.(*os.File)
+	if !ok {
+		_ = handle.Close()
+		return nil, os.ErrInvalid
+	}
+	return file, nil
+}
+
+func OpenStoredVideo(ctx context.Context, task *model.Task) (VideoReadHandle, error) {
+	if task == nil {
+		return nil, os.ErrInvalid
+	}
+	objectKey := strings.TrimSpace(task.PrivateData.StorageObjectKey)
+	if objectKey == "" {
+		if legacyPath := strings.TrimSpace(task.PrivateData.StoragePath); legacyPath != "" {
+			return os.Open(legacyPath)
+		}
+	}
+	if objectKey == "" {
+		objectKey = strings.TrimSpace(task.TaskID)
+	}
+	driver := &LocalVideoStorageDriver{RootDir: setting.GetEffectiveVideoSetting().Storage.LocalDir}
+	return driver.Open(ctx, objectKey)
 }
 
 // DeleteSilkRoadVideoFile removes the local video file for taskID.
 func DeleteSilkRoadVideoFile(taskID string) error {
-	return os.Remove(SilkRoadVideoLocalPath(taskID))
+	driver := &LocalVideoStorageDriver{RootDir: setting.GetEffectiveVideoSetting().Storage.LocalDir}
+	return driver.Delete(context.Background(), taskID)
 }
 
 // BuildSilkRoadPublicURL builds the public content URL for a stored video.
-func BuildSilkRoadPublicURL(taskID string) string {
-	base := strings.TrimRight(silkroad_setting.GetSilkRoadSetting().Storage.PublicDownloadBaseURL, "/")
+func BuildVideoPublicURL(taskID string) string {
+	base := strings.TrimRight(setting.GetEffectiveVideoSetting().Storage.PublicDownloadBaseURL, "/")
 	return base + "/v1/videos/" + taskID + "/content"
+}
+
+func BuildSilkRoadPublicURL(taskID string) string {
+	return BuildVideoPublicURL(taskID)
 }

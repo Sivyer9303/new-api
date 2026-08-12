@@ -4,26 +4,24 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/silkroad_setting"
+	"github.com/QuantumNous/new-api/setting"
 )
 
 const silkRoadVideoCleanupBatch = 20
 
 // RunSilkRoadVideoCleanupOnce deletes local files past retention and marks tasks
 // expired. No-op unless this process is the ingest node.
-func RunSilkRoadVideoCleanupOnce(ctx context.Context) error {
+func RunVideoCleanupOnce(ctx context.Context) error {
 	if !IsSilkRoadIngestNode() {
 		return nil
 	}
-	storage := silkroad_setting.GetSilkRoadSetting().Storage
-	if !storage.Enabled {
+	storage := setting.GetEffectiveVideoSetting()
+	if !storage.StorageEnabled {
 		return nil
 	}
 
@@ -33,8 +31,14 @@ func RunSilkRoadVideoCleanupOnce(ctx context.Context) error {
 		return err
 	}
 	for _, task := range tasks {
-		expireOneSilkRoadVideo(task)
-		if err := task.Update(); err != nil {
+		if err := expireOneSilkRoadVideo(task); err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf(
+				"video cleanup delete failed task=%s: %s",
+				task.TaskID, err.Error(),
+			))
+			continue
+		}
+		if _, err := task.UpdateWithStatus(model.TaskStatusStorageDeleting); err != nil {
 			logger.LogError(ctx, fmt.Sprintf(
 				"silkroad cleanup persist failed task=%s: %s",
 				task.TaskID, err.Error(),
@@ -44,11 +48,14 @@ func RunSilkRoadVideoCleanupOnce(ctx context.Context) error {
 	return nil
 }
 
+func RunSilkRoadVideoCleanupOnce(ctx context.Context) error {
+	return RunVideoCleanupOnce(ctx)
+}
+
 func claimSilkRoadExpiredVideoTasks(limit int, now int64) ([]*model.Task, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	platform := strconv.Itoa(constant.ChannelTypeNewAPI)
 	out := make([]*model.Task, 0, limit)
 	pageSize := limit * 3
 	var afterID int64
@@ -58,7 +65,12 @@ func claimSilkRoadExpiredVideoTasks(limit int, now int64) ([]*model.Task, error)
 		// LIKE keeps SQLite/MySQL/PostgreSQL compatible without dialect JSON ops.
 		likeExpr := silkRoadPrivateDataTextExpr()
 		q := model.DB.
-			Where("status = ? AND platform = ?", model.TaskStatusSuccess, platform).
+			Where(
+				"(status = ? OR (status = ? AND updated_at < ?))",
+				model.TaskStatusSuccess,
+				model.TaskStatusStorageDeleting,
+				time.Now().Add(-videoStorageClaimTimeout).Unix(),
+			).
 			Where(likeExpr+` LIKE ?`, `%"storage_status":"ready"%`).
 			Order("id").
 			Limit(pageSize)
@@ -81,6 +93,16 @@ func claimSilkRoadExpiredVideoTasks(limit int, now int64) ([]*model.Task, error)
 			if expiresAt <= 0 || expiresAt >= now {
 				continue
 			}
+			if task.Status == model.TaskStatusSuccess {
+				task.Status = model.TaskStatusStorageDeleting
+				won, err := task.UpdateWithStatus(model.TaskStatusSuccess)
+				if err != nil {
+					return nil, err
+				}
+				if !won {
+					continue
+				}
+			}
 			out = append(out, task)
 			if len(out) >= limit {
 				break
@@ -93,18 +115,33 @@ func claimSilkRoadExpiredVideoTasks(limit int, now int64) ([]*model.Task, error)
 	return out, nil
 }
 
-func expireOneSilkRoadVideo(task *model.Task) {
+func expireOneSilkRoadVideo(task *model.Task) error {
 	if task == nil {
-		return
+		return nil
 	}
-	taskID := strings.TrimSpace(task.TaskID)
-	if taskID != "" {
-		if err := DeleteSilkRoadVideoFile(taskID); err != nil && !os.IsNotExist(err) {
-			logger.LogWarn(context.Background(), fmt.Sprintf(
-				"silkroad cleanup delete file failed task=%s: %s",
-				taskID, err.Error(),
-			))
+	objectKey := strings.TrimSpace(task.PrivateData.StorageObjectKey)
+	legacyPath := strings.TrimSpace(task.PrivateData.StoragePath)
+	if objectKey == "" && legacyPath == "" {
+		objectKey = strings.TrimSpace(task.TaskID)
+	}
+	if legacyPath != "" && task.PrivateData.StorageObjectKey == "" {
+		if err := os.Remove(legacyPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("delete legacy stored video: %w", err)
+		}
+	} else if objectKey != "" {
+		if err := DeleteSilkRoadVideoFile(objectKey); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("delete stored video: %w", err)
 		}
 	}
+	task.Status = model.TaskStatusExpired
+	task.Progress = "100%"
+	task.FailReason = "Video expired after the fixed seven-day retention period."
 	task.PrivateData.StorageStatus = "expired"
+	task.PrivateData.ResultURL = ""
+	task.PrivateData.UpstreamResultURL = ""
+	task.PrivateData.StoragePath = ""
+	task.PrivateData.StorageObjectKey = ""
+	task.PrivateData.StorageContentType = ""
+	task.PrivateData.StorageSize = 0
+	return nil
 }

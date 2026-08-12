@@ -21,13 +21,12 @@ import { createElement } from 'react'
 import type { ExtensionsSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { AvailabilityMonitorSection } from './availability-monitor-section'
-import { CustomPagesSection } from './custom-pages-section'
-import { LotterySettingsSection } from './lottery-settings-section'
-import { SilkRoadSettingsSection } from './silkroad-settings-section'
 import {
   DEFAULT_EXTENSION_VISIBILITY,
   resolveExtensionVisibility,
 } from './constants'
+import { CustomPagesSection } from './custom-pages-section'
+import { LotterySettingsSection } from './lottery-settings-section'
 
 const EXTENSIONS_SECTIONS = [
   {
@@ -78,19 +77,6 @@ const EXTENSIONS_SECTIONS = [
           betPrizesJson:
             settings['lottery_setting.bet_prizes'] ||
             '[{"name":"谢谢惠顾","multiplier":0,"weight":18,"is_thanks":true}]',
-        },
-      }),
-  },
-  {
-    id: 'silkroad',
-    titleKey: 'SilkRoad Video',
-    build: (settings: ExtensionsSettings) =>
-      createElement(SilkRoadSettingsSection, {
-        defaultValues: {
-          storageJson: settings['silkroad_setting.storage'] || '',
-          profilesJson: settings['silkroad_setting.profiles'] || '[]',
-          videoToolGroupsJson:
-            settings['silkroad_setting.video_tool_groups'] || '[]',
         },
       }),
   },

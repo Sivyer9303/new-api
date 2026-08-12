@@ -201,9 +201,17 @@ export type ExtensionsSettings = {
   'lottery_setting.require_redemption': boolean
   'lottery_setting.free_prizes': string
   'lottery_setting.bet_prizes': string
-  // GlobalConfig serializes nested Storage as one JSON blob (not dotted leaf keys).
-  'silkroad_setting.storage': string
+}
+
+export type VideoSettings = {
+  'video_setting.enabled': boolean
+  'video_setting.video_tool_groups': string
+  'video_setting.storage': string
+  'silkroad_setting.common': string
   'silkroad_setting.profiles': string
+  'silkroad_setting.default_profile_id': string
+  // Compatibility values used until each new generic key is saved explicitly.
+  'silkroad_setting.storage': string
   'silkroad_setting.video_tool_groups': string
 }
 

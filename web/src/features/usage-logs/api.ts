@@ -18,7 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
-import { buildQueryParams } from './lib/utils'
 import type {
   GetLogsParams,
   GetLogsResponse,
@@ -27,7 +26,19 @@ import type {
   GetMidjourneyLogsParams,
   GetTaskLogsParams,
   UserInfo,
+  VideoProviderConfirmation,
+  VideoTaskDiagnostics,
 } from './types'
+
+function buildQueryParams(params: Record<string, unknown>): URLSearchParams {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.append(key, String(value))
+    }
+  }
+  return query
+}
 
 // ============================================================================
 // Generic API Helpers
@@ -110,3 +121,36 @@ export const getAllTaskLogs = (params: GetTaskLogsParams) =>
 
 export const getUserTaskLogs = (params: GetTaskLogsParams) =>
   fetchLogs('/api/task', params, false)
+
+export async function getVideoTaskDiagnostics(
+  taskID: string
+): Promise<VideoTaskDiagnostics> {
+  const response = await api.get(
+    `/api/task/video/${encodeURIComponent(taskID)}/diagnostics`
+  )
+  return response.data.data as VideoTaskDiagnostics
+}
+
+export async function retryVideoTaskStorage(taskID: string): Promise<void> {
+  await api.post(`/api/task/video/${encodeURIComponent(taskID)}/storage/retry`)
+}
+
+export async function confirmVideoTaskProvider(
+  taskID: string
+): Promise<VideoProviderConfirmation> {
+  const response = await api.post(
+    `/api/task/video/${encodeURIComponent(taskID)}/provider/confirm`
+  )
+  return response.data.data as VideoProviderConfirmation
+}
+
+export async function refundVideoTask(
+  taskID: string,
+  reason: string
+): Promise<{ already_refunded: boolean; refunded_quota: number }> {
+  const response = await api.post(
+    `/api/task/video/${encodeURIComponent(taskID)}/refund`,
+    { reason }
+  )
+  return response.data.data
+}

@@ -29,10 +29,11 @@ export const optionItemSchema = z.object({
 export const profileFormSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
+  exact_models_text: z.string(),
   /** Comma-separated prefixes in the UI; converted to string[] on save. */
-  model_prefixes_text: z.string().min(1),
-  durations: z.array(optionItemSchema).min(1),
-  aspect_ratios: z.array(optionItemSchema).min(1),
+  model_prefixes_text: z.string(),
+  durations: z.array(optionItemSchema),
+  aspect_ratios: z.array(optionItemSchema),
 })
 
 export type OptionItemForm = z.infer<typeof optionItemSchema>
@@ -41,9 +42,10 @@ export type ProfileForm = z.infer<typeof profileFormSchema>
 export type ProfileApi = {
   id: string
   label: string
+  exact_models: string[]
   model_prefixes: string[]
-  durations: OptionItemForm[]
-  aspect_ratios: OptionItemForm[]
+  durations?: OptionItemForm[]
+  aspect_ratios?: OptionItemForm[]
 }
 
 function asOptionItem(raw: unknown, fallbackSort: number): OptionItemForm {
@@ -74,9 +76,10 @@ export function emptyProfile(index = 0): ProfileForm {
   return {
     id: `profile_${index + 1}`,
     label: '',
+    exact_models_text: '',
     model_prefixes_text: '',
-    durations: [emptyOptionItem(1)],
-    aspect_ratios: [emptyOptionItem(1)],
+    durations: [],
+    aspect_ratios: [],
   }
 }
 
@@ -89,6 +92,9 @@ export function parseProfilesToForm(raw: string | undefined): ProfileForm[] {
     }
     return parsed.map((item, idx) => {
       const p = (item ?? {}) as Partial<ProfileApi>
+      const exactModels = Array.isArray(p.exact_models)
+        ? p.exact_models.map(String).filter(Boolean)
+        : []
       const prefixes = Array.isArray(p.model_prefixes)
         ? p.model_prefixes.map(String).filter(Boolean)
         : []
@@ -97,15 +103,10 @@ export function parseProfilesToForm(raw: string | undefined): ProfileForm[] {
       return {
         id: String(p.id ?? `profile_${idx + 1}`),
         label: String(p.label ?? ''),
+        exact_models_text: exactModels.join(', '),
         model_prefixes_text: prefixes.join(', '),
-        durations:
-          durations.length > 0
-            ? durations.map((d, i) => asOptionItem(d, i + 1))
-            : [emptyOptionItem(1)],
-        aspect_ratios:
-          aspects.length > 0
-            ? aspects.map((d, i) => asOptionItem(d, i + 1))
-            : [emptyOptionItem(1)],
+        durations: durations.map((d, i) => asOptionItem(d, i + 1)),
+        aspect_ratios: aspects.map((d, i) => asOptionItem(d, i + 1)),
       }
     })
   } catch {
@@ -117,21 +118,40 @@ export function profilesFormToApi(profiles: ProfileForm[]): ProfileApi[] {
   return profiles.map((p) => ({
     id: p.id.trim(),
     label: p.label.trim(),
+    exact_models: p.exact_models_text
+      .split(/[,，\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean),
     model_prefixes: p.model_prefixes_text
       .split(/[,，\n]/)
       .map((s) => s.trim())
       .filter(Boolean),
-    durations: p.durations.map((d) => ({
-      ...d,
-      label: d.label.trim(),
-      value: d.value.trim(),
-      upstream_key: d.upstream_key.trim(),
-    })),
-    aspect_ratios: p.aspect_ratios.map((d) => ({
-      ...d,
-      label: d.label.trim(),
-      value: d.value.trim(),
-      upstream_key: d.upstream_key.trim(),
-    })),
+    ...(p.durations.length > 0
+      ? {
+          durations: p.durations.map((d) => ({
+            ...d,
+            label: d.label.trim(),
+            value: d.value.trim(),
+            upstream_key: d.upstream_key.trim(),
+          })),
+        }
+      : {}),
+    ...(p.aspect_ratios.length > 0
+      ? {
+          aspect_ratios: p.aspect_ratios.map((d) => ({
+            ...d,
+            label: d.label.trim(),
+            value: d.value.trim(),
+            upstream_key: d.upstream_key.trim(),
+          })),
+        }
+      : {}),
   }))
+}
+
+export function defaultProfileExists(
+  defaultProfileID: string,
+  profiles: ProfileForm[]
+): boolean {
+  return profiles.some((profile) => profile.id.trim() === defaultProfileID)
 }

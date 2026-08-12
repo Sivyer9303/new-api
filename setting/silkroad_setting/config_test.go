@@ -10,6 +10,9 @@ import (
 func TestDefaultSilkRoadSettingProfiles(t *testing.T) {
 	s := defaultSilkRoadSetting()
 	require.Len(t, s.Profiles, 2)
+	assert.Equal(t, "seedance_reverse", s.DefaultProfileID)
+	require.NotEmpty(t, s.Common.Durations)
+	require.Len(t, s.Common.AspectRatios, 6)
 
 	seedance := s.Profiles[0]
 	assert.Equal(t, "seedance_reverse", seedance.ID)
@@ -18,7 +21,7 @@ func TestDefaultSilkRoadSettingProfiles(t *testing.T) {
 	assert.Equal(t, "seconds", seedance.Durations[0].UpstreamKey)
 	assert.Equal(t, "10", seedance.Durations[0].Value)
 	assert.Equal(t, "15", seedance.Durations[1].Value)
-	require.Len(t, seedance.AspectRatios, 6)
+	assert.Empty(t, seedance.AspectRatios)
 
 	dreamina := s.Profiles[1]
 	assert.Equal(t, "dreamina_overseas", dreamina.ID)
@@ -27,6 +30,7 @@ func TestDefaultSilkRoadSettingProfiles(t *testing.T) {
 	assert.Equal(t, "seconds", dreamina.Durations[0].UpstreamKey)
 	assert.Equal(t, "4", dreamina.Durations[0].Value)
 	assert.Equal(t, "5", dreamina.Durations[1].Value)
+	assert.Empty(t, dreamina.AspectRatios)
 }
 
 func TestHardcodedGenerationModes(t *testing.T) {

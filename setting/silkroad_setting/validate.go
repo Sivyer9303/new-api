@@ -3,7 +3,10 @@ package silkroad_setting
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
 // ValidateSilkRoadSetting checks silkroad_setting invariants before save/use.
@@ -14,7 +17,21 @@ func ValidateSilkRoadSetting(s *SilkRoadSetting) error {
 	if len(s.Profiles) == 0 {
 		return errors.New("profiles cannot be empty")
 	}
+	if err := validateOptionList(s.Common.Durations, "common.durations"); err != nil {
+		return err
+	}
+	if err := validateDurationValues(s.Common.Durations, "common.durations"); err != nil {
+		return err
+	}
+	if err := validateOptionList(s.Common.AspectRatios, "common.aspect_ratios"); err != nil {
+		return err
+	}
+	if err := validateAspectRatioValues(s.Common.AspectRatios, "common.aspect_ratios"); err != nil {
+		return err
+	}
 	seenIDs := make(map[string]struct{}, len(s.Profiles))
+	seenExactModels := make(map[string]string)
+	seenPrefixes := make(map[string]string)
 	for i := range s.Profiles {
 		if err := validateProfile(&s.Profiles[i], i); err != nil {
 			return err
@@ -24,6 +41,36 @@ func ValidateSilkRoadSetting(s *SilkRoadSetting) error {
 			return fmt.Errorf("profile[%d]: duplicate id %q", i, id)
 		}
 		seenIDs[id] = struct{}{}
+		for _, exact := range s.Profiles[i].ExactModels {
+			modelName := strings.TrimSpace(exact)
+			if owner, duplicate := seenExactModels[modelName]; duplicate {
+				return fmt.Errorf(
+					"profile[%d]: duplicate exact model %q already used by profile %q",
+					i,
+					modelName,
+					owner,
+				)
+			}
+			seenExactModels[modelName] = id
+		}
+		for _, rawPrefix := range s.Profiles[i].ModelPrefixes {
+			prefix := strings.TrimSpace(rawPrefix)
+			if owner, duplicate := seenPrefixes[prefix]; duplicate {
+				return fmt.Errorf(
+					"profile[%d]: duplicate model prefix %q already used by profile %q",
+					i,
+					prefix,
+					owner,
+				)
+			}
+			seenPrefixes[prefix] = id
+		}
+	}
+	if strings.TrimSpace(s.DefaultProfileID) == "" {
+		return errors.New("default_profile_id is required")
+	}
+	if _, ok := seenIDs[s.DefaultProfileID]; !ok {
+		return fmt.Errorf("default_profile_id %q does not reference an existing profile", s.DefaultProfileID)
 	}
 	if err := validateStorage(&s.Storage); err != nil {
 		return err
@@ -61,19 +108,67 @@ func validateProfile(p *Profile, idx int) error {
 	if strings.TrimSpace(p.Label) == "" {
 		return fmt.Errorf("profile[%d]: label is required", idx)
 	}
-	if len(p.ModelPrefixes) == 0 {
-		return fmt.Errorf("profile[%d]: model_prefixes cannot be empty", idx)
+	for j, exact := range p.ExactModels {
+		if strings.TrimSpace(exact) == "" {
+			return fmt.Errorf("profile[%d]: exact_models[%d] is empty", idx, j)
+		}
 	}
 	for j, prefix := range p.ModelPrefixes {
 		if strings.TrimSpace(prefix) == "" {
 			return fmt.Errorf("profile[%d]: model_prefixes[%d] is empty", idx, j)
 		}
 	}
-	if err := validateOptionList(p.Durations, fmt.Sprintf("profile[%d].durations", idx)); err != nil {
-		return err
+	if p.Durations != nil {
+		path := fmt.Sprintf("profile[%d].durations", idx)
+		if err := validateOptionList(p.Durations, path); err != nil {
+			return err
+		}
+		if err := validateDurationValues(p.Durations, path); err != nil {
+			return err
+		}
 	}
-	if err := validateOptionList(p.AspectRatios, fmt.Sprintf("profile[%d].aspect_ratios", idx)); err != nil {
-		return err
+	if p.AspectRatios != nil {
+		path := fmt.Sprintf("profile[%d].aspect_ratios", idx)
+		if err := validateOptionList(p.AspectRatios, path); err != nil {
+			return err
+		}
+		if err := validateAspectRatioValues(p.AspectRatios, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateAspectRatioValues(items []OptionItem, path string) error {
+	allowed := make(map[string]struct{})
+	for _, item := range defaultAspectRatios() {
+		allowed[item.Value] = struct{}{}
+	}
+	for i, item := range items {
+		if !item.Enabled {
+			continue
+		}
+		if _, ok := allowed[item.Value]; !ok {
+			return fmt.Errorf("%s[%d]: aspect ratio %q is outside SilkRoad hard capabilities", path, i, item.Value)
+		}
+	}
+	return nil
+}
+
+func validateDurationValues(items []OptionItem, path string) error {
+	for i, item := range items {
+		if !item.Enabled {
+			continue
+		}
+		seconds, err := strconv.Atoi(item.Value)
+		if err != nil || seconds < 1 || seconds > relaycommon.MaxTaskDurationSeconds {
+			return fmt.Errorf(
+				"%s[%d]: duration must be between 1 and %d seconds",
+				path,
+				i,
+				relaycommon.MaxTaskDurationSeconds,
+			)
+		}
 	}
 	return nil
 }
@@ -127,8 +222,8 @@ func validateStorage(s *StorageSetting) error {
 	if strings.TrimSpace(s.LocalDir) == "" {
 		return errors.New("storage.local_dir is required when enabled")
 	}
-	if s.RetentionDays < 1 {
-		return errors.New("storage.retention_days must be >= 1 when enabled")
+	if s.RetentionDays != 7 {
+		return errors.New("storage.retention_days is fixed at 7")
 	}
 	if s.MaxRetry < 1 {
 		return errors.New("storage.max_retry must be >= 1 when enabled")

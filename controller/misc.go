@@ -143,10 +143,14 @@ func GetStatus(c *gin.Context) {
 		data["custom_pages"] = console_setting.GetCustomPagesForRole(isAdmin)
 		data["availability_monitor_visible"] = console_setting.IsAvailabilityMonitorVisible(isAdmin)
 		data["availability_monitor_refresh_interval"] = console_setting.GetAvailabilityMonitorRefreshInterval()
-		data["silkroad_video_tool_enabled"] = silkroad_setting.GetPublicVideoToolConfig().Enabled
+		videoToolEnabled := silkroad_setting.GetPublicVideoToolConfig().Enabled &&
+			setting.GetEffectiveVideoSetting().Enabled
+		data["video_tool_enabled"] = videoToolEnabled
+		data["silkroad_video_tool_enabled"] = videoToolEnabled
 	} else {
 		data["custom_pages"] = []map[string]interface{}{}
 		data["availability_monitor_visible"] = false
+		data["video_tool_enabled"] = false
 		data["silkroad_video_tool_enabled"] = false
 	}
 

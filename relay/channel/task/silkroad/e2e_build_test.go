@@ -1,4 +1,4 @@
-package newapi
+package silkroad
 
 import (
 	"io"
@@ -76,6 +76,50 @@ func TestE2EBuildDreaminaImage2VideoGolden(t *testing.T) {
 	assert.JSONEq(t, want, string(got))
 	assert.NotContains(t, string(got), "generation_type")
 	assert.NotContains(t, string(got), `"images"`)
+}
+
+func TestE2EBuildUsesMappedUpstreamModelForProfileAndReferenceValidation(t *testing.T) {
+	a := &TaskAdaptor{}
+	c, info := newE2EContext(t, `{
+		"model":"public-seedance",
+		"prompt":"animate the still photo",
+		"generation_type":"image2video",
+		"seconds":"5",
+		"aspect_ratio":"9:16",
+		"images":["data:image/jpeg;base64,abc"]
+	}`, "public-seedance", "dreamina-seedance-2-0-720-ref")
+
+	require.Nil(t, a.ValidateRequestAndSetAction(c, info))
+
+	reader, err := a.BuildRequestBody(c, info)
+	require.NoError(t, err)
+	got, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Contains(t, string(got), `"model":"dreamina-seedance-2-0-720-ref"`)
+	assert.NotContains(t, string(got), `"model":"public-seedance"`)
+}
+
+func TestE2EBuildOpenAIVideosJSONNormalizesIntoFriendlyRequest(t *testing.T) {
+	a := &TaskAdaptor{}
+	c, info := newE2EContext(t, `{
+		"model":"seedance-2.0-720",
+		"prompt":"a lighthouse in a storm",
+		"size":"1280x720"
+	}`, "seedance-2.0-720", "seedance-2.0-720")
+	c.Request.URL.Path = "/v1/videos"
+
+	require.Nil(t, a.ValidateRequestAndSetAction(c, info))
+	reader, err := a.BuildRequestBody(c, info)
+	require.NoError(t, err)
+	got, err := io.ReadAll(reader)
+	require.NoError(t, err)
+
+	assert.JSONEq(t, `{
+		"aspect_ratio":"16:9",
+		"model":"seedance-2.0-720",
+		"prompt":"a lighthouse in a storm",
+		"seconds":"10"
+	}`, string(got))
 }
 
 func TestE2EBuildDreaminaMultiImageRejectsAudio(t *testing.T) {

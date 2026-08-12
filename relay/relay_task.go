@@ -18,6 +18,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
@@ -144,6 +145,16 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 // 控制器负责 defer Refund 和成功后 Settle。
 func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitResult, *dto.TaskError) {
 	info.InitChannelMeta(c)
+	if info.RelayMode == relayconstant.RelayModeVideoSubmit ||
+		common.IsVideoTaskRequestPath(c.Request.URL.Path) {
+		if err := service.ValidateVideoStorageReady(); err != nil {
+			return nil, service.TaskErrorWrapperLocal(
+				err,
+				"video_storage_unavailable",
+				http.StatusServiceUnavailable,
+			)
+		}
+	}
 
 	// 1. 确定 platform → 创建适配器 → 验证请求
 	platform := constant.TaskPlatform(c.GetString("platform"))
@@ -155,6 +166,12 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("invalid api platform: %s", platform), "invalid_api_platform", http.StatusBadRequest)
 	}
 	adaptor.Init(info)
+	if info.OriginModelName != "" {
+		info.UpstreamModelName = info.OriginModelName
+		if err := helper.ModelMappedHelper(c, info, nil); err != nil {
+			return nil, service.TaskErrorWrapperLocal(err, "model_mapping_failed", http.StatusBadRequest)
+		}
+	}
 	if taskErr := adaptor.ValidateRequestAndSetAction(c, info); taskErr != nil {
 		return nil, taskErr
 	}
@@ -167,9 +184,11 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 2.5 应用渠道的模型映射（与同步任务对齐）
 	info.OriginModelName = modelName
-	info.UpstreamModelName = modelName
-	if err := helper.ModelMappedHelper(c, info, nil); err != nil {
-		return nil, service.TaskErrorWrapperLocal(err, "model_mapping_failed", http.StatusBadRequest)
+	if info.UpstreamModelName == "" {
+		info.UpstreamModelName = modelName
+		if err := helper.ModelMappedHelper(c, info, nil); err != nil {
+			return nil, service.TaskErrorWrapperLocal(err, "model_mapping_failed", http.StatusBadRequest)
+		}
 	}
 
 	// 3. 预生成公开 task ID（仅首次）
@@ -395,21 +414,10 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 
 	// OpenAI Video API 格式: 走各 adaptor 的 ConvertToOpenAIVideo
 	if isOpenAIVideoAPI {
-		adaptor := GetTaskAdaptor(originTask.Platform)
-		if adaptor == nil {
-			taskResp = service.TaskErrorWrapperLocal(fmt.Errorf("invalid channel id: %d", originTask.ChannelId), "invalid_channel_id", http.StatusBadRequest)
-			return
+		respBody, err = buildOpenAIVideoResponse(originTask)
+		if err != nil {
+			taskResp = service.TaskErrorWrapper(err, "convert_to_openai_video_failed", http.StatusInternalServerError)
 		}
-		if converter, ok := adaptor.(channel.OpenAIVideoConverter); ok {
-			openAIVideoData, err := converter.ConvertToOpenAIVideo(originTask)
-			if err != nil {
-				taskResp = service.TaskErrorWrapper(err, "convert_to_openai_video_failed", http.StatusInternalServerError)
-				return
-			}
-			respBody = openAIVideoData
-			return
-		}
-		taskResp = service.TaskErrorWrapperLocal(fmt.Errorf("not_implemented:%s", originTask.Platform), "not_implemented", http.StatusNotImplemented)
 		return
 	}
 
@@ -428,6 +436,12 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 // 仅当渠道类型为 Gemini 或 Vertex 时触发；其他渠道或出错时返回 nil。
 // 当非 OpenAI Video API 时，还会构建自定义格式的响应体。
 func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
+	if task.Status == model.TaskStatusStoring ||
+		task.Status == model.TaskStatusStorageProcessing ||
+		task.Status == model.TaskStatusStorageDeleting ||
+		task.PrivateData.StorageStatus != "" {
+		return nil
+	}
 	channelModel, err := model.GetChannelById(task.ChannelId, true)
 	if err != nil {
 		return nil
@@ -547,6 +561,110 @@ func mapTaskStatusToSimple(status model.TaskStatus) string {
 	}
 }
 
+func buildOpenAIVideoResponse(task *model.Task) ([]byte, error) {
+	response := relaykitdto.NewOpenAIVideo()
+	_ = common.Unmarshal(task.Data, response)
+	if adaptor := GetTaskAdaptor(task.Platform); adaptor != nil {
+		if converter, ok := adaptor.(channel.OpenAIVideoConverter); ok {
+			if converted, err := converter.ConvertToOpenAIVideo(task); err == nil {
+				_ = common.Unmarshal(converted, response)
+			}
+		}
+	}
+	response.ID = task.TaskID
+	response.TaskID = ""
+	response.Object = "video"
+	if task.Properties.OriginModelName != "" {
+		response.Model = task.Properties.OriginModelName
+	}
+	response.Status = task.Status.ToVideoStatus()
+	response.Progress = parseTaskProgress(task.Progress)
+	response.CreatedAt = task.SubmitTime
+	if response.CreatedAt == 0 {
+		response.CreatedAt = task.CreatedAt
+	}
+	response.Metadata = sanitizeOpenAIVideoMetadata(response.Metadata)
+
+	switch {
+	case task.Status == model.TaskStatusExpired || task.PrivateData.StorageStatus == "expired":
+		response.Status = "failed"
+		response.Error = &relaykitdto.OpenAIVideoError{
+			Code:    "video_expired",
+			Message: "Video expired after the fixed seven-day retention period.",
+		}
+	case task.Status == model.TaskStatusRefunded || task.PrivateData.StorageStatus == "refunded":
+		response.Status = "failed"
+		response.Error = &relaykitdto.OpenAIVideoError{
+			Code:    "video_refunded",
+			Message: "Video delivery failed and an administrator issued a full refund.",
+		}
+	case task.Status == model.TaskStatusFailure && task.PrivateData.NoAutomaticRefund:
+		response.Status = "failed"
+		response.Error = &relaykitdto.OpenAIVideoError{
+			Code:    "video_delivery_failed",
+			Message: task.FailReason,
+		}
+	case task.Status == model.TaskStatusFailure:
+		response.Status = "failed"
+		response.Error = &relaykitdto.OpenAIVideoError{
+			Code:    "video_generation_failed",
+			Message: task.FailReason,
+		}
+	case task.Status == model.TaskStatusSuccess && task.PrivateData.StorageStatus == "ready":
+		response.Status = "completed"
+		response.Progress = 100
+		response.CompletedAt = task.FinishTime
+		response.ExpiresAt = task.PrivateData.StorageExpiresAt
+	case task.Status == model.TaskStatusSuccess:
+		response.Status = "failed"
+		response.Error = &relaykitdto.OpenAIVideoError{
+			Code:    "video_not_stored",
+			Message: "Stored video content is unavailable.",
+		}
+	}
+	return common.Marshal(response)
+}
+
+func sanitizeOpenAIVideoMetadata(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
+	}
+	safe := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		lowerKey := strings.ToLower(key)
+		if strings.Contains(lowerKey, "url") ||
+			strings.Contains(lowerKey, "base64") ||
+			strings.Contains(lowerKey, "bytes") {
+			continue
+		}
+		if text, ok := value.(string); ok {
+			trimmed := strings.TrimSpace(text)
+			if strings.HasPrefix(trimmed, "http://") ||
+				strings.HasPrefix(trimmed, "https://") ||
+				strings.HasPrefix(trimmed, "data:") {
+				continue
+			}
+		}
+		safe[key] = value
+	}
+	if len(safe) == 0 {
+		return nil
+	}
+	return safe
+}
+
+func parseTaskProgress(raw string) int {
+	value := strings.TrimSpace(strings.TrimSuffix(raw, "%"))
+	progress, err := strconv.Atoi(value)
+	if err != nil || progress < 0 {
+		return 0
+	}
+	if progress > 100 {
+		return 100
+	}
+	return progress
+}
+
 func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 	resultURL, data := service.SanitizeTaskForClient(task)
 	return &dto.TaskDto{
@@ -560,7 +678,7 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		ChannelId:  task.ChannelId,
 		Quota:      task.Quota,
 		Action:     task.Action,
-		Status:     string(task.Status),
+		Status:     publicTaskStatus(task),
 		FailReason: task.FailReason,
 		ResultURL:  resultURL,
 		SubmitTime: task.SubmitTime,
@@ -570,5 +688,16 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		Properties: task.Properties,
 		Username:   task.Username,
 		Data:       data,
+	}
+}
+
+func publicTaskStatus(task *model.Task) string {
+	switch task.Status {
+	case model.TaskStatusStoring, model.TaskStatusStorageProcessing, model.TaskStatusStorageDeleting:
+		return string(model.TaskStatusInProgress)
+	case model.TaskStatusExpired, model.TaskStatusRefunded:
+		return string(model.TaskStatusFailure)
+	default:
+		return string(task.Status)
 	}
 }

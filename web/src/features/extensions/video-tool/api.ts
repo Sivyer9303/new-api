@@ -35,8 +35,7 @@ function axiosErrorMessage(err: unknown, fallback: string): Error {
     const data = err.response?.data as
       | { error?: { message?: string }; message?: string }
       | undefined
-    const msg =
-      data?.error?.message || data?.message || err.message || fallback
+    const msg = data?.error?.message || data?.message || err.message || fallback
     return new Error(msg)
   }
   if (err instanceof Error) return err
@@ -48,13 +47,13 @@ export async function fetchVideoToolConfig(): Promise<{
   message?: string
   data?: VideoToolConfig
 }> {
-  const res = await api.get('/api/silkroad/video-tool')
+  const res = await api.get('/api/video/tool-config')
   return res.data
 }
 
-export async function fetchModelsWithTokenKey(tokenKey: string): Promise<
-  string[]
-> {
+export async function fetchModelsWithTokenKey(
+  tokenKey: string
+): Promise<string[]> {
   try {
     const res = await axios.get<{ data?: Array<{ id?: string }> }>(
       '/v1/models',
@@ -65,9 +64,7 @@ export async function fetchModelsWithTokenKey(tokenKey: string): Promise<
       }
     )
     const items = res.data?.data ?? []
-    return items
-      .map((m) => m.id?.trim() ?? '')
-      .filter((id) => id.length > 0)
+    return items.map((m) => m.id?.trim() ?? '').filter((id) => id.length > 0)
   } catch (err) {
     throw axiosErrorMessage(err, 'Failed to load models')
   }
@@ -134,7 +131,7 @@ export async function fetchVideoContentBlob(
 }
 
 function isSiteVideoContentURL(value: string): boolean {
-  return value.includes('/v1/videos/') && /\/content\/?$/.test(value)
+  return /^\/v1\/videos\/[^/?#]+\/content\/?$/.test(value)
 }
 
 function pickSiteContentURL(...values: unknown[]): string | undefined {
@@ -146,6 +143,10 @@ function pickSiteContentURL(...values: unknown[]): string | undefined {
     if (isSiteVideoContentURL(trimmed)) return trimmed
   }
   return undefined
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === 'string')
 }
 
 function collectNestedURLs(
@@ -194,29 +195,19 @@ export function normalizeVideoFetchResponse(raw: unknown): VideoFetchResponse {
   const src =
     nested && (nested.status != null || nested.task_id != null) ? nested : root
 
-  const status =
-    typeof src.status === 'string'
-      ? src.status
-      : typeof root.status === 'string'
-        ? root.status
-        : undefined
+  const status = firstString(src.status, root.status)
 
   const progress = src.progress ?? root.progress
-  const failReason =
-    typeof src.fail_reason === 'string'
-      ? src.fail_reason
-      : typeof root.fail_reason === 'string'
-        ? root.fail_reason
-        : undefined
+  const failReason = firstString(src.fail_reason, root.fail_reason)
 
-  const errorObj =
-    src.error && typeof src.error === 'object'
-      ? (src.error as { message?: string })
-      : root.error && typeof root.error === 'object'
-        ? (root.error as { message?: string })
-        : failReason
-          ? { message: failReason }
-          : undefined
+  let errorObj: { message?: string } | undefined
+  if (src.error && typeof src.error === 'object') {
+    errorObj = src.error as { message?: string }
+  } else if (root.error && typeof root.error === 'object') {
+    errorObj = root.error as { message?: string }
+  } else if (failReason) {
+    errorObj = { message: failReason }
+  }
 
   const nestedURLs = collectNestedURLs(src.data)
   const siteURL = pickSiteContentURL(
@@ -226,19 +217,17 @@ export function normalizeVideoFetchResponse(raw: unknown): VideoFetchResponse {
     ...nestedURLs
   )
 
+  const taskID = firstString(src.task_id, root.task_id)
+  const normalizedProgress =
+    typeof progress === 'string' || typeof progress === 'number'
+      ? progress
+      : undefined
+
   return {
     id: typeof src.id === 'string' ? src.id : undefined,
-    task_id:
-      typeof src.task_id === 'string'
-        ? src.task_id
-        : typeof root.task_id === 'string'
-          ? root.task_id
-          : undefined,
+    task_id: taskID,
     status,
-    progress:
-      typeof progress === 'string' || typeof progress === 'number'
-        ? progress
-        : undefined,
+    progress: normalizedProgress,
     // Never propagate upstream CDN URLs to the UI.
     video_url: siteURL,
     url: siteURL,

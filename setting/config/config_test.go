@@ -2,6 +2,8 @@ package config
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type testConfigWithMap struct {
@@ -93,4 +95,13 @@ func TestUpdateConfigFromMap_ScalarFieldsUnchanged(t *testing.T) {
 	if cfg.Modes["m"] != "v" {
 		t.Errorf("Modes should be unchanged, got %v", cfg.Modes)
 	}
+}
+
+func TestConfigManagerTracksExplicitDatabaseKeys(t *testing.T) {
+	manager := NewConfigManager()
+
+	assert.False(t, manager.IsExplicit("video_setting.enabled"))
+	manager.MarkExplicit("video_setting.enabled")
+	assert.True(t, manager.IsExplicit("video_setting.enabled"))
+	assert.False(t, manager.IsExplicit("video_setting.storage"))
 }

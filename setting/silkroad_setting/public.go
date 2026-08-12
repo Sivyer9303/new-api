@@ -26,6 +26,7 @@ type PublicGenerationType struct {
 type PublicProfile struct {
 	ID            string         `json:"id"`
 	Label         string         `json:"label"`
+	ExactModels   []string       `json:"exact_models"`
 	ModelPrefixes []string       `json:"model_prefixes"`
 	Durations     []PublicOption `json:"durations"`
 	AspectRatios  []PublicOption `json:"aspect_ratios"`
@@ -33,16 +34,19 @@ type PublicProfile struct {
 
 // PublicVideoToolConfig is returned to logged-in users for the Seedance-style tool page.
 type PublicVideoToolConfig struct {
-	Enabled         bool                   `json:"enabled"`
-	VideoToolGroups []string               `json:"video_tool_groups"`
-	GenerationTypes []PublicGenerationType `json:"generation_types"`
-	Profiles        []PublicProfile        `json:"profiles"`
+	Version          int                    `json:"version"`
+	Enabled          bool                   `json:"enabled"`
+	VideoToolGroups  []string               `json:"video_tool_groups"`
+	GenerationTypes  []PublicGenerationType `json:"generation_types"`
+	Profiles         []PublicProfile        `json:"profiles"`
+	DefaultProfileID string                 `json:"default_profile_id"`
 }
 
 // GetPublicVideoToolConfig returns enabled profiles/options only (no storage secrets).
 func GetPublicVideoToolConfig() PublicVideoToolConfig {
 	s := GetSilkRoadSetting()
 	out := PublicVideoToolConfig{
+		Version:         1,
 		Enabled:         true,
 		VideoToolGroups: []string{},
 		GenerationTypes: publicHardcodedGenerationTypes(),
@@ -52,12 +56,15 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 		out.Enabled = false
 		return out
 	}
+	out.DefaultProfileID = s.Profiles[effectiveDefaultProfileIndex(s)].ID
 	out.VideoToolGroups = NormalizeVideoToolGroups(s.VideoToolGroups)
-	for _, p := range s.Profiles {
+	for i := range s.Profiles {
+		p := buildProfileResolution(s, i, ProfileMatchDefault, s.Profiles[i].ID).Profile
 		pub := PublicProfile{
 			ID:            p.ID,
 			Label:         p.Label,
-			ModelPrefixes: append([]string(nil), p.ModelPrefixes...),
+			ExactModels:   append([]string{}, p.ExactModels...),
+			ModelPrefixes: append([]string{}, p.ModelPrefixes...),
 			Durations:     publicOptions(p.Durations),
 			AspectRatios:  publicOptions(p.AspectRatios),
 		}

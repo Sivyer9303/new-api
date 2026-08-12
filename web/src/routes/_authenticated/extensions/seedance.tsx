@@ -18,22 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { VideoToolPage } from '@/features/extensions/video-tool'
-import { getStatus } from '@/lib/api'
+import { VIDEO_TOOL_ROUTE } from '@/features/extensions/video-tool/lib/routes'
 
 export const Route = createFileRoute('/_authenticated/extensions/seedance')({
-  beforeLoad: async () => {
-    try {
-      const status = await getStatus()
-      if (!status?.silkroad_video_tool_enabled) {
-        throw redirect({ to: '/dashboard' })
-      }
-    } catch (error) {
-      if (error && typeof error === 'object' && 'to' in error) {
-        throw error
-      }
-      throw redirect({ to: '/dashboard' })
-    }
+  beforeLoad: () => {
+    throw redirect({ to: VIDEO_TOOL_ROUTE })
   },
-  component: VideoToolPage,
 })

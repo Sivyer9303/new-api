@@ -1,4 +1,4 @@
-package newapi
+package silkroad
 
 import (
 	"bytes"
@@ -28,10 +28,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, fmt.Errorf("friendly request not found in context")
 	}
 
-	modelName := info.OriginModelName
-	if modelName == "" {
-		modelName = req.Model
-	}
+	modelName := silkRoadProfileModelName(info, req.Model)
 	profile, ok := silkroad_setting.MatchProfile(modelName)
 	if !ok {
 		return nil, fmt.Errorf("model %q does not match any silkroad profile", modelName)

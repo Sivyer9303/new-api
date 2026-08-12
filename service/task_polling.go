@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -292,7 +291,7 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 			task.Status = model.TaskStatusFailure
 			task.Progress = "100%"
 		}
-		if responseItem.Status == model.TaskStatusSuccess {
+		if model.TaskStatus(responseItem.Status) == model.TaskStatusSuccess {
 			task.Progress = "100%"
 		}
 		task.Data = responseItem.Data
@@ -472,30 +471,50 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		return fmt.Errorf("readAll failed for task %s: %w", taskId, err)
 	}
 
-	logger.LogDebug(ctx, "updateVideoSingleTask response: %s", responseBody)
+	logger.LogDebug(ctx, "updateVideoSingleTask received response for task %s", task.TaskID)
 
 	snap := task.Snapshot()
 
 	taskResult := &relaycommon.TaskInfo{}
-	// try parse as New API response format
-	var responseItems taskdto.TaskResponse[model.Task]
-	if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
-		logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
-		t := responseItems.Data
-		taskResult.TaskID = t.TaskID
-		taskResult.Status = string(t.Status)
-		taskResult.Url = t.GetResultURL()
-		if taskResult.Url == "" || isSilkRoadContentProxyURL(taskResult.Url) {
-			taskResult.Url = ExtractUpstreamVideoURLFromJSON(responseBody)
+	preferDirectParser := false
+	if preference, ok := adaptor.(interface{ PreferDirectTaskResultParsing() bool }); ok {
+		preferDirectParser = preference.PreferDirectTaskResultParsing()
+	}
+	if preferDirectParser {
+		if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
+			return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
 		}
-		taskResult.Progress = t.Progress
-		taskResult.Reason = t.FailReason
-		task.Data = t.Data
-	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
-		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+	} else {
+		// Some upstream gateways return this application's TaskResponse envelope.
+		var responseItems taskdto.TaskResponse[model.Task]
+		if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
+			logger.LogDebug(ctx, "updateVideoSingleTask parsed legacy response for task %s", task.TaskID)
+			t := responseItems.Data
+			taskResult.TaskID = t.TaskID
+			taskResult.Status = string(t.Status)
+			taskResult.Url = t.GetResultURL()
+			if taskResult.Url == "" || isSilkRoadContentProxyURL(taskResult.Url) {
+				taskResult.Url = ExtractUpstreamVideoURLFromJSON(responseBody)
+			}
+			taskResult.Progress = t.Progress
+			taskResult.Reason = t.FailReason
+			task.Data = t.Data
+		} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
+			return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+		}
 	}
 
 	task.Data = redactVideoResponseBody(responseBody)
+	cleaned, redactErr := applySilkRoadDataRedaction(task.Data, task.TaskID)
+	if redactErr != nil {
+		logger.LogWarn(ctx, fmt.Sprintf(
+			"video response redaction failed task=%s; clearing task.Data",
+			task.TaskID,
+		))
+		task.Data = []byte("{}")
+	} else {
+		task.Data = cleaned
+	}
 
 	logger.LogDebug(ctx, "updateVideoSingleTask taskResult: %+v", taskResult)
 
@@ -515,8 +534,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 				// 其他错误认为是任务失败，记录错误信息并更新任务状态
 				taskResult = relaycommon.FailTaskInfo("upstream returned error")
 			} else {
-				// unknown error format, log original response
-				logger.LogError(ctx, fmt.Sprintf("Task %s returned empty status with unrecognized error format, response: %s", taskId, string(responseBody)))
+				logger.LogError(ctx, fmt.Sprintf("Task %s returned empty status with unrecognized error format", taskId))
 				taskResult = relaycommon.FailTaskInfo("upstream returned unrecognized message")
 			}
 		}
@@ -527,7 +545,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	quota := task.Quota
 
 	task.Status = model.TaskStatus(taskResult.Status)
-	switch taskResult.Status {
+	switch model.TaskStatus(taskResult.Status) {
 	case model.TaskStatusSubmitted:
 		task.Progress = taskcommon.ProgressSubmitted
 	case model.TaskStatusQueued:
@@ -538,40 +556,15 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			task.StartTime = now
 		}
 	case model.TaskStatusSuccess:
-		task.Progress = taskcommon.ProgressComplete
-		if task.FinishTime == 0 {
-			task.FinishTime = now
+		task.Status = model.TaskStatusStorageProcessing
+		task.Progress = "99%"
+		resultURL := taskResult.Url
+		if resultURL == "" {
+			resultURL = taskResult.RemoteUrl
 		}
-		if shouldSilkRoadStore(task) {
-			// Always queue local ingest + redact outbound Data; never put upstream CDN in ResultURL.
-			applySilkRoadSuccessStore(task, taskResult.Url, responseBody)
-		} else if strings.HasPrefix(taskResult.Url, "data:") {
-			// data: URI (e.g. Vertex base64 encoded video) — keep in Data, not in ResultURL
-			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
-		} else if silkRoadNewAPIAvoidUpstreamResultURL(task) {
-			// Storage enabled but ingest/public incomplete — never expose upstream CDN URL.
-			logger.LogWarn(ctx, fmt.Sprintf(
-				"silkroad storage enabled but incomplete config; using proxy ResultURL for task %s",
-				task.TaskID,
-			))
-			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
-			cleaned, redactErr := applySilkRoadDataRedaction(task.Data)
-			if redactErr != nil {
-				logger.LogWarn(ctx, fmt.Sprintf(
-					"silkroad redact failed task=%s: %s; clearing task.Data",
-					task.TaskID, redactErr.Error(),
-				))
-				task.Data = []byte("{}")
-			} else {
-				task.Data = cleaned
-			}
-		} else if taskResult.Url != "" {
-			// Direct upstream URL (e.g. Kling, Ali, Doubao, etc.)
-			task.PrivateData.ResultURL = taskResult.Url
-		} else {
-			// No URL from adaptor — construct proxy URL using public task ID
-			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
-		}
+		applySilkRoadSuccessStore(task, resultURL, responseBody)
+		task.Status = model.TaskStatusStorageProcessing
+		task.PrivateData.StorageStatus = "settling"
 		shouldSettle = true
 	case model.TaskStatusFailure:
 		logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
@@ -600,8 +593,12 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	if taskResult.Progress != "" {
 		task.Progress = taskResult.Progress
 	}
+	if task.Status == model.TaskStatusStoring {
+		task.Progress = "99%"
+	}
 
-	isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
+	isDone := task.Status == model.TaskStatusStorageProcessing ||
+		task.Status == model.TaskStatusFailure
 	if isDone && snap.Status != task.Status {
 		won, err := task.UpdateWithStatus(snap.Status)
 		if err != nil {
@@ -624,6 +621,18 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 
 	if shouldSettle {
 		settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+		task.Status = model.TaskStatusStoring
+		task.PrivateData.StorageStatus = "pending"
+		won, err := task.UpdateWithStatus(model.TaskStatusStorageProcessing)
+		if err != nil {
+			return fmt.Errorf("expose settled video task for storage: %w", err)
+		}
+		if !won {
+			return fmt.Errorf(
+				"video task %s changed while billing settlement completed",
+				task.TaskID,
+			)
+		}
 	}
 	if shouldRefund {
 		RefundTaskQuota(ctx, task, task.FailReason)

@@ -26,6 +26,8 @@ func TestGetPublicVideoToolConfigFiltersDisabled(t *testing.T) {
 
 	cfg := GetPublicVideoToolConfig()
 	require.True(t, cfg.Enabled)
+	assert.Equal(t, 1, cfg.Version)
+	assert.Equal(t, silkRoadSetting.DefaultProfileID, cfg.DefaultProfileID)
 	seedance, ok := findPublicProfile(cfg.Profiles, "seedance_reverse")
 	require.True(t, ok)
 	for _, d := range seedance.Durations {

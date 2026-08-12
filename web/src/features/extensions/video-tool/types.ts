@@ -37,16 +37,19 @@ export type PublicGenerationType = {
 export type PublicProfile = {
   id: string
   label: string
+  exact_models: string[]
   model_prefixes: string[]
   durations: PublicOption[]
   aspect_ratios: PublicOption[]
 }
 
 export type VideoToolConfig = {
+  version: number
   enabled: boolean
   video_tool_groups: string[]
   generation_types: PublicGenerationType[]
   profiles: PublicProfile[]
+  default_profile_id: string
 }
 
 export type VideoTaskStatus =
@@ -76,57 +79,3 @@ export type VideoFetchResponse = {
   fail_reason?: string
   error?: { message?: string }
 }
-
-/** Fixed Seedance / Dreamina generation modes (mirrors backend hardcoding). */
-export const HARDCODED_GENERATION_TYPES: PublicGenerationType[] = [
-  {
-    label: 'Text to video',
-    value: 'text2video',
-    sort: 1,
-    require_ref_model: false,
-    require_audio: false,
-    allow_audio: false,
-    images_min: 0,
-    images_max: 0,
-  },
-  {
-    label: 'Image to video',
-    value: 'image2video',
-    sort: 2,
-    require_ref_model: true,
-    require_audio: false,
-    allow_audio: false,
-    images_min: 1,
-    images_max: 1,
-  },
-  {
-    label: 'Multi-image reference',
-    value: 'multi_image',
-    sort: 3,
-    require_ref_model: true,
-    require_audio: false,
-    allow_audio: false,
-    images_min: 2,
-    images_max: 9,
-  },
-  {
-    label: 'First & last frame',
-    value: 'start_end',
-    sort: 4,
-    require_ref_model: true,
-    require_audio: false,
-    allow_audio: false,
-    images_min: 2,
-    images_max: 2,
-  },
-  {
-    label: 'Reference audio',
-    value: 'reference_audio',
-    sort: 5,
-    require_ref_model: true,
-    require_audio: true,
-    allow_audio: true,
-    images_min: 0,
-    images_max: 9,
-  },
-]

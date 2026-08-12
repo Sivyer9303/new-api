@@ -256,3 +256,19 @@ func TestUpdateWithStatus_ConcurrentWinner(t *testing.T) {
 	}
 	assert.Equal(t, 1, winCount, "exactly one goroutine should win the CAS")
 }
+
+func TestGetVideoTaskByTaskIDRejectsAmbiguousIdentifier(t *testing.T) {
+	truncateTables(t)
+	for _, userID := range []int{1, 2} {
+		insertTask(t, &Task{
+			TaskID: "duplicate-provider-task-id",
+			UserId: userID,
+			Status: TaskStatusFailure,
+		})
+	}
+
+	task, exists, err := GetVideoTaskByTaskID("duplicate-provider-task-id")
+	assert.ErrorIs(t, err, ErrAmbiguousTaskID)
+	assert.False(t, exists)
+	assert.Nil(t, task)
+}

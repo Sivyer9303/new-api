@@ -45,6 +45,12 @@ var auditContentTemplates = map[string]string{
 	"channel.upstream_apply":     "Applied upstream model changes to channel (ID: ${id})",
 	"channel.upstream_apply_all": "Applied upstream model changes to ${count} channels",
 
+	"video.preview":          "Viewed video ${task_id} owned by user ${target_user_id}",
+	"video.diagnostics":      "Viewed diagnostics for video ${task_id} owned by user ${target_user_id}",
+	"video.storage_retry":    "Retried local storage for video ${task_id} owned by user ${target_user_id}",
+	"video.provider_confirm": "Confirmed upstream result for video ${task_id} owned by user ${target_user_id}",
+	"video.refund":           "Refunded ${quota} quota for video ${task_id} owned by user ${target_user_id}",
+
 	"redemption.create": "Created ${count} redemption codes named ${name} (${quota} each)",
 
 	"subscription.plan_reset":      "Reset active subscriptions for plan ${plan_id}",

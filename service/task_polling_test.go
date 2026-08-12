@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -375,17 +376,177 @@ func TestUpdateVideoTasksMixedChannelSleepSettings(t *testing.T) {
 // videoFailurePollingAdaptor simulates an upstream whose poll result fails the
 // task; noRefund toggles the manual-review path (unknown upstream status).
 type videoFailurePollingAdaptor struct {
-	noRefund bool
-	reason   string
+	noRefund    bool
+	reason      string
+	directParse bool
+}
+
+type videoSuccessPollingAdaptor struct {
+	resultURL string
+}
+
+func (a *videoSuccessPollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
+
+func (a *videoSuccessPollingAdaptor) FetchTask(
+	_ string,
+	_ string,
+	_ map[string]any,
+	_ string,
+) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"upstream-secret","status":"completed","video_url":"` +
+				a.resultURL +
+				`"}`,
+		)),
+	}, nil
+}
+
+func (a *videoSuccessPollingAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+	return &relaycommon.TaskInfo{
+		Status: model.TaskStatusSuccess,
+		Url:    a.resultURL,
+	}, nil
+}
+
+func (a *videoSuccessPollingAdaptor) AdjustBillingOnComplete(
+	_ *model.Task,
+	_ *relaycommon.TaskInfo,
+) int {
+	return 0
+}
+
+func (a *videoSuccessPollingAdaptor) PreferDirectTaskResultParsing() bool {
+	return true
+}
+
+func TestUpdateVideoTasksMovesProviderSuccessIntoStoragePhase(t *testing.T) {
+	truncate(t)
+	withSilkRoadStorage(t, t.TempDir(), "node-a", "https://video.example.com")
+
+	const channelID = 504
+	seedTaskPollingChannel(t, channelID, true)
+	task := &model.Task{
+		TaskID:     "video_public_storing",
+		Platform:   constant.TaskPlatform("kling"),
+		ChannelId:  channelID,
+		Status:     model.TaskStatusInProgress,
+		Progress:   "50%",
+		SubmitTime: time.Now().Unix(),
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "video_upstream_storing",
+		},
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	resultURL := "https://cdn.example/private-result.mp4"
+	adaptor := &videoSuccessPollingAdaptor{resultURL: resultURL}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	require.NoError(t, UpdateVideoTasks(
+		context.Background(),
+		task.Platform,
+		map[int][]string{channelID: {task.GetUpstreamTaskID()}},
+		map[string]*model.Task{task.GetUpstreamTaskID(): task},
+	))
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.Equal(t, model.TaskStatusStoring, reloaded.Status)
+	assert.Equal(t, "99%", reloaded.Progress)
+	assert.Equal(t, "pending", reloaded.PrivateData.StorageStatus)
+	assert.Equal(t, resultURL, reloaded.PrivateData.UpstreamResultURL)
+	assert.Equal(t, "https://video.example.com/v1/videos/"+task.TaskID+"/content", reloaded.PrivateData.ResultURL)
+	assert.Zero(t, reloaded.FinishTime)
+	assert.NotContains(t, string(reloaded.Data), resultURL)
+	assert.NotContains(t, string(reloaded.Data), "upstream-secret")
+	assert.Contains(t, string(reloaded.Data), task.TaskID)
+}
+
+type blockingSettlementAdaptor struct {
+	videoSuccessPollingAdaptor
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (a *blockingSettlementAdaptor) AdjustBillingOnComplete(
+	_ *model.Task,
+	_ *relaycommon.TaskInfo,
+) int {
+	close(a.entered)
+	<-a.release
+	return 0
+}
+
+func TestUpdateVideoTasksDoesNotExposeStorageBeforeBillingSettlement(t *testing.T) {
+	truncate(t)
+	withSilkRoadStorage(t, t.TempDir(), "node-a", "https://video.example.com")
+
+	const channelID = 505
+	seedTaskPollingChannel(t, channelID, true)
+	task := &model.Task{
+		TaskID:     "video_settlement_guard",
+		Platform:   constant.TaskPlatform("kling"),
+		ChannelId:  channelID,
+		Status:     model.TaskStatusInProgress,
+		Progress:   "50%",
+		SubmitTime: time.Now().Unix(),
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "video_upstream_settlement_guard",
+		},
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	adaptor := &blockingSettlementAdaptor{
+		videoSuccessPollingAdaptor: videoSuccessPollingAdaptor{
+			resultURL: "https://cdn.example/private-result.mp4",
+		},
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- UpdateVideoTasks(
+			context.Background(),
+			task.Platform,
+			map[int][]string{channelID: {task.GetUpstreamTaskID()}},
+			map[string]*model.Task{task.GetUpstreamTaskID(): task},
+		)
+	}()
+	<-adaptor.entered
+
+	var settling model.Task
+	require.NoError(t, model.DB.First(&settling, task.ID).Error)
+	assert.Equal(t, model.TaskStatusStorageProcessing, settling.Status)
+	assert.Equal(t, "settling", settling.PrivateData.StorageStatus)
+	claimed, err := claimSilkRoadIngestTasks(1, 5)
+	require.NoError(t, err)
+	assert.Empty(t, claimed)
+
+	close(adaptor.release)
+	require.NoError(t, <-errCh)
+	require.NoError(t, model.DB.First(&settling, task.ID).Error)
+	assert.Equal(t, model.TaskStatusStoring, settling.Status)
+	assert.Equal(t, "pending", settling.PrivateData.StorageStatus)
 }
 
 func (a *videoFailurePollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
 
 func (a *videoFailurePollingAdaptor) FetchTask(_ string, _ string, _ map[string]any, _ string) (*http.Response, error) {
-	// Non-envelope body so updateVideoSingleTask falls through to ParseTaskResult.
+	body := []byte(`{"status":"expired"}`)
+	if a.directParse {
+		body = []byte(`{"code":"success","data":{"status":"mystery"}}`)
+	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(bytes.NewReader([]byte(`{"status":"expired"}`))),
+		Body:       io.NopCloser(bytes.NewReader(body)),
 	}, nil
 }
 
@@ -399,6 +560,10 @@ func (a *videoFailurePollingAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskI
 
 func (a *videoFailurePollingAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
 	return 0
+}
+
+func (a *videoFailurePollingAdaptor) PreferDirectTaskResultParsing() bool {
+	return a.directParse
 }
 
 // 上游返回未知终态（NoRefund=true）时：任务标记失败，但预扣额度必须保留、
@@ -439,6 +604,44 @@ func TestUpdateVideoTasksNoRefundFailureRetainsQuota(t *testing.T) {
 	assert.Equal(t, initialUserQuota, getUserQuota(t, userID))
 	assert.Equal(t, initialTokenQuota, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, int64(0), countLogs(t))
+}
+
+func TestUpdateVideoTasksDirectParserHandlesUnknownNestedStatus(t *testing.T) {
+	truncate(t)
+
+	const userID, tokenID, channelID = 503, 503, 503
+	const initialUserQuota, initialTokenQuota, taskQuota = 10_000, 6_000, 2_500
+
+	seedUser(t, userID, initialUserQuota)
+	seedToken(t, tokenID, userID, "sk-video-nested-unknown", initialTokenQuota)
+	seedTaskPollingChannel(t, channelID, true)
+
+	task := makeTask(userID, channelID, taskQuota, tokenID, BillingSourceWallet, 0)
+	task.TaskID = "video_public_nested_unknown"
+	task.Platform = constant.TaskPlatform("kling")
+	task.PrivateData.UpstreamTaskID = "video_upstream_nested_unknown"
+	require.NoError(t, model.DB.Create(task).Error)
+
+	adaptor := &videoFailurePollingAdaptor{
+		noRefund:    true,
+		reason:      "上游返回未知状态，需人工介入",
+		directParse: true,
+	}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	require.NoError(t, UpdateVideoTasks(context.Background(), constant.TaskPlatform("kling"), map[int][]string{
+		channelID: {task.GetUpstreamTaskID()},
+	}, map[string]*model.Task{
+		task.GetUpstreamTaskID(): task,
+	}))
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Equal(t, taskQuota, reloaded.Quota)
+	assert.Equal(t, initialUserQuota, getUserQuota(t, userID))
 }
 
 // 对照：普通失败（NoRefund=false）仍然正常退款，确保新增开关没有反向影响。

@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/silkroad_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/QuantumNous/new-api/setting/video_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -67,7 +68,33 @@ func validateSilkRoadSettingOption(key, value string) error {
 	if err := config.UpdateConfigFromMap(&clone, map[string]string{configKey: value}); err != nil {
 		return err
 	}
+	if key != "silkroad_setting.default_profile_id" &&
+		!config.GlobalConfig.IsExplicit("silkroad_setting.default_profile_id") &&
+		len(clone.Profiles) > 0 {
+		clone.DefaultProfileID = clone.Profiles[0].ID
+	}
 	return silkroad_setting.ValidateSilkRoadSetting(&clone)
+}
+
+func validateVideoSettingOption(key, value string) error {
+	configKey := strings.TrimPrefix(key, "video_setting.")
+	if configKey == key || configKey == "" {
+		return fmt.Errorf("invalid video_setting option key")
+	}
+
+	current := setting.GetEffectiveVideoSetting().VideoSetting
+	raw, err := common.Marshal(&current)
+	if err != nil {
+		return err
+	}
+	var clone video_setting.VideoSetting
+	if err := common.Unmarshal(raw, &clone); err != nil {
+		return err
+	}
+	if err := config.UpdateConfigFromMap(&clone, map[string]string{configKey: value}); err != nil {
+		return err
+	}
+	return video_setting.ValidateVideoSetting(&clone)
 }
 
 // perSecondBindingWarning checks the billing_setting.billing_mode JSON map and
@@ -83,22 +110,23 @@ func perSecondBindingWarning(value string) (string, error) {
 	if err := common.UnmarshalJsonStr(value, &modes); err != nil {
 		return "", fmt.Errorf("billing_mode 必须是合法的 JSON 对象: %w", err)
 	}
-	var mismatched []string
+	var fallbackModels []string
 	for modelName, mode := range modes {
 		if mode != billing_setting.BillingModePerSecond {
 			continue
 		}
-		if _, ok := silkroad_setting.MatchProfile(modelName); !ok {
-			mismatched = append(mismatched, modelName)
+		resolution, ok := silkroad_setting.ResolveProfile(modelName)
+		if !ok || resolution.MatchKind == silkroad_setting.ProfileMatchDefault {
+			fallbackModels = append(fallbackModels, modelName)
 		}
 	}
-	if len(mismatched) == 0 {
+	if len(fallbackModels) == 0 {
 		return "", nil
 	}
-	sort.Strings(mismatched)
+	sort.Strings(fallbackModels)
 	return fmt.Sprintf(
-		"警告：以下模型设置了按秒计费(per_second)，但未匹配任何 SilkRoad 视频档案的模型前缀，实际请求不会乘以时长，将按次仅收取一次单价，存在严重少收费风险：%s",
-		strings.Join(mismatched, ", "),
+		"提示：以下按秒计费模型未命中 SilkRoad 精确模型或模型前缀，将使用管理员选择的默认档案；请确认默认档案的时长和能力配置适用：%s",
+		strings.Join(fallbackModels, ", "),
 	), nil
 }
 
@@ -138,12 +166,26 @@ func buildCompletionRatioMetaValue(optionValues map[string]string) string {
 func GetOptions(c *gin.Context) {
 	var options []*model.Option
 	optionValues := make(map[string]string)
+	effectiveVideo := setting.GetEffectiveVideoSetting()
+	effectiveVideoGroups, _ := common.Marshal(effectiveVideo.VideoToolGroups)
+	effectiveVideoStorage, _ := common.Marshal(effectiveVideo.Storage)
 	common.OptionMapRWMutex.Lock()
 	for k, v := range common.OptionMap {
 		if k == "theme.frontend" {
 			continue
 		}
 		value := common.Interface2String(v)
+		switch {
+		case k == "video_setting.enabled" &&
+			!config.GlobalConfig.IsExplicit(k):
+			value = strconv.FormatBool(effectiveVideo.Enabled)
+		case k == "video_setting.video_tool_groups" &&
+			!config.GlobalConfig.IsExplicit(k):
+			value = string(effectiveVideoGroups)
+		case k == "video_setting.storage" &&
+			!config.GlobalConfig.IsExplicit(k):
+			value = string(effectiveVideoStorage)
+		}
 		// Turnstile Site Key is public (embedded in the frontend widget).
 		if k == "TurnstileSiteKey" {
 			options = append(options, &model.Option{Key: k, Value: value})
@@ -475,7 +517,8 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
-	case "silkroad_setting.profiles", "silkroad_setting.storage", "silkroad_setting.video_tool_groups":
+	case "silkroad_setting.common", "silkroad_setting.profiles", "silkroad_setting.default_profile_id",
+		"silkroad_setting.storage", "silkroad_setting.video_tool_groups":
 		err = validateSilkRoadSettingOption(option.Key, option.Value.(string))
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
@@ -486,6 +529,15 @@ func UpdateOption(c *gin.Context) {
 		}
 	case "billing_setting." + billing_setting.BillingModeField:
 		saveWarning, err = perSecondBindingWarning(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+	case "video_setting.enabled", "video_setting.storage", "video_setting.video_tool_groups":
+		err = validateVideoSettingOption(option.Key, option.Value.(string))
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,

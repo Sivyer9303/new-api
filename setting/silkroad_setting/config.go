@@ -18,9 +18,15 @@ type OptionItem struct {
 type Profile struct {
 	ID            string       `json:"id"`
 	Label         string       `json:"label"`
+	ExactModels   []string     `json:"exact_models,omitempty"`
 	ModelPrefixes []string     `json:"model_prefixes"`
-	Durations     []OptionItem `json:"durations"`
-	AspectRatios  []OptionItem `json:"aspect_ratios"`
+	Durations     []OptionItem `json:"durations,omitempty"`
+	AspectRatios  []OptionItem `json:"aspect_ratios,omitempty"`
+}
+
+type CommonSetting struct {
+	Durations    []OptionItem `json:"durations"`
+	AspectRatios []OptionItem `json:"aspect_ratios"`
 }
 
 // StorageSetting configures local video ingest and retention.
@@ -36,9 +42,11 @@ type StorageSetting struct {
 
 // SilkRoadSetting is the top-level silkroad_setting config module.
 type SilkRoadSetting struct {
-	Profiles        []Profile      `json:"profiles"`
-	Storage         StorageSetting `json:"storage"`
-	VideoToolGroups []string       `json:"video_tool_groups"` // groups whose API keys may be used in Seedance tool; empty = none
+	Common           CommonSetting  `json:"common"`
+	Profiles         []Profile      `json:"profiles"`
+	DefaultProfileID string         `json:"default_profile_id"`
+	Storage          StorageSetting `json:"storage"`           // Deprecated: compatibility read for video_setting.storage.
+	VideoToolGroups  []string       `json:"video_tool_groups"` // Deprecated: compatibility read for video_setting.video_tool_groups.
 }
 
 var silkRoadSetting = defaultSilkRoadSetting()
@@ -54,6 +62,15 @@ func GetSilkRoadSetting() *SilkRoadSetting {
 
 func defaultSilkRoadSetting() SilkRoadSetting {
 	return SilkRoadSetting{
+		Common: CommonSetting{
+			Durations: []OptionItem{
+				{Label: "4 秒", Value: "4", UpstreamKey: "seconds", Enabled: true, Sort: 1},
+				{Label: "5 秒", Value: "5", UpstreamKey: "seconds", Enabled: true, Sort: 2},
+				{Label: "10 秒", Value: "10", UpstreamKey: "seconds", Enabled: true, Sort: 3},
+				{Label: "15 秒", Value: "15", UpstreamKey: "seconds", Enabled: true, Sort: 4},
+			},
+			AspectRatios: defaultAspectRatios(),
+		},
 		Profiles: []Profile{
 			{
 				ID:            "seedance_reverse",
@@ -63,7 +80,6 @@ func defaultSilkRoadSetting() SilkRoadSetting {
 					{Label: "10 秒", Value: "10", UpstreamKey: "seconds", Enabled: true, Sort: 1},
 					{Label: "15 秒", Value: "15", UpstreamKey: "seconds", Enabled: true, Sort: 2},
 				},
-				AspectRatios: defaultAspectRatios(),
 			},
 			{
 				ID:            "dreamina_overseas",
@@ -73,9 +89,9 @@ func defaultSilkRoadSetting() SilkRoadSetting {
 					{Label: "4 秒", Value: "4", UpstreamKey: "seconds", Enabled: true, Sort: 1},
 					{Label: "5 秒", Value: "5", UpstreamKey: "seconds", Enabled: true, Sort: 2},
 				},
-				AspectRatios: defaultAspectRatios(),
 			},
 		},
+		DefaultProfileID: "seedance_reverse",
 		Storage: StorageSetting{
 			// Default off so misconfigured installs never attempt local store
 			// or expose incomplete public/ingest wiring unexpectedly.

@@ -28,6 +28,12 @@ export const Route = createFileRoute(
   '/_authenticated/system-settings/extensions/$section'
 )({
   beforeLoad: ({ params }) => {
+    if (params.section === 'silkroad') {
+      throw redirect({
+        to: '/system-settings/video/$section',
+        params: { section: 'silkroad' },
+      })
+    }
     const validSections = EXTENSIONS_SECTION_IDS as unknown as string[]
     if (!validSections.includes(params.section)) {
       throw redirect({

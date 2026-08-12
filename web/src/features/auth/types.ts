@@ -190,6 +190,7 @@ export interface SystemStatus {
   availability_monitor_visible?: boolean
   availability_monitor_refresh_interval?: number
   silkroad_video_tool_enabled?: boolean
+  video_tool_enabled?: boolean
   [key: string]: unknown
 }
 
