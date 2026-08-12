@@ -129,6 +129,9 @@ func main() {
 	// Local video storage — only runs when this node matches ingest_node_name.
 	service.StartVideoStorageTask()
 
+	// Hourly R2 free-tier usage check plus staged input media cleanup.
+	service.StartVideoStorageQuotaTask()
+
 	// Subscription quota reset task (daily/weekly/monthly/custom)
 	service.StartSubscriptionQuotaResetTask()
 

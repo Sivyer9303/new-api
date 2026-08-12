@@ -23,6 +23,10 @@ type ChannelSettings struct {
 	// HTTP2ConnectionShards spreads HTTP/2 traffic across N independent transports
 	// (1-8). Zero/unset means 1. Ignored when HTTPProtocol is "http1".
 	HTTP2ConnectionShards int `json:"http2_connection_shards,omitempty"`
+	// VideoInputMediaDelivery controls how user-supplied reference images and
+	// audio reach the upstream video provider. Empty means inline base64.
+	// Accepted values: "", "inline_base64", "r2_presigned_url".
+	VideoInputMediaDelivery string `json:"video_input_media_delivery,omitempty"`
 }
 
 const (
@@ -30,6 +34,43 @@ const (
 	HTTPProtocolHTTP1        = "http1"
 	MaxHTTP2ConnectionShards = 8
 )
+
+const (
+	VideoInputMediaInlineBase64 = "inline_base64"
+	VideoInputMediaR2Presigned  = "r2_presigned_url"
+)
+
+// ResolveVideoInputMediaDelivery returns the effective delivery mode, defaulting
+// to inline base64 so existing channels keep their current behavior.
+func (s *ChannelSettings) ResolveVideoInputMediaDelivery() string {
+	if s == nil {
+		return VideoInputMediaInlineBase64
+	}
+	mode := strings.ToLower(strings.TrimSpace(s.VideoInputMediaDelivery))
+	if mode == "" {
+		return VideoInputMediaInlineBase64
+	}
+	return mode
+}
+
+// UsesR2VideoInputMedia reports whether reference media must be staged in R2 and
+// passed upstream as a URL instead of a base64 data URL.
+func (s *ChannelSettings) UsesR2VideoInputMedia() bool {
+	return s.ResolveVideoInputMediaDelivery() == VideoInputMediaR2Presigned
+}
+
+// ValidateVideoInputMediaDelivery validates the save-time enum value.
+func (s *ChannelSettings) ValidateVideoInputMediaDelivery() error {
+	if s == nil {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(s.VideoInputMediaDelivery)) {
+	case "", VideoInputMediaInlineBase64, VideoInputMediaR2Presigned:
+		return nil
+	default:
+		return fmt.Errorf("invalid video_input_media_delivery: %s", s.VideoInputMediaDelivery)
+	}
+}
 
 // ValidateHTTPTransport validates save-time HTTP transport channel settings.
 func (s *ChannelSettings) ValidateHTTPTransport() error {

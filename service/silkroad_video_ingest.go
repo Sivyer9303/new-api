@@ -56,17 +56,23 @@ func shouldSilkRoadStore(task *model.Task) bool {
 	if task == nil {
 		return false
 	}
+	return videoStorageWiringComplete()
+}
+
+// videoStorageWiringComplete reports whether storage is enabled and has every
+// field required to deliver a stored result. R2 needs no designated ingest node.
+func videoStorageWiringComplete() bool {
 	storage := setting.GetEffectiveVideoSetting()
 	if !storage.StorageEnabled {
-		return false
-	}
-	if strings.TrimSpace(storage.Storage.IngestNodeName) == "" {
 		return false
 	}
 	if strings.TrimSpace(storage.Storage.PublicDownloadBaseURL) == "" {
 		return false
 	}
-	return true
+	if storage.Storage.IsR2() {
+		return ValidateVideoR2StorageConfigured() == nil
+	}
+	return strings.TrimSpace(storage.Storage.IngestNodeName) != ""
 }
 
 // silkRoadNewAPIAvoidUpstreamResultURL is true when NewAPI storage is enabled
@@ -76,12 +82,7 @@ func silkRoadNewAPIAvoidUpstreamResultURL(task *model.Task) bool {
 	if !isSilkRoadVideoTask(task) {
 		return false
 	}
-	storage := setting.GetEffectiveVideoSetting()
-	if !storage.StorageEnabled {
-		return true
-	}
-	return strings.TrimSpace(storage.Storage.IngestNodeName) == "" ||
-		strings.TrimSpace(storage.Storage.PublicDownloadBaseURL) == ""
+	return !videoStorageWiringComplete()
 }
 
 func isSilkRoadVideoTask(task *model.Task) bool {
@@ -325,6 +326,9 @@ func ingestOne(task *model.Task, fetch silkRoadVideoFetchFunc) error {
 	if task == nil {
 		return fmt.Errorf("nil task")
 	}
+	if blocked, reason := VideoStorageUploadBlocked(); blocked {
+		return markVideoQuotaDeliveryFailure(task, reason)
+	}
 	upstreamURL := strings.TrimSpace(task.PrivateData.UpstreamResultURL)
 	if upstreamURL == "" && fetch != nil {
 		return markSilkRoadIngestFailure(task, fmt.Errorf("missing upstream result url"))
@@ -354,8 +358,10 @@ func ingestOne(task *model.Task, fetch silkRoadVideoFetchFunc) error {
 	if err != nil {
 		return markSilkRoadIngestFailure(task, err)
 	}
-	driver := &LocalVideoStorageDriver{
-		RootDir: setting.GetEffectiveVideoSetting().Storage.LocalDir,
+	storage := setting.GetEffectiveVideoSetting().Storage
+	driver, err := NewVideoStorageDriver(storage)
+	if err != nil {
+		return markSilkRoadIngestFailure(task, err)
 	}
 	stored, err := driver.Store(
 		context.Background(),
@@ -366,9 +372,13 @@ func ingestOne(task *model.Task, fetch silkRoadVideoFetchFunc) error {
 	if err != nil {
 		return markSilkRoadIngestFailure(task, err)
 	}
-	path, err := filepath.Abs(SilkRoadVideoLocalPath(stored.ObjectKey))
-	if err != nil {
-		return markSilkRoadIngestFailure(task, err)
+	// Object-storage drivers have no local path; only the local driver records one.
+	path := ""
+	if !storage.IsR2() {
+		path, err = filepath.Abs(SilkRoadVideoLocalPath(stored.ObjectKey))
+		if err != nil {
+			return markSilkRoadIngestFailure(task, err)
+		}
 	}
 
 	task.Status = model.TaskStatusSuccess
@@ -387,6 +397,29 @@ func ingestOne(task *model.Task, fetch silkRoadVideoFetchFunc) error {
 		task.PrivateData.ResultURL = BuildSilkRoadPublicURL(task.TaskID)
 	}
 	return nil
+}
+
+// markVideoQuotaDeliveryFailure ends the task immediately instead of burning
+// retries: nothing can be uploaded until an administrator frees bucket space.
+// The original charge stays, matching the existing delivery-failure policy.
+func markVideoQuotaDeliveryFailure(task *model.Task, cause error) error {
+	maxRetry := setting.GetEffectiveVideoSetting().Storage.MaxRetry
+	if maxRetry < 1 {
+		maxRetry = 1
+	}
+	task.PrivateData.StorageRetryCount = maxRetry
+	task.PrivateData.StorageStatus = "failed"
+	task.PrivateData.StorageLastError = cause.Error()
+	task.PrivateData.NoAutomaticRefund = true
+	task.Status = model.TaskStatusFailure
+	task.Progress = taskcommon.ProgressComplete
+	task.FinishTime = time.Now().Unix()
+	task.FailReason = VideoDeliveryFailureMessage(task.TaskID)
+	logger.LogError(context.Background(), fmt.Sprintf(
+		"video storage upload refused task=%s: %s",
+		task.TaskID, cause.Error(),
+	))
+	return cause
 }
 
 func markSilkRoadIngestFailure(task *model.Task, cause error) error {

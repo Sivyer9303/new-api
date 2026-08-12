@@ -7,36 +7,58 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import type { SystemOption, VideoSettings } from '../types'
+import {
+  defaultVideoStorageValues,
+  MIN_RETENTION_DAYS,
+  serializeVideoStorage,
+  type VideoStorageValues,
+} from './storage-config'
 
-const DEFAULT_STORAGE =
-  '{"driver":"local","local_dir":"data/videos","max_retry":5,"ingest_node_name":"","public_download_base_url":""}'
-
-export const VIDEO_RETENTION_DAYS = 7
+export const DEFAULT_VIDEO_STORAGE = serializeVideoStorage(
+  defaultVideoStorageValues()
+)
 
 function hasOption(options: SystemOption[] | undefined, key: string) {
   return options?.some((option) => option.key === key) ?? false
 }
 
+/**
+ * Maps a legacy `silkroad_setting.storage` row onto the generic storage payload.
+ * Legacy installs only ever used the local driver.
+ */
 function resolveLegacyStorage(raw: string): string {
+  let legacy: Record<string, unknown>
   try {
-    const legacy = JSON.parse(raw) as Record<string, unknown>
-    return JSON.stringify({
-      driver: 'local',
-      local_dir:
-        typeof legacy.local_dir === 'string' ? legacy.local_dir : 'data/videos',
-      max_retry: typeof legacy.max_retry === 'number' ? legacy.max_retry : 5,
-      ingest_node_name:
-        typeof legacy.ingest_node_name === 'string'
-          ? legacy.ingest_node_name
-          : '',
-      public_download_base_url:
-        typeof legacy.public_download_base_url === 'string'
-          ? legacy.public_download_base_url
-          : '',
-    })
+    legacy = JSON.parse(raw) as Record<string, unknown>
   } catch {
-    return DEFAULT_STORAGE
+    return DEFAULT_VIDEO_STORAGE
   }
+  const defaults = defaultVideoStorageValues()
+  const values: VideoStorageValues = {
+    ...defaults,
+    local_dir:
+      typeof legacy.local_dir === 'string' && legacy.local_dir.trim()
+        ? legacy.local_dir
+        : defaults.local_dir,
+    max_retry:
+      typeof legacy.max_retry === 'number' && legacy.max_retry >= 1
+        ? legacy.max_retry
+        : defaults.max_retry,
+    ingest_node_name:
+      typeof legacy.ingest_node_name === 'string'
+        ? legacy.ingest_node_name
+        : '',
+    public_download_base_url:
+      typeof legacy.public_download_base_url === 'string'
+        ? legacy.public_download_base_url
+        : '',
+    local_retention_days:
+      typeof legacy.retention_days === 'number' &&
+      legacy.retention_days >= MIN_RETENTION_DAYS
+        ? legacy.retention_days
+        : defaults.local_retention_days,
+  }
+  return serializeVideoStorage(values)
 }
 
 export function resolveVideoSettings(

@@ -25,6 +25,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/uptime/status", controller.GetUptimeKumaStatus)
 		apiRouter.GET("/extensions/availability", middleware.UserAuth(), controller.GetExtensionsAvailability)
 		apiRouter.GET("/video/tool-config", middleware.UserAuth(), controller.GetVideoToolConfig)
+		apiRouter.GET("/video/storage-status", middleware.AdminAuth(), controller.GetVideoStorageStatus)
+		apiRouter.POST("/video/storage-status/refresh", middleware.AdminAuth(), controller.RefreshVideoStorageUsage)
 		apiRouter.GET("/silkroad/video-tool", middleware.UserAuth(), controller.GetSilkRoadVideoToolConfig)
 		apiRouter.GET("/models", middleware.UserAuth(), controller.DashboardListModels)
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)

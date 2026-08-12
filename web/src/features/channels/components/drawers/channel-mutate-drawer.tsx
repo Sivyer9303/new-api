@@ -286,6 +286,7 @@ const SENSITIVE_FORM_FIELDS = [
   'proxy',
   'http_protocol',
   'http2_connection_shards',
+  'video_input_media_delivery',
   'pass_through_body_enabled',
   'system_prompt',
   'system_prompt_override',
@@ -344,6 +345,8 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     (values.http_protocol && values.http_protocol !== 'auto') ||
     (values.http2_connection_shards != null &&
       values.http2_connection_shards > 1) ||
+    (values.video_input_media_delivery != null &&
+      values.video_input_media_delivery !== 'inline_base64') ||
     values.claude_beta_query ||
     values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||
@@ -4315,6 +4318,62 @@ export function ChannelMutateDrawer({
                                   </FormItem>
                                 )
                               }}
+                            />
+
+                            <FormField
+                              control={form.control}
+                              name='video_input_media_delivery'
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>
+                                    {t('Video Input Media Delivery')}
+                                  </FormLabel>
+                                  <Select
+                                    items={[
+                                      {
+                                        value: 'inline_base64',
+                                        label: t('Inline Base64'),
+                                      },
+                                      {
+                                        value: 'r2_presigned_url',
+                                        label: t('Upload to R2 (signed URL)'),
+                                      },
+                                    ]}
+                                    value={field.value || 'inline_base64'}
+                                    onValueChange={(value) => {
+                                      field.onChange(
+                                        value === 'r2_presigned_url'
+                                          ? 'r2_presigned_url'
+                                          : 'inline_base64'
+                                      )
+                                    }}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent
+                                      alignItemWithTrigger={false}
+                                    >
+                                      <SelectGroup>
+                                        <SelectItem value='inline_base64'>
+                                          {t('Inline Base64')}
+                                        </SelectItem>
+                                        <SelectItem value='r2_presigned_url'>
+                                          {t('Upload to R2 (signed URL)')}
+                                        </SelectItem>
+                                      </SelectGroup>
+                                    </SelectContent>
+                                  </Select>
+                                  <FormDescription>
+                                    {t(
+                                      'Keep Base64 when the upstream accepts inline media. Choose R2 only when it requires a public URL; this needs Cloudflare R2 configured under Video Storage.'
+                                    )}
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
                             />
 
                             <FormField

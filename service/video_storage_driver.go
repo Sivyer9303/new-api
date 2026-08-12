@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/video_setting"
 )
 
@@ -42,9 +43,41 @@ type VideoStorageDriver interface {
 	Delete(ctx context.Context, objectKey string) error
 }
 
+// VideoStoragePresigner is implemented by object-storage drivers that deliver
+// playback through a short-lived signed URL instead of an app-proxied stream.
+type VideoStoragePresigner interface {
+	PresignGet(ctx context.Context, objectKey string, ttl time.Duration) (string, error)
+}
+
+// NewVideoStorageDriver builds the driver described by the effective settings.
+func NewVideoStorageDriver(storage video_setting.StorageSetting) (VideoStorageDriver, error) {
+	if !storage.IsR2() {
+		return &LocalVideoStorageDriver{
+			RootDir:       storage.LocalDir,
+			RetentionDays: storage.RetentionDays(),
+		}, nil
+	}
+	objects, err := newR2HTTPObjectStore(storage.R2)
+	if err != nil {
+		return nil, err
+	}
+	return &R2VideoStorageDriver{
+		Objects:       objects,
+		Prefix:        storage.R2.ResultPrefix,
+		RetentionDays: storage.RetentionDays(),
+		PresignTTL:    storage.R2.ResultPresignTTL(),
+	}, nil
+}
+
+// CurrentVideoStorageDriver builds the driver for the live configuration.
+func CurrentVideoStorageDriver() (VideoStorageDriver, error) {
+	return NewVideoStorageDriver(setting.GetEffectiveVideoSetting().Storage)
+}
+
 type LocalVideoStorageDriver struct {
-	RootDir string
-	Now     func() time.Time
+	RootDir       string
+	RetentionDays int
+	Now           func() time.Time
 }
 
 func (d *LocalVideoStorageDriver) Store(
@@ -165,12 +198,16 @@ func (d *LocalVideoStorageDriver) storedVideo(
 	if strings.TrimSpace(contentType) == "" {
 		contentType = "application/octet-stream"
 	}
+	retention := d.RetentionDays
+	if retention < video_setting.MinRetentionDays {
+		retention = video_setting.DefaultLocalRetentionDays
+	}
 	return StoredVideo{
 		ObjectKey:   objectKey,
 		Size:        size,
 		ContentType: contentType,
 		ReadyAt:     now.Unix(),
-		ExpiresAt:   now.Add(video_setting.RetentionDays * 24 * time.Hour).Unix(),
+		ExpiresAt:   now.Add(time.Duration(retention) * 24 * time.Hour).Unix(),
 	}
 }
 

@@ -87,6 +87,21 @@ export function normalizeHttpProtocol(
   return HTTP_PROTOCOL_AUTO
 }
 
+export const VIDEO_INPUT_MEDIA_INLINE_BASE64 = 'inline_base64'
+export const VIDEO_INPUT_MEDIA_R2_PRESIGNED = 'r2_presigned_url'
+
+export function normalizeVideoInputMediaDelivery(
+  value: string | undefined | null
+): 'inline_base64' | 'r2_presigned_url' {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+  if (normalized === VIDEO_INPUT_MEDIA_R2_PRESIGNED) {
+    return VIDEO_INPUT_MEDIA_R2_PRESIGNED
+  }
+  return VIDEO_INPUT_MEDIA_INLINE_BASE64
+}
+
 export function normalizeHttp2ConnectionShards(
   value: number | undefined | null
 ): number {
@@ -259,6 +274,9 @@ export const channelFormSchema = z
       .refine(isOptionalProxyURL, ERROR_MESSAGES.INVALID_PROXY),
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
+    video_input_media_delivery: z
+      .enum(['inline_base64', 'r2_presigned_url'])
+      .optional(),
     pass_through_body_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
@@ -433,6 +451,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   proxy: '',
   http_protocol: HTTP_PROTOCOL_AUTO,
   http2_connection_shards: 1,
+  video_input_media_delivery: VIDEO_INPUT_MEDIA_INLINE_BASE64,
   pass_through_body_enabled: false,
   system_prompt: '',
   system_prompt_override: false,
@@ -473,6 +492,9 @@ export function transformChannelToFormDefaults(
     proxy: '',
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
     http2_connection_shards: 1,
+    video_input_media_delivery: VIDEO_INPUT_MEDIA_INLINE_BASE64 as
+      | 'inline_base64'
+      | 'r2_presigned_url',
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
@@ -491,6 +513,9 @@ export function transformChannelToFormDefaults(
         proxy: parsed.proxy || '',
         http_protocol: protocol,
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
+        video_input_media_delivery: normalizeVideoInputMediaDelivery(
+          parsed.video_input_media_delivery
+        ),
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
@@ -624,6 +649,13 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     settingObj.http_protocol = HTTP_PROTOCOL_HTTP1
   } else if (shards > 1) {
     settingObj.http2_connection_shards = shards
+  }
+
+  const inputMediaDelivery = normalizeVideoInputMediaDelivery(
+    formData.video_input_media_delivery
+  )
+  if (inputMediaDelivery === VIDEO_INPUT_MEDIA_R2_PRESIGNED) {
+    settingObj.video_input_media_delivery = VIDEO_INPUT_MEDIA_R2_PRESIGNED
   }
 
   return JSON.stringify(settingObj)

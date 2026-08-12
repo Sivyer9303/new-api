@@ -943,6 +943,14 @@ func SearchTags(keyword string, group string, model string, idSort bool) ([]*str
 	return tags, nil
 }
 
+// validateVideoR2StorageFunc is injected by the service layer so channel save can
+// reject R2 input media staging while R2 video storage is not configured.
+var validateVideoR2StorageFunc func() error
+
+func RegisterVideoR2StorageValidator(validate func() error) {
+	validateVideoR2StorageFunc = validate
+}
+
 func (channel *Channel) ValidateSettings() error {
 	channelParams := &dto.ChannelSettings{}
 	if channel.Setting != nil && *channel.Setting != "" {
@@ -956,6 +964,16 @@ func (channel *Channel) ValidateSettings() error {
 	}
 	if err := channelParams.ValidateHTTPTransport(); err != nil {
 		return err
+	}
+	if err := channelParams.ValidateVideoInputMediaDelivery(); err != nil {
+		return err
+	}
+	if channelParams.UsesR2VideoInputMedia() && validateVideoR2StorageFunc != nil {
+		if err := validateVideoR2StorageFunc(); err != nil {
+			return fmt.Errorf(
+				"video_input_media_delivery requires R2 video storage: %w", err,
+			)
+		}
 	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {

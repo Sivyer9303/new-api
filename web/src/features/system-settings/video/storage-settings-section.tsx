@@ -12,7 +12,6 @@ import { useEffect } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { z } from 'zod'
 
 import {
   Form,
@@ -24,81 +23,48 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
-import { VIDEO_RETENTION_DAYS } from './compatibility'
-
-const DEFAULT_STORAGE = {
-  driver: 'local' as const,
-  local_dir: 'data/videos',
-  max_retry: 5,
-  ingest_node_name: '',
-  public_download_base_url: '',
-}
-
-const schema = z.object({
-  driver: z.literal('local'),
-  local_dir: z.string().trim().min(1),
-  max_retry: z.coerce.number().int().min(1),
-  ingest_node_name: z.string(),
-  public_download_base_url: z.union([z.literal(''), z.string().trim().url()]),
-})
-
-type Values = z.infer<typeof schema>
-
-function parseStorage(raw: string): Values {
-  try {
-    const value = JSON.parse(raw) as Partial<Values>
-    return {
-      driver: 'local',
-      local_dir:
-        typeof value.local_dir === 'string' && value.local_dir.trim()
-          ? value.local_dir
-          : DEFAULT_STORAGE.local_dir,
-      max_retry:
-        typeof value.max_retry === 'number' && value.max_retry >= 1
-          ? value.max_retry
-          : DEFAULT_STORAGE.max_retry,
-      ingest_node_name:
-        typeof value.ingest_node_name === 'string'
-          ? value.ingest_node_name
-          : '',
-      public_download_base_url:
-        typeof value.public_download_base_url === 'string'
-          ? value.public_download_base_url
-          : '',
-    }
-  } catch {
-    return { ...DEFAULT_STORAGE }
-  }
-}
+import { R2UsageCard } from './r2-usage-card'
+import {
+  activeRetentionDays,
+  parseVideoStorage,
+  serializeVideoStorage,
+  videoStorageSchema,
+  type VideoStorageValues,
+} from './storage-config'
 
 export function VideoStorageSettingsSection(props: { storageJson: string }) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const form = useForm<Values>({
-    resolver: zodResolver(schema) as Resolver<Values>,
-    defaultValues: parseStorage(props.storageJson),
+  const form = useForm<VideoStorageValues>({
+    resolver: zodResolver(videoStorageSchema) as Resolver<VideoStorageValues>,
+    defaultValues: parseVideoStorage(props.storageJson),
   })
 
   useEffect(() => {
-    form.reset(parseStorage(props.storageJson))
+    form.reset(parseVideoStorage(props.storageJson))
   }, [form, props.storageJson])
 
-  async function onSubmit(values: Values) {
+  const driver = form.watch('driver')
+  const isR2 = driver === 'r2'
+
+  async function onSubmit(values: VideoStorageValues) {
     try {
       const result = await updateOption.mutateAsync({
         key: 'video_setting.storage',
-        value: JSON.stringify({
-          driver: 'local',
-          local_dir: values.local_dir.trim(),
-          max_retry: values.max_retry,
-          ingest_node_name: values.ingest_node_name.trim(),
-          public_download_base_url: values.public_download_base_url.trim(),
-        }),
+        value: serializeVideoStorage(values),
       })
       if (!result.success) return
       toast.success(t('Settings saved'))
@@ -129,50 +95,78 @@ export function VideoStorageSettingsSection(props: { storageJson: string }) {
             />
             <div className='space-y-1'>
               <p className='text-sm font-medium'>
-                {t('Video retention is fixed at {{days}} days', {
-                  days: VIDEO_RETENTION_DAYS,
+                {t('Stored videos expire after {{days}} days', {
+                  days: activeRetentionDays(form.getValues()),
                 })}
               </p>
               <p className='text-muted-foreground text-sm'>
                 {t(
-                  'All generated videos are stored locally before delivery and are permanently deleted after seven days. This period cannot be extended.'
+                  'Every generated video is copied into the configured storage before delivery, and the upstream address is never exposed to users. Each driver keeps its own retention period.'
                 )}
               </p>
             </div>
           </div>
+
           <FormField
             control={form.control}
             name='driver'
             render={({ field }) => (
               <FormItem>
                 <FormLabel>{t('Storage driver')}</FormLabel>
-                <FormControl>
-                  <Input {...field} value='local' disabled readOnly />
-                </FormControl>
-                <FormDescription>
-                  {t('Only the local driver is supported.')}
-                </FormDescription>
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name='local_dir'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('Local directory')}</FormLabel>
-                <FormControl>
-                  <Input placeholder='data/videos' {...field} disabled={busy} />
-                </FormControl>
+                <Select
+                  items={[
+                    { value: 'local', label: t('Local disk') },
+                    { value: 'r2', label: t('Cloudflare R2') },
+                  ]}
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={busy}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectGroup>
+                      <SelectItem value='local'>{t('Local disk')}</SelectItem>
+                      <SelectItem value='r2'>{t('Cloudflare R2')}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
                 <FormDescription>
                   {t(
-                    'Directory on the ingest node where all provider video files are stored.'
+                    'Local disk streams videos through this application. Cloudflare R2 stores them in a private bucket and redirects viewers to a short-lived signed URL.'
                   )}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
+
+          <FormField
+            control={form.control}
+            name='public_download_base_url'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Public download base URL')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder='https://video.example.com'
+                    {...field}
+                    disabled={busy}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Public origin of this site, used to build the video content URL returned to clients.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
           <FormField
             control={form.control}
             name='max_retry'
@@ -191,44 +185,355 @@ export function VideoStorageSettingsSection(props: { storageJson: string }) {
               </FormItem>
             )}
           />
-          <FormField
-            control={form.control}
-            name='ingest_node_name'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('Ingest node name')}</FormLabel>
-                <FormControl>
-                  <Input placeholder='node-1' {...field} disabled={busy} />
-                </FormControl>
-                <FormDescription>
-                  {t(
-                    'Must match NODE_NAME on the node that downloads and stores videos.'
-                  )}
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name='public_download_base_url'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('Public download base URL')}</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder='https://video.example.com'
-                    {...field}
-                    disabled={busy}
-                  />
-                </FormControl>
-                <FormDescription>
-                  {t('Public origin used to build local video content URLs.')}
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+
+          {isR2 ? null : (
+            <>
+              <FormField
+                control={form.control}
+                name='local_dir'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Local directory')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder='data/videos'
+                        {...field}
+                        disabled={busy}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Directory on the ingest node where all provider video files are stored.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='ingest_node_name'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Ingest node name')}</FormLabel>
+                    <FormControl>
+                      <Input placeholder='node-1' {...field} disabled={busy} />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Must match NODE_NAME on the node that downloads and stores videos.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='local_retention_days'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Local retention (days)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={30}
+                        {...field}
+                        disabled={busy}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Days a locally stored video stays playable before it is deleted. Between 1 and 30.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </>
+          )}
+
+          {isR2 ? (
+            <>
+              <R2UsageCard />
+              <FormField
+                control={form.control}
+                name='r2.account_id'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('R2 account ID')}</FormLabel>
+                    <FormControl>
+                      <Input {...field} disabled={busy} />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Cloudflare account identifier. Used to derive the S3 endpoint and to read bucket usage.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='r2.bucket'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('R2 bucket name')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder='new-api-videos'
+                        {...field}
+                        disabled={busy}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Keep this bucket private. Viewers only ever receive signed URLs.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='r2.access_key_id'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('R2 access key ID')}</FormLabel>
+                    <FormControl>
+                      <Input autoComplete='off' {...field} disabled={busy} />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'S3-compatible access key used to upload and sign objects.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='r2.secret_access_key'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('R2 secret access key')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='password'
+                        autoComplete='new-password'
+                        {...field}
+                        disabled={busy}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Stored securely and never shown to clients. Re-enter it if you rotate the key.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='r2.api_token'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Cloudflare API token')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='password'
+                        autoComplete='new-password'
+                        {...field}
+                        disabled={busy}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Token with R2 read permission. Used once per hour to read bucket usage so uploads can stop before the free tier is exhausted.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='r2.endpoint'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('R2 S3 endpoint')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder='https://<account_id>.r2.cloudflarestorage.com'
+                        {...field}
+                        disabled={busy}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Leave empty to derive it from the account ID. Set it only for jurisdiction-specific endpoints.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='r2.region'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('R2 region')}</FormLabel>
+                    <FormControl>
+                      <Input placeholder='auto' {...field} disabled={busy} />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'R2 uses the auto region unless Cloudflare tells you otherwise.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='r2.result_prefix'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Result object prefix')}</FormLabel>
+                    <FormControl>
+                      <Input placeholder='videos/' {...field} disabled={busy} />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Key prefix for finished videos delivered to users.')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='r2.input_prefix'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Input object prefix')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder='video-inputs/'
+                        {...field}
+                        disabled={busy}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Key prefix for reference images and audio staged for upstreams that cannot accept base64. Must differ from the result prefix.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='r2.retention_days'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('R2 retention (days)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={30}
+                        {...field}
+                        disabled={busy}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Days a video stays in R2 before it is deleted. Shorter retention keeps you inside the free tier.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='r2.result_presign_ttl_seconds'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Playback link lifetime (seconds)')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={60}
+                        {...field}
+                        disabled={busy}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'How long a signed playback URL stays valid. Viewers simply request the video again to get a fresh link.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='r2.input_presign_ttl_seconds'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Upstream input link lifetime (seconds)')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={60}
+                        {...field}
+                        disabled={busy}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'How long the signed URL handed to the upstream provider stays valid. It must outlive the provider fetch.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='r2.input_ttl_hours'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Staged input retention (hours)')}</FormLabel>
+                    <FormControl>
+                      <Input type='number' min={1} {...field} disabled={busy} />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Staged reference media older than this is deleted by the hourly cleanup. Only the input prefix is affected.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </>
+          ) : null}
         </SettingsForm>
       </Form>
     </SettingsSection>

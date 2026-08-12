@@ -2,7 +2,11 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import type { SystemOption, VideoSettings } from '../../types'
-import { resolveVideoSettings, VIDEO_RETENTION_DAYS } from '../compatibility'
+import { resolveVideoSettings } from '../compatibility'
+import {
+  DEFAULT_LOCAL_RETENTION_DAYS,
+  DEFAULT_R2_RETENTION_DAYS,
+} from '../storage-config'
 
 const legacySettings: VideoSettings = {
   'video_setting.enabled': false,
@@ -17,10 +21,6 @@ const legacySettings: VideoSettings = {
 }
 
 describe('video settings compatibility', () => {
-  test('keeps the video retention policy fixed at seven days', () => {
-    assert.equal(VIDEO_RETENTION_DAYS, 7)
-  })
-
   test('shows legacy values until generic options are explicitly saved', () => {
     const resolved = resolveVideoSettings(legacySettings, [])
 
@@ -29,13 +29,39 @@ describe('video settings compatibility', () => {
       resolved['video_setting.video_tool_groups'],
       '["default","vip"]'
     )
-    assert.deepEqual(JSON.parse(resolved['video_setting.storage']), {
-      driver: 'local',
-      local_dir: 'legacy/videos',
-      max_retry: 9,
-      ingest_node_name: 'legacy-node',
-      public_download_base_url: 'https://video.example.com',
-    })
+    const storage = JSON.parse(resolved['video_setting.storage'])
+    assert.equal(storage.driver, 'local')
+    assert.equal(storage.local_dir, 'legacy/videos')
+    assert.equal(storage.max_retry, 9)
+    assert.equal(storage.ingest_node_name, 'legacy-node')
+    assert.equal(storage.public_download_base_url, 'https://video.example.com')
+    assert.equal(storage.local_retention_days, 7)
+  })
+
+  test('carries a custom legacy retention into the local driver', () => {
+    const resolved = resolveVideoSettings(
+      {
+        ...legacySettings,
+        'silkroad_setting.storage':
+          '{"enabled":true,"local_dir":"legacy/videos","retention_days":14}',
+      },
+      []
+    )
+
+    const storage = JSON.parse(resolved['video_setting.storage'])
+    assert.equal(storage.local_retention_days, 14)
+  })
+
+  test('falls back to driver defaults when the legacy row is unusable', () => {
+    const resolved = resolveVideoSettings(
+      { ...legacySettings, 'silkroad_setting.storage': 'not-json' },
+      []
+    )
+
+    const storage = JSON.parse(resolved['video_setting.storage'])
+    assert.equal(storage.driver, 'local')
+    assert.equal(storage.local_retention_days, DEFAULT_LOCAL_RETENTION_DAYS)
+    assert.equal(storage.r2.retention_days, DEFAULT_R2_RETENTION_DAYS)
   })
 
   test('keeps explicit generic values instead of legacy fallbacks', () => {
@@ -44,7 +70,7 @@ describe('video settings compatibility', () => {
       'video_setting.enabled': false,
       'video_setting.video_tool_groups': '["video"]',
       'video_setting.storage':
-        '{"driver":"local","local_dir":"new/videos","max_retry":3,"ingest_node_name":"new-node","public_download_base_url":"https://new.example.com"}',
+        '{"driver":"r2","local_dir":"new/videos","max_retry":3,"ingest_node_name":"","public_download_base_url":"https://new.example.com"}',
     }
     const raw: SystemOption[] = [
       { key: 'video_setting.enabled', value: 'false' },

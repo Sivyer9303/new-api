@@ -1,18 +1,25 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-// serveSilkRoadVideoContent serves a SilkRoad-stored video from local disk.
+// presignStoredVideoURL resolves the redirect target for object-storage drivers.
+// It is a variable so content delivery can be tested without live credentials.
+var presignStoredVideoURL = service.PresignStoredVideoURL
+
+// serveSilkRoadVideoContent delivers a stored video: local files stream through
+// this handler, object storage answers with a short-lived signed redirect.
 // It never redirects or proxies the client to UpstreamResultURL.
 func serveSilkRoadVideoContent(c *gin.Context, task *model.Task) {
 	status := strings.TrimSpace(task.PrivateData.StorageStatus)
@@ -32,6 +39,22 @@ func serveSilkRoadVideoContent(c *gin.Context, task *model.Task) {
 			"Video delivery failed; contact an administrator with the task ID")
 		return
 	case "ready":
+		// Object-storage drivers deliver the file directly: authorize here, then
+		// hand the client a short-lived signed URL instead of proxying bytes.
+		signedURL, redirects, err := presignStoredVideoURL(c.Request.Context(), task)
+		if err != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf(
+				"failed to sign stored video url task=%s: %s", task.TaskID, err.Error(),
+			))
+			videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to open video file")
+			return
+		}
+		if redirects {
+			c.Header("Cache-Control", "private, no-store")
+			c.Redirect(http.StatusFound, signedURL)
+			return
+		}
+
 		f, err := service.OpenStoredVideo(c.Request.Context(), task)
 		if err != nil {
 			if os.IsNotExist(err) {

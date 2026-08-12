@@ -88,6 +88,7 @@ export interface ChannelSettings {
   system_prompt_override?: boolean
   http_protocol?: 'auto' | 'http1' | string
   http2_connection_shards?: number
+  video_input_media_delivery?: 'inline_base64' | 'r2_presigned_url' | string
 }
 
 export interface ChannelOtherSettings {

@@ -28,6 +28,7 @@ func GetEffectiveVideoSetting() video_setting.EffectiveSetting {
 				MaxRetry:              legacy.Storage.MaxRetry,
 				IngestNodeName:        legacy.Storage.IngestNodeName,
 				PublicDownloadBaseURL: legacy.Storage.PublicDownloadBaseURL,
+				LocalRetentionDays:    legacy.Storage.RetentionDays,
 			},
 		},
 	)

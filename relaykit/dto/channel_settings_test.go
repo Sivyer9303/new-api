@@ -578,3 +578,24 @@ func TestChannelSettingsValidateHTTPTransport(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "http2_connection_shards")
 }
+
+func TestChannelSettingsVideoInputMediaDeliveryDefaultsToInlineBase64(t *testing.T) {
+	assert.Equal(t, VideoInputMediaInlineBase64, (&ChannelSettings{}).ResolveVideoInputMediaDelivery())
+	assert.False(t, (&ChannelSettings{}).UsesR2VideoInputMedia())
+	assert.False(t, (&ChannelSettings{VideoInputMediaDelivery: "inline_base64"}).UsesR2VideoInputMedia())
+	assert.True(t, (&ChannelSettings{VideoInputMediaDelivery: " R2_Presigned_URL "}).UsesR2VideoInputMedia())
+
+	encoded, err := json.Marshal(ChannelSettings{})
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "video_input_media_delivery")
+}
+
+func TestChannelSettingsValidateVideoInputMediaDelivery(t *testing.T) {
+	require.NoError(t, (&ChannelSettings{}).ValidateVideoInputMediaDelivery())
+	require.NoError(t, (&ChannelSettings{VideoInputMediaDelivery: VideoInputMediaInlineBase64}).ValidateVideoInputMediaDelivery())
+	require.NoError(t, (&ChannelSettings{VideoInputMediaDelivery: VideoInputMediaR2Presigned}).ValidateVideoInputMediaDelivery())
+
+	err := (&ChannelSettings{VideoInputMediaDelivery: "s3_presigned_url"}).ValidateVideoInputMediaDelivery()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "video_input_media_delivery")
+}

@@ -135,7 +135,10 @@ func expireOneSilkRoadVideo(task *model.Task) error {
 	}
 	task.Status = model.TaskStatusExpired
 	task.Progress = "100%"
-	task.FailReason = "Video expired after the fixed seven-day retention period."
+	task.FailReason = fmt.Sprintf(
+		"Video expired after the configured %d-day retention period.",
+		setting.GetEffectiveVideoSetting().Storage.RetentionDays(),
+	)
 	task.PrivateData.StorageStatus = "expired"
 	task.PrivateData.ResultURL = ""
 	task.PrivateData.UpstreamResultURL = ""

@@ -8,7 +8,7 @@ License, or (at your option) any later version.
 */
 import { SettingsPage } from '../components/settings-page'
 import type { VideoSettings } from '../types'
-import { resolveVideoSettings } from './compatibility'
+import { DEFAULT_VIDEO_STORAGE, resolveVideoSettings } from './compatibility'
 import {
   getVideoSectionContent,
   getVideoSectionMeta,
@@ -23,8 +23,7 @@ const DEFAULT_PROFILES =
 const defaultVideoSettings: VideoSettings = {
   'video_setting.enabled': false,
   'video_setting.video_tool_groups': '[]',
-  'video_setting.storage':
-    '{"driver":"local","local_dir":"data/videos","max_retry":5,"ingest_node_name":"","public_download_base_url":""}',
+  'video_setting.storage': DEFAULT_VIDEO_STORAGE,
   'silkroad_setting.common': DEFAULT_COMMON,
   'silkroad_setting.profiles': DEFAULT_PROFILES,
   'silkroad_setting.default_profile_id': 'seedance_reverse',

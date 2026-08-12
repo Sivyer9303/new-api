@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/silkroad_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -39,11 +40,40 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		upstreamModel = modelName
 	}
 
+	if err := stageChannelInputMedia(c, info, &req); err != nil {
+		return nil, err
+	}
+
 	data, err := buildUpstreamBody(req, profile, upstreamModel)
 	if err != nil {
 		return nil, err
 	}
 	return bytes.NewReader(data), nil
+}
+
+// stageChannelInputMedia rewrites inline reference media into presigned R2 URLs
+// for channels whose upstream rejects base64 payloads. Channels left on the
+// default inline mode are untouched.
+func stageChannelInputMedia(c *gin.Context, info *relaycommon.RelayInfo, req *FriendlyRequest) error {
+	if info == nil || info.ChannelMeta == nil {
+		return nil
+	}
+	channelSetting := info.ChannelSetting
+	if !channelSetting.UsesR2VideoInputMedia() {
+		return nil
+	}
+	ctx := c.Request.Context()
+	images, err := service.StageVideoInputMediaList(ctx, info.ChannelId, req.Images)
+	if err != nil {
+		return err
+	}
+	audioURL, err := service.StageVideoInputMedia(ctx, info.ChannelId, req.AudioURL)
+	if err != nil {
+		return err
+	}
+	req.Images = images
+	req.AudioURL = audioURL
+	return nil
 }
 
 func buildUpstreamBody(req FriendlyRequest, profile *silkroad_setting.Profile, upstreamModel string) ([]byte, error) {
