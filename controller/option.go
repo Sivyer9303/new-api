@@ -1,17 +1,20 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/brioi_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
@@ -35,6 +38,8 @@ var completionRatioMetaOptionKeys = []string{
 	"AudioCompletionRatio",
 }
 
+var videoProviderGroupUpdateMu sync.Mutex
+
 func isPaymentComplianceOptionKey(key string) bool {
 	return strings.HasPrefix(key, "payment_setting.compliance_")
 }
@@ -49,7 +54,7 @@ func isPositiveOptionValue(value string) bool {
 }
 
 // validateSilkRoadSettingOption applies a single silkroad_setting.* update to a
-// copy of the live config and runs ValidateSilkRoadSetting before persist.
+// copy of the live config and validates only the section being saved.
 func validateSilkRoadSettingOption(key, value string) error {
 	configKey := strings.TrimPrefix(key, "silkroad_setting.")
 	if configKey == key || configKey == "" {
@@ -65,15 +70,84 @@ func validateSilkRoadSettingOption(key, value string) error {
 	if err := common.Unmarshal(raw, &clone); err != nil {
 		return err
 	}
-	if err := config.UpdateConfigFromMap(&clone, map[string]string{configKey: value}); err != nil {
-		return err
+	switch configKey {
+	case "common":
+		if err := common.UnmarshalJsonStr(value, &clone.Common); err != nil {
+			return fmt.Errorf("invalid silkroad common setting: %w", err)
+		}
+	case "profiles":
+		if err := common.UnmarshalJsonStr(value, &clone.Profiles); err != nil {
+			return fmt.Errorf("invalid silkroad profiles: %w", err)
+		}
+	case "default_profile_id":
+		clone.DefaultProfileID = value
+	case "storage":
+		if err := common.UnmarshalJsonStr(value, &clone.Storage); err != nil {
+			return fmt.Errorf("invalid silkroad storage setting: %w", err)
+		}
+	case "video_tool_groups":
+		if err := common.UnmarshalJsonStr(value, &clone.VideoToolGroups); err != nil {
+			return fmt.Errorf("invalid silkroad video tool groups: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported silkroad_setting option key %q", configKey)
 	}
 	if key != "silkroad_setting.default_profile_id" &&
 		!config.GlobalConfig.IsExplicit("silkroad_setting.default_profile_id") &&
 		len(clone.Profiles) > 0 {
 		clone.DefaultProfileID = clone.Profiles[0].ID
 	}
-	return silkroad_setting.ValidateSilkRoadSetting(&clone)
+	if configKey == "storage" {
+		return silkroad_setting.ValidateSilkRoadStorageSetting(&clone.Storage)
+	}
+	if err := silkroad_setting.ValidateSilkRoadProviderSetting(&clone); err != nil {
+		return err
+	}
+	candidateGroups := clone.VideoToolGroups
+	if configKey != "video_tool_groups" &&
+		!config.GlobalConfig.IsExplicit("silkroad_setting.video_tool_groups") {
+		candidateGroups = setting.GetVideoProviderGroups(setting.VideoProviderSilkRoad)
+	}
+	return setting.ValidateVideoProviderGroups(
+		setting.VideoProviderSilkRoad,
+		candidateGroups,
+	)
+}
+
+func validateBrioiSettingOption(key, value string) error {
+	configKey := strings.TrimPrefix(key, "brioi_setting.")
+	if configKey == key || configKey == "" {
+		return fmt.Errorf("invalid brioi_setting option key")
+	}
+
+	current := brioi_setting.GetBrioiSetting()
+	raw, err := common.Marshal(current)
+	if err != nil {
+		return err
+	}
+	var clone brioi_setting.BrioiSetting
+	if err := common.Unmarshal(raw, &clone); err != nil {
+		return err
+	}
+	switch configKey {
+	case "profiles":
+		if err := common.UnmarshalJsonStr(value, &clone.Profiles); err != nil {
+			return fmt.Errorf("invalid brioi profiles: %w", err)
+		}
+	case "video_tool_groups":
+		if err := common.UnmarshalJsonStr(value, &clone.VideoToolGroups); err != nil {
+			return fmt.Errorf("invalid brioi video tool groups: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported brioi_setting option key %q", configKey)
+	}
+	if err := brioi_setting.ValidateBrioiSetting(&clone); err != nil {
+		return err
+	}
+	return setting.ValidateVideoProviderGroups(
+		setting.VideoProviderBrioi,
+		clone.VideoToolGroups,
+	)
 }
 
 func validateVideoSettingOption(key, value string) error {
@@ -91,17 +165,47 @@ func validateVideoSettingOption(key, value string) error {
 	if err := common.Unmarshal(raw, &clone); err != nil {
 		return err
 	}
-	if err := config.UpdateConfigFromMap(&clone, map[string]string{configKey: value}); err != nil {
-		return err
+	switch configKey {
+	case "enabled":
+		enabled, err := strconv.ParseBool(strings.TrimSpace(value))
+		if err != nil {
+			return err
+		}
+		clone.Enabled = enabled
+	case "storage":
+		if err := common.UnmarshalJsonStr(value, &clone.Storage); err != nil {
+			return fmt.Errorf("invalid video storage setting: %w", err)
+		}
+	case "video_tool_groups":
+		if err := common.UnmarshalJsonStr(value, &clone.VideoToolGroups); err != nil {
+			return fmt.Errorf("invalid video tool groups: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported video_setting option key %q", configKey)
 	}
-	return video_setting.ValidateVideoSetting(&clone)
+	switch configKey {
+	case "enabled":
+		return nil
+	case "storage":
+		return video_setting.ValidateVideoStorageSetting(&clone.Storage)
+	case "video_tool_groups":
+		if config.GlobalConfig.IsExplicit("silkroad_setting.video_tool_groups") {
+			return nil
+		}
+		return setting.ValidateVideoProviderGroups(
+			setting.VideoProviderSilkRoad,
+			clone.VideoToolGroups,
+		)
+	default:
+		return fmt.Errorf("unsupported video_setting option key %q", configKey)
+	}
 }
 
 // perSecondBindingWarning checks the billing_setting.billing_mode JSON map and
-// warns about models marked per_second that do not match any SilkRoad profile.
-// Such models never route through the NewAPI task adaptor's seconds multiplier,
-// so they would be charged the flat per-second unit price once per call —
-// a severe undercharge. The save still proceeds; the warning is surfaced to admins.
+// warns about models marked per_second that do not match any video-provider
+// profile. Such models never reach an adaptor that supplies the seconds
+// multiplier, so they would be charged the unit price only once per call.
+// The save still proceeds; the warning is surfaced to administrators.
 func perSecondBindingWarning(value string) (string, error) {
 	if strings.TrimSpace(value) == "" {
 		return "", nil
@@ -115,10 +219,14 @@ func perSecondBindingWarning(value string) (string, error) {
 		if mode != billing_setting.BillingModePerSecond {
 			continue
 		}
-		resolution, ok := silkroad_setting.ResolveProfile(modelName)
-		if !ok || resolution.MatchKind == silkroad_setting.ProfileMatchDefault {
-			fallbackModels = append(fallbackModels, modelName)
+		silkRoadResolution, silkRoadOK := silkroad_setting.ResolveProfile(modelName)
+		if silkRoadOK && silkRoadResolution.MatchKind != silkroad_setting.ProfileMatchDefault {
+			continue
 		}
+		if _, brioiOK := brioi_setting.ResolveProfile(modelName); brioiOK {
+			continue
+		}
+		fallbackModels = append(fallbackModels, modelName)
 	}
 	if len(fallbackModels) == 0 {
 		return "", nil
@@ -169,6 +277,9 @@ func GetOptions(c *gin.Context) {
 	effectiveVideo := setting.GetEffectiveVideoSetting()
 	effectiveVideoGroups, _ := common.Marshal(effectiveVideo.VideoToolGroups)
 	effectiveVideoStorage, _ := common.Marshal(effectiveVideo.Storage)
+	effectiveSilkRoadGroups, _ := common.Marshal(
+		setting.GetVideoProviderGroups(setting.VideoProviderSilkRoad),
+	)
 	common.OptionMapRWMutex.Lock()
 	for k, v := range common.OptionMap {
 		if k == "theme.frontend" {
@@ -185,6 +296,9 @@ func GetOptions(c *gin.Context) {
 		case k == "video_setting.storage" &&
 			!config.GlobalConfig.IsExplicit(k):
 			value = string(effectiveVideoStorage)
+		case k == "silkroad_setting.video_tool_groups" &&
+			!config.GlobalConfig.IsExplicit(k):
+			value = string(effectiveSilkRoadGroups)
 		}
 		// Turnstile Site Key is public (embedded in the frontend widget).
 		if k == "TurnstileSiteKey" {
@@ -237,6 +351,132 @@ type OptionUpdateRequest struct {
 	Value any    `json:"value"`
 }
 
+type VideoProviderOptionUpdateRequest struct {
+	Provider         setting.VideoProvider           `json:"provider"`
+	VideoToolGroups  []string                        `json:"video_tool_groups"`
+	Common           *silkroad_setting.CommonSetting `json:"common,omitempty"`
+	Profiles         json.RawMessage                 `json:"profiles"`
+	DefaultProfileID string                          `json:"default_profile_id,omitempty"`
+}
+
+func UpdateVideoProviderOption(c *gin.Context) {
+	var request VideoProviderOptionUpdateRequest
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
+		common.ApiErrorMsg(c, "invalid video provider settings")
+		return
+	}
+
+	videoProviderGroupUpdateMu.Lock()
+	defer videoProviderGroupUpdateMu.Unlock()
+
+	values, err := videoProviderOptionValues(request)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	if err := model.UpdateOptionsBulk(values); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "option.video_provider.update", map[string]interface{}{
+		"provider": request.Provider,
+	})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+	})
+}
+
+func videoProviderOptionValues(request VideoProviderOptionUpdateRequest) (map[string]string, error) {
+	if len(request.Profiles) == 0 {
+		return nil, fmt.Errorf("video provider profiles are required")
+	}
+
+	switch request.Provider {
+	case setting.VideoProviderSilkRoad:
+		if request.Common == nil {
+			return nil, fmt.Errorf("SilkRoad common settings are required")
+		}
+		var profiles []silkroad_setting.Profile
+		if err := common.Unmarshal(request.Profiles, &profiles); err != nil {
+			return nil, fmt.Errorf("invalid SilkRoad profiles: %w", err)
+		}
+		candidate := silkroad_setting.SilkRoadSetting{
+			Common:           *request.Common,
+			Profiles:         profiles,
+			DefaultProfileID: request.DefaultProfileID,
+			Storage:          silkroad_setting.GetSilkRoadSetting().Storage,
+			VideoToolGroups: silkroad_setting.NormalizeVideoToolGroups(
+				request.VideoToolGroups,
+			),
+		}
+		if err := silkroad_setting.ValidateSilkRoadProviderSetting(&candidate); err != nil {
+			return nil, err
+		}
+		if err := setting.ValidateVideoProviderGroups(
+			setting.VideoProviderSilkRoad,
+			candidate.VideoToolGroups,
+		); err != nil {
+			return nil, err
+		}
+		commonValue, err := common.Marshal(candidate.Common)
+		if err != nil {
+			return nil, err
+		}
+		profilesValue, err := common.Marshal(candidate.Profiles)
+		if err != nil {
+			return nil, err
+		}
+		groupsValue, err := common.Marshal(candidate.VideoToolGroups)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{
+			"silkroad_setting.common":             string(commonValue),
+			"silkroad_setting.profiles":           string(profilesValue),
+			"silkroad_setting.default_profile_id": candidate.DefaultProfileID,
+			"silkroad_setting.video_tool_groups":  string(groupsValue),
+		}, nil
+	case setting.VideoProviderBrioi:
+		var profiles []brioi_setting.Profile
+		if err := common.Unmarshal(request.Profiles, &profiles); err != nil {
+			return nil, fmt.Errorf("invalid Brioi profiles: %w", err)
+		}
+		candidate := brioi_setting.BrioiSetting{
+			Profiles: profiles,
+			VideoToolGroups: brioi_setting.NormalizeVideoToolGroups(
+				request.VideoToolGroups,
+			),
+		}
+		if err := brioi_setting.ValidateBrioiSetting(&candidate); err != nil {
+			return nil, err
+		}
+		if err := setting.ValidateVideoProviderGroups(
+			setting.VideoProviderBrioi,
+			candidate.VideoToolGroups,
+		); err != nil {
+			return nil, err
+		}
+		profilesValue, err := common.Marshal(candidate.Profiles)
+		if err != nil {
+			return nil, err
+		}
+		groupsValue, err := common.Marshal(candidate.VideoToolGroups)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{
+			"brioi_setting.profiles":          string(profilesValue),
+			"brioi_setting.video_tool_groups": string(groupsValue),
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported video provider %q", request.Provider)
+	}
+}
+
 func UpdateOption(c *gin.Context) {
 	var option OptionUpdateRequest
 	err := common.DecodeJson(c.Request.Body, &option)
@@ -281,6 +521,13 @@ func UpdateOption(c *gin.Context) {
 		}
 	}
 	saveWarning := ""
+	switch option.Key {
+	case "video_setting.video_tool_groups",
+		"silkroad_setting.video_tool_groups",
+		"brioi_setting.video_tool_groups":
+		videoProviderGroupUpdateMu.Lock()
+		defer videoProviderGroupUpdateMu.Unlock()
+	}
 	switch option.Key {
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && common.GitHubClientId == "" {
@@ -520,6 +767,15 @@ func UpdateOption(c *gin.Context) {
 	case "silkroad_setting.common", "silkroad_setting.profiles", "silkroad_setting.default_profile_id",
 		"silkroad_setting.storage", "silkroad_setting.video_tool_groups":
 		err = validateSilkRoadSettingOption(option.Key, option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+	case "brioi_setting.profiles", "brioi_setting.video_tool_groups":
+		err = validateBrioiSettingOption(option.Key, option.Value.(string))
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,

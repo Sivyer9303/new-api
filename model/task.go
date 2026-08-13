@@ -20,9 +20,9 @@ type TaskStatus string
 func (t TaskStatus) ToVideoStatus() string {
 	var status string
 	switch t {
-	case TaskStatusQueued, TaskStatusSubmitted:
+	case TaskStatusSubmitting, TaskStatusQueued, TaskStatusSubmitted:
 		status = dto.VideoStatusQueued
-	case TaskStatusInProgress, TaskStatusStoring, TaskStatusStorageProcessing, TaskStatusStorageDeleting:
+	case TaskStatusInProgress, TaskStatusSettlementProcessing, TaskStatusSettlementRecovering, TaskStatusStoring, TaskStatusStorageProcessing, TaskStatusStorageDeleting:
 		status = dto.VideoStatusInProgress
 	case TaskStatusSuccess:
 		status = dto.VideoStatusCompleted
@@ -35,46 +35,61 @@ func (t TaskStatus) ToVideoStatus() string {
 }
 
 const (
-	TaskStatusNotStart          TaskStatus = "NOT_START"
-	TaskStatusSubmitted                    = "SUBMITTED"
-	TaskStatusQueued                       = "QUEUED"
-	TaskStatusInProgress                   = "IN_PROGRESS"
-	TaskStatusStoring           TaskStatus = "STORING"
-	TaskStatusStorageProcessing TaskStatus = "STORAGE_PROCESSING"
-	TaskStatusStorageDeleting   TaskStatus = "STORAGE_DELETING"
-	TaskStatusFailure                      = "FAILURE"
-	TaskStatusSuccess                      = "SUCCESS"
-	TaskStatusExpired           TaskStatus = "EXPIRED"
-	TaskStatusRefunded          TaskStatus = "REFUNDED"
-	TaskStatusUnknown                      = "UNKNOWN"
+	TaskStatusNotStart             TaskStatus = "NOT_START"
+	TaskStatusSubmitting           TaskStatus = "SUBMITTING"
+	TaskStatusSubmitted                       = "SUBMITTED"
+	TaskStatusQueued                          = "QUEUED"
+	TaskStatusInProgress                      = "IN_PROGRESS"
+	TaskStatusSettlementProcessing TaskStatus = "SETTLING"
+	TaskStatusSettlementRecovering TaskStatus = "SETTLING_RECOVERY"
+	TaskStatusStoring              TaskStatus = "STORING"
+	TaskStatusStorageProcessing    TaskStatus = "STORAGE_PROCESSING"
+	TaskStatusStorageDeleting      TaskStatus = "STORAGE_DELETING"
+	TaskStatusFailure                         = "FAILURE"
+	TaskStatusSuccess                         = "SUCCESS"
+	TaskStatusExpired              TaskStatus = "EXPIRED"
+	TaskStatusRefunded             TaskStatus = "REFUNDED"
+	TaskStatusUnknown                         = "UNKNOWN"
 )
+
+const TaskStorageStatusProviderReview = "provider_review"
 
 // TaskRefundLegacyCutoff separates tasks created before timeout refunds were
 // introduced. Those legacy tasks are failed without an automatic refund.
 const TaskRefundLegacyCutoff int64 = 1771718400 // 2026-02-22 00:00:00 UTC
 
 type Task struct {
-	ID         int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
-	CreatedAt  int64                 `json:"created_at" gorm:"index"`
-	UpdatedAt  int64                 `json:"updated_at"`
-	TaskID     string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
-	Platform   constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
-	UserId     int                   `json:"user_id" gorm:"index"`
-	Group      string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
-	ChannelId  int                   `json:"channel_id" gorm:"index"`
-	Quota      int                   `json:"quota"`
-	Action     string                `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
-	Status     TaskStatus            `json:"status" gorm:"type:varchar(20);index"` // 任务状态
-	FailReason string                `json:"fail_reason"`
-	SubmitTime int64                 `json:"submit_time" gorm:"index"`
-	StartTime  int64                 `json:"start_time" gorm:"index"`
-	FinishTime int64                 `json:"finish_time" gorm:"index"`
-	Progress   string                `json:"progress" gorm:"type:varchar(20);index"`
-	Properties Properties            `json:"properties" gorm:"type:json"`
-	Username   string                `json:"username,omitempty" gorm:"-"`
+	ID             int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
+	CreatedAt      int64                 `json:"created_at" gorm:"index"`
+	UpdatedAt      int64                 `json:"updated_at"`
+	TaskID         string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
+	Platform       constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
+	UserId         int                   `json:"user_id" gorm:"index"`
+	Group          string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
+	ChannelId      int                   `json:"channel_id" gorm:"index"`
+	Quota          int                   `json:"quota"`
+	RefundPending  bool                  `json:"-" gorm:"index:idx_task_refund_pending"`
+	RefundRetryAt  int64                 `json:"-" gorm:"index:idx_task_refund_pending"`
+	RefundAttempts int                   `json:"-"`
+	Action         string                `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
+	Status         TaskStatus            `json:"status" gorm:"type:varchar(20);index"` // 任务状态
+	FailReason     string                `json:"fail_reason"`
+	SubmitTime     int64                 `json:"submit_time" gorm:"index"`
+	StartTime      int64                 `json:"start_time" gorm:"index"`
+	FinishTime     int64                 `json:"finish_time" gorm:"index"`
+	Progress       string                `json:"progress" gorm:"type:varchar(20);index"`
+	Properties     Properties            `json:"properties" gorm:"type:json"`
+	Username       string                `json:"username,omitempty" gorm:"-"`
 	// 禁止返回给用户，内部可能包含key等隐私信息
 	PrivateData TaskPrivateData `json:"-" gorm:"column:private_data;type:json"`
 	Data        json.RawMessage `json:"data" gorm:"type:json"`
+}
+
+func (t *Task) MarkRefundPending(reason string) {
+	t.RefundPending = true
+	t.RefundRetryAt = 0
+	t.RefundAttempts = 0
+	t.PrivateData.BillingRefundReason = reason
 }
 
 func (t *Task) SetData(data any) {
@@ -113,7 +128,7 @@ type TaskPrivateData struct {
 	UpstreamTaskID     string `json:"upstream_task_id,omitempty"`     // 上游真实 task ID
 	ResultURL          string `json:"result_url,omitempty"`           // 任务成功后的结果 URL（视频地址等）
 	UpstreamResultURL  string `json:"upstream_result_url,omitempty"`  // 上游原始结果 URL（转存前）
-	StorageStatus      string `json:"storage_status,omitempty"`       // pending|processing|ready|failed|expired
+	StorageStatus      string `json:"storage_status,omitempty"`       // pending|processing|ready|failed|provider_review|expired
 	StoragePath        string `json:"storage_path,omitempty"`         // Deprecated: existing local path compatibility
 	StorageObjectKey   string `json:"storage_object_key,omitempty"`   // Provider-neutral driver object key
 	StorageContentType string `json:"storage_content_type,omitempty"` // Stored object content type
@@ -129,11 +144,17 @@ type TaskPrivateData struct {
 	ManualRefundReason string `json:"manual_refund_reason,omitempty"`
 	ManualRefundQuota  int    `json:"manual_refund_quota,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
-	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
-	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
-	TokenId        int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
-	NodeName       string              `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
-	BillingContext *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+	BillingSource            string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
+	SubscriptionId           int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
+	TokenId                  int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
+	NodeName                 string              `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
+	BillingContext           *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+	BillingReservationTarget int                 `json:"billing_reservation_target,omitempty"`
+	BillingRefundReason      string              `json:"billing_refund_reason,omitempty"`
+	SettlementTargetQuota    int                 `json:"settlement_target_quota,omitempty"`
+	SettlementTargetReady    bool                `json:"settlement_target_ready,omitempty"`
+	SettlementTotalTokens    int                 `json:"settlement_total_tokens,omitempty"`
+	BillingSettlementApplied bool                `json:"billing_settlement_applied,omitempty"`
 }
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
@@ -173,8 +194,10 @@ func GenerateTaskID() string {
 func (p *TaskPrivateData) Scan(val interface{}) error {
 	bytesValue, _ := val.([]byte)
 	if len(bytesValue) == 0 {
+		*p = TaskPrivateData{}
 		return nil
 	}
+	*p = TaskPrivateData{}
 	return common.Unmarshal(bytesValue, p)
 }
 
@@ -203,7 +226,9 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 	privateData := TaskPrivateData{}
 	if relayInfo != nil && relayInfo.ChannelMeta != nil {
 		if relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeGemini ||
-			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi {
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi ||
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeSilkRoad ||
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeBrioi {
 			privateData.Key = relayInfo.ChannelMeta.ApiKey
 		}
 		if relayInfo.UpstreamModelName != "" {
@@ -365,6 +390,8 @@ func videoStorageOwnedTaskStatuses() []TaskStatus {
 	return []TaskStatus{
 		TaskStatusFailure,
 		TaskStatusSuccess,
+		TaskStatusSettlementProcessing,
+		TaskStatusSettlementRecovering,
 		TaskStatusStoring,
 		TaskStatusStorageProcessing,
 		TaskStatusStorageDeleting,
@@ -478,6 +505,58 @@ func (t *Task) UpdateQuota() error {
 // zero rows, which silently bypasses the CAS guard.
 func (t *Task) UpdateWithStatus(fromStatus TaskStatus) (bool, error) {
 	result := DB.Model(t).Where("status = ?", fromStatus).Select("*").Updates(t)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// ClaimWithStatusAndUpdatedAt leases a task revision by guarding both its
+// status and update timestamp. It also works when fromStatus equals toStatus,
+// which lets watchdogs renew a stale recovery row without two workers owning
+// the same revision.
+func (t *Task) ClaimWithStatusAndUpdatedAt(
+	fromStatus TaskStatus,
+	toStatus TaskStatus,
+) (bool, error) {
+	expectedUpdatedAt := t.UpdatedAt
+	nextUpdatedAt := time.Now().Unix()
+	if nextUpdatedAt <= expectedUpdatedAt {
+		nextUpdatedAt = expectedUpdatedAt + 1
+	}
+	result := DB.Model(&Task{}).
+		Where("id = ? AND status = ? AND updated_at = ?", t.ID, fromStatus, expectedUpdatedAt).
+		Updates(map[string]any{
+			"status":     toStatus,
+			"updated_at": nextUpdatedAt,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return false, nil
+	}
+	t.Status = toStatus
+	t.UpdatedAt = nextUpdatedAt
+	return true, nil
+}
+
+// UpdateWithStatusAndUpdatedAt commits only the recovery lease revision held
+// by this task. A worker whose lease was renewed by another process cannot
+// overwrite that process's settlement result.
+func (t *Task) UpdateWithStatusAndUpdatedAt(
+	fromStatus TaskStatus,
+	expectedUpdatedAt int64,
+) (bool, error) {
+	nextUpdatedAt := time.Now().Unix()
+	if nextUpdatedAt <= expectedUpdatedAt {
+		nextUpdatedAt = expectedUpdatedAt + 1
+	}
+	t.UpdatedAt = nextUpdatedAt
+	result := DB.Model(&Task{}).
+		Where("id = ? AND status = ? AND updated_at = ?", t.ID, fromStatus, expectedUpdatedAt).
+		Select("*").
+		Updates(t)
 	if result.Error != nil {
 		return false, result.Error
 	}

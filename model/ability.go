@@ -3,12 +3,14 @@ package model
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -144,6 +146,119 @@ func GetChannel(group string, model string, retry int, requestPath string) (*Cha
 	}
 	err = DB.First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
+}
+
+// GetChannelForChannelType is the non-cache provider-constrained selector.
+// Filtering happens before priority selection so a higher-priority channel from
+// another provider cannot hide an eligible lower-priority provider channel.
+func GetChannelForChannelType(
+	group string,
+	modelName string,
+	retry int,
+	requestPath string,
+	channelType int,
+) (*Channel, error) {
+	if channelType <= 0 {
+		return GetChannel(group, modelName, retry, requestPath)
+	}
+	if !common.ChannelTypeSupportsRequestPath(channelType, requestPath) {
+		return nil, nil
+	}
+
+	abilities, err := getChannelTypeAbilities(group, modelName, channelType)
+	if err != nil {
+		return nil, err
+	}
+	if len(abilities) == 0 {
+		normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
+		if normalizedModel != "" && normalizedModel != modelName {
+			abilities, err = getChannelTypeAbilities(group, normalizedModel, channelType)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if len(abilities) == 0 {
+		return nil, nil
+	}
+
+	prioritySet := make(map[int64]struct{})
+	for _, ability := range abilities {
+		priority := int64(0)
+		if ability.Priority != nil {
+			priority = *ability.Priority
+		}
+		prioritySet[priority] = struct{}{}
+	}
+	priorities := make([]int64, 0, len(prioritySet))
+	for priority := range prioritySet {
+		priorities = append(priorities, priority)
+	}
+	sort.Slice(priorities, func(i, j int) bool {
+		return priorities[i] > priorities[j]
+	})
+	if retry < 0 {
+		retry = 0
+	}
+	if retry >= len(priorities) {
+		retry = len(priorities) - 1
+	}
+	targetPriority := priorities[retry]
+
+	candidates := make([]Ability, 0, len(abilities))
+	totalWeight := 0
+	for _, ability := range abilities {
+		priority := int64(0)
+		if ability.Priority != nil {
+			priority = *ability.Priority
+		}
+		if priority != targetPriority {
+			continue
+		}
+		candidates = append(candidates, ability)
+		totalWeight += int(ability.Weight) + 10
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	randomWeight := common.GetRandomInt(totalWeight)
+	channelID := candidates[len(candidates)-1].ChannelId
+	for _, ability := range candidates {
+		randomWeight -= int(ability.Weight) + 10
+		if randomWeight <= 0 {
+			channelID = ability.ChannelId
+			break
+		}
+	}
+	var channel Channel
+	if err := DB.First(
+		&channel,
+		"id = ? AND type = ? AND status = ?",
+		channelID,
+		channelType,
+		common.ChannelStatusEnabled,
+	).Error; err != nil {
+		return nil, err
+	}
+	return &channel, nil
+}
+
+func getChannelTypeAbilities(group, modelName string, channelType int) ([]Ability, error) {
+	var abilities []Ability
+	err := DB.Table("abilities").
+		Select("abilities.*").
+		Joins("JOIN channels ON channels.id = abilities.channel_id").
+		Where(clause.Eq{
+			Column: clause.Column{Table: "abilities", Name: "group"},
+			Value:  group,
+		}).
+		Where("abilities.model = ?", modelName).
+		Where("abilities.enabled = ?", true).
+		Where("channels.status = ?", common.ChannelStatusEnabled).
+		Where("channels.type = ?", channelType).
+		Find(&abilities).Error
+	return abilities, err
 }
 
 // filterAbilitiesByRequestPathAndModel restricts candidates by request path and

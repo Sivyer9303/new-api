@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -115,7 +116,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath)
+			channel, _ = getProviderConstrainedChannel(param, autoGroup, priorityRetry)
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -153,10 +154,41 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath)
+		channel, err = getProviderConstrainedChannel(param, param.TokenGroup, param.GetRetry())
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}
 	}
 	return channel, selectGroup, nil
+}
+
+func getProviderConstrainedChannel(
+	param *RetryParam,
+	group string,
+	retry int,
+) (*model.Channel, error) {
+	requiredType := common.GetContextKeyInt(
+		param.Ctx,
+		constant.ContextKeyVideoProviderChannelType,
+	)
+	if requiredType <= 0 {
+		return model.GetRandomSatisfiedChannel(
+			group,
+			param.ModelName,
+			retry,
+			param.RequestPath,
+		)
+	}
+
+	owner, ok := setting.ResolveVideoProviderGroup(group)
+	if !ok || owner.ChannelType != requiredType {
+		return nil, nil
+	}
+	return model.GetRandomSatisfiedChannelForChannelType(
+		group,
+		param.ModelName,
+		retry,
+		param.RequestPath,
+		requiredType,
+	)
 }

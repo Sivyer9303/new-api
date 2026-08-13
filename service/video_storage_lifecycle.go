@@ -85,7 +85,8 @@ func ConfirmVideoProviderResult(task *model.Task) (*VideoProviderConfirmation, e
 		return nil, ErrVideoStorageExpired
 	}
 	if task.Status != model.TaskStatusFailure ||
-		task.PrivateData.StorageStatus != "failed" ||
+		(task.PrivateData.StorageStatus != "failed" &&
+			task.PrivateData.StorageStatus != model.TaskStorageStatusProviderReview) ||
 		!task.PrivateData.NoAutomaticRefund ||
 		task.PrivateData.ManualRefundedAt > 0 {
 		return nil, ErrVideoProviderConfirmDenied

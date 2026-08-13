@@ -139,6 +139,7 @@ import {
 import {
   ADD_MODE_OPTIONS,
   CHANNEL_STATUS_LABELS,
+  CHANNEL_TYPE_BRIOI,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_WARNINGS,
   ERROR_MESSAGES,
@@ -166,6 +167,8 @@ import {
   findMissingModelsInMapping,
   validateModelMappingJson,
   hasAdvancedSettingsErrors,
+  VIDEO_INPUT_MEDIA_INLINE_BASE64,
+  VIDEO_INPUT_MEDIA_R2_PRESIGNED,
 } from '../../lib'
 import {
   collectInvalidStatusCodeEntries,
@@ -643,6 +646,9 @@ export function ChannelMutateDrawer({
   >(null)
   const channelFormRef = useRef<HTMLFormElement>(null)
   const advancedNavScrollPendingRef = useRef(false)
+  const preBrioiInputDeliveryRef = useRef<
+    ChannelFormValues['video_input_media_delivery'] | null
+  >(null)
   const [activeEditorSectionId, setActiveEditorSectionId] = useState<string>(
     CHANNEL_EDITOR_SECTION_IDS.identity
   )
@@ -1247,6 +1253,7 @@ export function ChannelMutateDrawer({
 
   // Load channel data into form when editing
   useEffect(() => {
+    preBrioiInputDeliveryRef.current = null
     if (isEditing && channelData?.data) {
       const defaults = transformChannelToFormDefaults(channelData.data)
       form.reset(defaults)
@@ -1999,7 +2006,47 @@ export function ChannelMutateDrawer({
                                             Number.isInteger(nextType) &&
                                             nextType > 0
                                           ) {
+                                            const previousType = Number(
+                                              field.value
+                                            )
+                                            if (
+                                              previousType !==
+                                                CHANNEL_TYPE_BRIOI &&
+                                              nextType === CHANNEL_TYPE_BRIOI
+                                            ) {
+                                              preBrioiInputDeliveryRef.current =
+                                                form.getValues(
+                                                  'video_input_media_delivery'
+                                                )
+                                            }
                                             field.onChange(nextType)
+                                            if (
+                                              nextType === CHANNEL_TYPE_BRIOI
+                                            ) {
+                                              form.setValue(
+                                                'video_input_media_delivery',
+                                                VIDEO_INPUT_MEDIA_R2_PRESIGNED,
+                                                {
+                                                  shouldDirty: true,
+                                                  shouldValidate: true,
+                                                }
+                                              )
+                                            } else if (
+                                              previousType ===
+                                              CHANNEL_TYPE_BRIOI
+                                            ) {
+                                              form.setValue(
+                                                'video_input_media_delivery',
+                                                preBrioiInputDeliveryRef.current ??
+                                                  VIDEO_INPUT_MEDIA_INLINE_BASE64,
+                                                {
+                                                  shouldDirty: true,
+                                                  shouldValidate: true,
+                                                }
+                                              )
+                                              preBrioiInputDeliveryRef.current =
+                                                null
+                                            }
                                           }
                                         }}
                                         placeholder={t('Select channel type')}
@@ -4236,9 +4283,7 @@ export function ChannelMutateDrawer({
                                         <SelectValue />
                                       </SelectTrigger>
                                     </FormControl>
-                                    <SelectContent
-                                      alignItemWithTrigger={false}
-                                    >
+                                    <SelectContent alignItemWithTrigger={false}>
                                       <SelectGroup>
                                         <SelectItem value='auto'>
                                           {t('Auto')}
@@ -4340,6 +4385,9 @@ export function ChannelMutateDrawer({
                                       },
                                     ]}
                                     value={field.value || 'inline_base64'}
+                                    disabled={
+                                      currentType === CHANNEL_TYPE_BRIOI
+                                    }
                                     onValueChange={(value) => {
                                       field.onChange(
                                         value === 'r2_presigned_url'
@@ -4349,13 +4397,15 @@ export function ChannelMutateDrawer({
                                     }}
                                   >
                                     <FormControl>
-                                      <SelectTrigger>
+                                      <SelectTrigger
+                                        disabled={
+                                          currentType === CHANNEL_TYPE_BRIOI
+                                        }
+                                      >
                                         <SelectValue />
                                       </SelectTrigger>
                                     </FormControl>
-                                    <SelectContent
-                                      alignItemWithTrigger={false}
-                                    >
+                                    <SelectContent alignItemWithTrigger={false}>
                                       <SelectGroup>
                                         <SelectItem value='inline_base64'>
                                           {t('Inline Base64')}
@@ -4367,9 +4417,13 @@ export function ChannelMutateDrawer({
                                     </SelectContent>
                                   </Select>
                                   <FormDescription>
-                                    {t(
-                                      'Keep Base64 when the upstream accepts inline media. Choose R2 only when it requires a public URL; this needs Cloudflare R2 configured under Video Storage.'
-                                    )}
+                                    {currentType === CHANNEL_TYPE_BRIOI
+                                      ? t(
+                                          'Brioi requires R2 signed URLs because the upstream does not accept Base64 media.'
+                                        )
+                                      : t(
+                                          'Keep Base64 when the upstream accepts inline media. Choose R2 only when it requires a public URL; this needs Cloudflare R2 configured under Video Storage.'
+                                        )}
                                   </FormDescription>
                                   <FormMessage />
                                 </FormItem>

@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -39,6 +40,19 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
+		if shouldSelectChannel &&
+			c.Request.Method == http.MethodPost &&
+			c.Request.URL.Path == "/v1/video/generations" {
+			if err := applyVideoProviderConstraint(c); err != nil {
+				abortWithOpenAiMessage(
+					c,
+					http.StatusServiceUnavailable,
+					err.Error(),
+					types.ErrorCodeModelNotFound,
+				)
+				return
+			}
+		}
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -52,6 +66,10 @@ func Distribute() func(c *gin.Context) {
 			}
 			if channel.Status != common.ChannelStatusEnabled {
 				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
+				return
+			}
+			if !channelMatchesVideoProviderConstraint(c, channel) {
+				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidChannelId))
 				return
 			}
 			if shouldSelectChannel && !channelSupportsRequestPath(channel, c.Request.URL.Path, modelRequest.Model) {
@@ -110,11 +128,15 @@ func Distribute() func(c *gin.Context) {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
+						channelMatchesVideoProviderConstraint(c, preferred) &&
 						channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
 						if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetRequestAutoGroups(c, userGroup)
 							for _, g := range autoGroups {
+								if !groupMatchesVideoProviderConstraint(c, g) {
+									continue
+								}
 								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) {
 									selectGroup = g
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
@@ -187,6 +209,42 @@ func channelSupportsRequestPath(channel *model.Channel, requestPath string, requ
 	}
 	config := channel.GetOtherSettings().AdvancedCustom
 	return config != nil && config.SupportsPathForModel(requestPath, requestModel)
+}
+
+func applyVideoProviderConstraint(c *gin.Context) error {
+	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+	groups := []string{usingGroup}
+	if usingGroup == "auto" {
+		userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+		groups = service.GetRequestAutoGroups(c, userGroup)
+	}
+
+	owner, _, err := setting.ResolveVideoProviderForGroups(groups)
+	if err != nil {
+		return fmt.Errorf("video provider resolution failed: %w", err)
+	}
+	if owner.Provider == "" || owner.ChannelType <= 0 {
+		return fmt.Errorf("no video provider is configured for token group %q", usingGroup)
+	}
+	common.SetContextKey(c, constant.ContextKeyVideoProviderChannelType, owner.ChannelType)
+	return nil
+}
+
+func channelMatchesVideoProviderConstraint(c *gin.Context, channel *model.Channel) bool {
+	if channel == nil {
+		return false
+	}
+	requiredType := common.GetContextKeyInt(c, constant.ContextKeyVideoProviderChannelType)
+	return requiredType == 0 || channel.Type == requiredType
+}
+
+func groupMatchesVideoProviderConstraint(c *gin.Context, group string) bool {
+	requiredType := common.GetContextKeyInt(c, constant.ContextKeyVideoProviderChannelType)
+	if requiredType == 0 {
+		return true
+	}
+	owner, owned := setting.ResolveVideoProviderGroup(group)
+	return owned && owner.ChannelType == requiredType
 }
 
 // getModelFromRequest 从请求中读取模型信息

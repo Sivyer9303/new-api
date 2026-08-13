@@ -40,6 +40,7 @@ type testResult struct {
 	context     *gin.Context
 	localErr    error
 	newAPIError *types.NewAPIError
+	models      []string
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
@@ -76,6 +77,9 @@ func resolveChannelTestUserID(c *gin.Context) (int, error) {
 func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if channel != nil && channel.Type == constant.ChannelTypeBrioi {
+		return testBrioiChannel(ctx, channel)
 	}
 	tik := time.Now()
 	var unsupportedTestChannelTypes = []int{
@@ -528,6 +532,124 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 }
 
+// testBrioiChannel validates credentials through the non-billable model-list
+// endpoint. It intentionally bypasses relay pricing, quota, and consume logs.
+func testBrioiChannel(ctx context.Context, channel *model.Channel) testResult {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(c, constant.ContextKeyChannelType, channel.Type)
+	common.SetContextKey(c, constant.ContextKeyChannelId, channel.Id)
+
+	baseURL := strings.TrimRight(strings.TrimSpace(channel.GetBaseURL()), "/")
+	if baseURL == "" {
+		err := errors.New("Brioi channel base URL cannot be empty")
+		return testResult{
+			context:     c,
+			localErr:    err,
+			newAPIError: types.NewOpenAIError(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest),
+		}
+	}
+	if err := channel.ValidateSettings(); err != nil {
+		apiErr := types.NewOpenAIError(
+			fmt.Errorf("invalid Brioi channel settings: %w", err),
+			types.ErrorCodeInvalidRequest,
+			http.StatusBadRequest,
+		)
+		return testResult{context: c, localErr: apiErr, newAPIError: apiErr}
+	}
+
+	key, _, keyErr := channel.GetNextEnabledKey()
+	if keyErr != nil {
+		return testResult{
+			context:     c,
+			localErr:    keyErr,
+			newAPIError: keyErr,
+		}
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/models", nil)
+	if err != nil {
+		apiErr := types.NewOpenAIError(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest)
+		return testResult{context: c, localErr: err, newAPIError: apiErr}
+	}
+	request.Header.Set("Authorization", "Bearer "+key)
+	request.Header.Set("Accept", "application/json")
+	c.Request = request
+	common.SetContextKey(c, constant.ContextKeyChannelKey, key)
+
+	client, err := service.GetHttpClientWithProxy(channel.GetSetting().Proxy)
+	if err != nil {
+		apiErr := types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
+		return testResult{context: c, localErr: err, newAPIError: apiErr}
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		apiErr := types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusBadGateway)
+		return testResult{context: c, localErr: err, newAPIError: apiErr}
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		statusCode := response.StatusCode
+		errorBody, readErr := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
+		_ = response.Body.Close()
+		message := ""
+		if readErr == nil && len(errorBody) <= 1<<20 {
+			message = detectErrorMessageFromJSONBytes(errorBody)
+		}
+		if key != "" && strings.Contains(message, key) {
+			message = ""
+		}
+		err = fmt.Errorf("Brioi model-list request was rejected with status %d", statusCode)
+		if message != "" {
+			err = fmt.Errorf("%w: %s", err, message)
+		}
+		apiErr := types.NewOpenAIError(err, types.ErrorCodeBadResponseStatusCode, statusCode)
+		return testResult{context: c, localErr: apiErr, newAPIError: apiErr}
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(response.Body, (4<<20)+1))
+	if err != nil {
+		apiErr := types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusBadGateway)
+		return testResult{context: c, localErr: err, newAPIError: apiErr}
+	}
+	if len(body) > 4<<20 {
+		err = errors.New("Brioi model-list response exceeds 4 MiB")
+		apiErr := types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+		return testResult{context: c, localErr: err, newAPIError: apiErr}
+	}
+
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := common.Unmarshal(body, &payload); err != nil {
+		apiErr := types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+		return testResult{context: c, localErr: err, newAPIError: apiErr}
+	}
+	if payload.Data == nil {
+		err = errors.New("Brioi model-list response is missing data")
+		apiErr := types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+		return testResult{context: c, localErr: err, newAPIError: apiErr}
+	}
+
+	models := make([]string, 0, len(payload.Data))
+	seen := make(map[string]struct{}, len(payload.Data))
+	for _, item := range payload.Data {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		models = append(models, id)
+	}
+	return testResult{context: c, models: models}
+}
+
 func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Request) error {
 	if info == nil {
 		return nil
@@ -912,11 +1034,15 @@ func TestChannel(c *gin.Context) {
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"success": true,
 		"message": "",
 		"time":    consumedTime,
-	})
+	}
+	if result.models != nil {
+		response["data"] = gin.H{"models": result.models}
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // channelTestSummary records the outcome of one channel test cycle so the

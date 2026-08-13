@@ -32,6 +32,18 @@ export type PublicGenerationType = {
   allow_audio: boolean
   images_min: number
   images_max: number
+  image_roles: VideoMediaRole[]
+}
+
+export type VideoMediaType = 'image' | 'audio' | 'video'
+export type VideoMediaRole = 'reference' | 'first_frame' | 'last_frame'
+
+export type PublicMediaLimits = {
+  min_items: number
+  max_items: number
+  accepted_types: VideoMediaType[]
+  allowed_roles: VideoMediaRole[]
+  allow_audio: boolean
 }
 
 export type PublicProfile = {
@@ -40,16 +52,43 @@ export type PublicProfile = {
   exact_models: string[]
   model_prefixes: string[]
   durations: PublicOption[]
+  resolutions: PublicOption[]
   aspect_ratios: PublicOption[]
+  generation_types: string[]
+  media: PublicMediaLimits
+  media_limits: Record<string, PublicMediaLimits>
+}
+
+export type VideoProviderConfig = {
+  id: string
+  label: string
+  groups: string[]
+  generation_types: PublicGenerationType[]
+  profiles: PublicProfile[]
+  default_profile_id: string
+  strict_model_matching: boolean
 }
 
 export type VideoToolConfig = {
   version: number
   enabled: boolean
+  providers: VideoProviderConfig[]
+  provider_by_group: Record<string, string>
   video_tool_groups: string[]
-  generation_types: PublicGenerationType[]
-  profiles: PublicProfile[]
-  default_profile_id: string
+}
+
+export type VideoToolModel = {
+  id: string
+  profile_model: string
+  provider_id?: string
+}
+
+export type VideoToolModelDiscovery = {
+  group: string
+  resolved_groups: string[]
+  provider?: string
+  reason?: string
+  models: VideoToolModel[]
 }
 
 export type VideoTaskStatus =

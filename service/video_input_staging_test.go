@@ -1,8 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"image"
+	"image/color"
+	"image/png"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +28,15 @@ func withStagedInputStore(t *testing.T, store *fakeR2Store) {
 
 func imageDataURL(payload string) string {
 	return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString([]byte(payload))
+}
+
+func validImageDataURL(t *testing.T) string {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	img.Set(0, 0, color.RGBA{R: 10, G: 20, B: 30, A: 255})
+	var payload bytes.Buffer
+	require.NoError(t, png.Encode(&payload, img))
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(payload.Bytes())
 }
 
 func TestStageVideoInputMediaUploadsDataURLAndReturnsPresignedURL(t *testing.T) {
@@ -71,7 +84,7 @@ func TestStageVideoInputMediaRequiresConfiguredR2Driver(t *testing.T) {
 	withStagedInputStore(t, store)
 
 	_, err := StageVideoInputMedia(context.Background(), 1, imageDataURL("bytes"))
-	require.ErrorIs(t, err, errVideoInputStagingUnavailable)
+	require.ErrorIs(t, err, ErrVideoInputStagingUnavailable)
 	assert.Equal(t, 0, store.putCalls)
 }
 
@@ -109,4 +122,20 @@ func TestStagedVideoInputExtensionMapsKnownMediaTypes(t *testing.T) {
 	assert.Equal(t, ".mp3", stagedVideoInputExtension("audio/mpeg"))
 	assert.Equal(t, ".bin", stagedVideoInputExtension("application/x-thing"))
 	assert.Equal(t, ".bin", stagedVideoInputExtension(""))
+}
+
+func TestValidateVideoInputImageDataURLRejectsMalformedOrSpoofedImages(t *testing.T) {
+	require.NoError(t, ValidateVideoInputImageDataURL(validImageDataURL(t)))
+
+	err := ValidateVideoInputImageDataURL("data:image/png;base64,%%%")
+	require.ErrorContains(t, err, "payload")
+
+	err = ValidateVideoInputImageDataURL(imageDataURL("plain text"))
+	require.ErrorContains(t, err, "does not match")
+
+	err = ValidateVideoInputImageDataURL(
+		"data:image/svg+xml;base64," +
+			base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`)),
+	)
+	require.ErrorContains(t, err, "not supported")
 }

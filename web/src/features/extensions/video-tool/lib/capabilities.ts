@@ -6,12 +6,36 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import type { PublicProfile } from '../types'
+import type {
+  PublicGenerationType,
+  PublicMediaLimits,
+  PublicProfile,
+  VideoProviderConfig,
+} from '../types'
+
+export function resolveSelectedOption(
+  currentValue: string,
+  options: Array<{ value: string }>
+): string {
+  return options.some((option) => option.value === currentValue)
+    ? currentValue
+    : (options[0]?.value ?? '')
+}
+
+export function retainCompatibleVideoModel(
+  selectedModelID: string,
+  compatibleModels: Array<{ id: string }>
+): string {
+  return compatibleModels.some((model) => model.id === selectedModelID)
+    ? selectedModelID
+    : ''
+}
 
 export function resolveVideoProfile(
   profiles: PublicProfile[],
   modelID: string,
-  defaultProfileID: string
+  defaultProfileID: string,
+  allowFallback = true
 ): PublicProfile | null {
   const exact = profiles.find((profile) =>
     profile.exact_models.includes(modelID)
@@ -29,10 +53,89 @@ export function resolveVideoProfile(
     }
   }
   if (prefixMatch) return prefixMatch
+  if (!allowFallback) return null
   return (
     profiles.find((profile) => profile.id === defaultProfileID) ??
     profiles[0] ??
     null
+  )
+}
+
+function applyMediaLimits(
+  generationType: PublicGenerationType,
+  limits: PublicMediaLimits
+): PublicGenerationType {
+  if (generationType.images_max <= 0) {
+    return {
+      ...generationType,
+      allow_audio: generationType.allow_audio && limits.allow_audio,
+    }
+  }
+  const maxItems =
+    limits.max_items > 0
+      ? Math.min(generationType.images_max, limits.max_items)
+      : generationType.images_max
+  const minItems = Math.min(
+    maxItems,
+    Math.max(generationType.images_min, limits.min_items)
+  )
+  const roles =
+    limits.allowed_roles.length > 0
+      ? generationType.image_roles.filter((role) =>
+          limits.allowed_roles.includes(role)
+        )
+      : generationType.image_roles
+  return {
+    ...generationType,
+    images_min: minItems,
+    images_max: maxItems,
+    image_roles: roles,
+    allow_audio: generationType.allow_audio && limits.allow_audio,
+  }
+}
+
+function hasMediaLimits(limits: PublicMediaLimits): boolean {
+  return (
+    limits.min_items > 0 ||
+    limits.max_items > 0 ||
+    limits.accepted_types.length > 0 ||
+    limits.allowed_roles.length > 0 ||
+    limits.allow_audio
+  )
+}
+
+export function generationTypesForProfile(
+  provider: VideoProviderConfig,
+  profile: PublicProfile
+): PublicGenerationType[] {
+  const enabledTypes =
+    profile.generation_types.length > 0
+      ? new Set(profile.generation_types)
+      : null
+  return provider.generation_types
+    .filter((generationType) => enabledTypes?.has(generationType.value) ?? true)
+    .map((generationType) => {
+      const modeLimits = profile.media_limits[generationType.value]
+      const limits = modeLimits ?? profile.media
+      return hasMediaLimits(limits)
+        ? applyMediaLimits(generationType, limits)
+        : generationType
+    })
+    .filter(
+      (generationType) =>
+        generationType.images_max === 0 || generationType.image_roles.length > 0
+    )
+}
+
+export function resolveProviderVideoProfile(
+  provider: VideoProviderConfig,
+  modelID: string
+): PublicProfile | null {
+  return resolveVideoProfile(
+    provider.profiles,
+    modelID,
+    provider.default_profile_id,
+    !provider.strict_model_matching
   )
 }
 

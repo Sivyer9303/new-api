@@ -27,6 +27,7 @@ import type {
   SystemTaskResponse,
   UpdateOptionRequest,
   UpdateOptionResponse,
+  UpdateVideoProviderOptionRequest,
   UpstreamChannelsResponse,
   UpstreamRatiosResponse,
 } from './types'
@@ -38,6 +39,16 @@ export async function getSystemOptions() {
 
 export async function updateSystemOption(request: UpdateOptionRequest) {
   const res = await api.put<UpdateOptionResponse>('/api/option/', request)
+  return res.data
+}
+
+export async function updateVideoProviderOption(
+  request: UpdateVideoProviderOptionRequest
+) {
+  const res = await api.put<UpdateOptionResponse>(
+    '/api/option/video-provider',
+    request
+  )
   return res.data
 }
 

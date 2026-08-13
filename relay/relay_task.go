@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
@@ -19,16 +20,28 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
+	relaykittypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/gin-gonic/gin"
 )
 
 type TaskSubmitResult struct {
-	UpstreamTaskID string
-	TaskData       []byte
-	Platform       constant.TaskPlatform
-	Quota          int
+	UpstreamTaskID       string
+	TaskData             []byte
+	ResponseData         []byte
+	Platform             constant.TaskPlatform
+	Quota                int
+	Task                 *model.Task
+	ProviderAccepted     bool
+	AcceptanceUncertain  bool
+	ReservationUncertain bool
 	//PerCallPrice   types.PriceData
+}
+
+type boundedTaskResponseBody struct {
+	io.Reader
+	io.Closer
 }
 
 // ResolveOriginTask 处理基于已有任务的提交（remix / continuation）：
@@ -140,17 +153,17 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 
 // RelayTaskSubmit 完成 task 提交的全部流程（每次尝试调用一次）：
 // 刷新渠道元数据 → 确定 platform/adaptor → 验证请求 →
-// 估算计费(EstimateBilling) → 计算价格 → 预扣费（仅首次）→
+// 估算计费(EstimateBilling) → 计算价格 → 预扣/补足当前尝试额度 →
 // 构建/发送/解析上游请求 → 提交后计费调整(AdjustBillingOnSubmit)。
 // 控制器负责 defer Refund 和成功后 Settle。
 func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitResult, *dto.TaskError) {
 	info.InitChannelMeta(c)
 	if info.RelayMode == relayconstant.RelayModeVideoSubmit ||
 		common.IsVideoTaskRequestPath(c.Request.URL.Path) {
-		if err := service.ValidateVideoStorageReady(); err != nil {
+		if err := service.ValidateVideoGenerationReady(); err != nil {
 			return nil, service.TaskErrorWrapperLocal(
 				err,
-				"video_storage_unavailable",
+				"video_generation_unavailable",
 				http.StatusServiceUnavailable,
 			)
 		}
@@ -208,7 +221,11 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	//    必须在 ModelPriceHelperPerCall 之后调用（它会重建 PriceData）。
 	//    ResolveOriginTask 可能已在 remix 路径中预设了 OtherRatios，此处合并。
 	if estimatedRatios := adaptor.EstimateBilling(c, info); len(estimatedRatios) > 0 {
+		billingMode := billing_setting.GetBillingMode(modelName)
 		for k, v := range estimatedRatios {
+			if !taskBillingRatioApplies(k, billingMode) {
+				continue
+			}
 			info.PriceData.AddOtherRatio(k, v)
 		}
 	}
@@ -221,31 +238,109 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		noteTaskQuotaClamp(info, clamp)
 	}
 
-	// 7. 预扣费（仅首次 — 重试时 info.Billing 已存在，跳过）
-	if info.Billing == nil && !info.PriceData.FreeModel {
-		info.ForcePreConsume = true
-		if apiErr := service.PreConsumeBilling(c, info.PriceData.Quota, info); apiErr != nil {
-			return nil, service.TaskErrorFromAPIError(apiErr)
+	// 7. Persist the current applied reservation and the next target before
+	// changing any balance. A failed initial insert therefore cannot strand a
+	// charge, while a retry top-up leaves a durable mismatch for review if the
+	// applied amount cannot be recorded afterward.
+	currentReservedQuota := 0
+	if info.Billing != nil {
+		currentReservedQuota = info.Billing.GetPreConsumedQuota()
+	}
+	task, err := persistSubmittingTask(
+		c,
+		info,
+		platform,
+		currentReservedQuota,
+	)
+	if err != nil {
+		return nil, service.TaskErrorWrapperLocal(
+			err,
+			"persist_submitting_task_failed",
+			http.StatusInternalServerError,
+		)
+	}
+	result := &TaskSubmitResult{
+		Platform: platform,
+		Quota:    info.PriceData.Quota,
+		Task:     task,
+	}
+	logger.LogInfo(c, fmt.Sprintf(
+		"task_lifecycle stage=submitting_persisted task_id=%s channel_id=%d",
+		task.TaskID,
+		task.ChannelId,
+	))
+
+	// 8. Reserve the current attempt's full quota. Auto-group retries may
+	// select a more expensive group, so an existing session can be topped up.
+	if taskErr := ensureTaskQuotaReserved(c, info); taskErr != nil {
+		if errors.Is(taskErr.Error, service.ErrBillingReservationUncertain) {
+			result.ReservationUncertain = true
+		}
+		return result, taskErr
+	}
+	reservedQuota := currentReservedQuota
+	if info.Billing != nil {
+		reservedQuota = info.Billing.GetPreConsumedQuota()
+	}
+	if reservedQuota != currentReservedQuota {
+		task.Quota = reservedQuota
+		task.PrivateData.BillingSource = info.BillingSource
+		task.PrivateData.SubscriptionId = info.SubscriptionId
+		task.PrivateData.TokenId = info.TokenId
+		task.PrivateData.BillingReservationTarget = max(
+			task.PrivateData.BillingReservationTarget,
+			reservedQuota,
+		)
+		updated, updateErr := task.UpdateWithStatus(model.TaskStatusSubmitting)
+		if updateErr != nil || !updated {
+			result.ReservationUncertain = true
+			if updateErr == nil {
+				updateErr = errors.New(
+					"task changed before its billing reservation was persisted",
+				)
+			}
+			return result, service.TaskErrorWrapperLocal(
+				updateErr,
+				"persist_task_reservation_failed",
+				http.StatusInternalServerError,
+			)
 		}
 	}
 
-	// 8. 构建请求体
+	// 9. 构建请求体
 	requestBody, err := adaptor.BuildRequestBody(c, info)
 	if err != nil {
-		return nil, service.TaskErrorWrapper(err, "build_request_failed", http.StatusInternalServerError)
+		if errors.Is(err, service.ErrVideoInputStagingUnavailable) ||
+			errors.Is(err, service.ErrVideoInputStagingFailed) {
+			common.SysError(fmt.Sprintf(
+				"video input staging failed for channel %d: %v",
+				info.ChannelId,
+				err,
+			))
+			return result, service.TaskErrorWrapperLocal(
+				errors.New("video input media staging is unavailable"),
+				"video_input_staging_unavailable",
+				http.StatusServiceUnavailable,
+			)
+		}
+		return result, service.TaskErrorWrapper(err, "build_request_failed", http.StatusInternalServerError)
 	}
 
-	// 9. 发送请求
+	// 10. 发送请求
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
-		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
+		result.AcceptanceUncertain = true
+		return result, service.TaskErrorWrapper(err, "do_request_failed", http.StatusBadGateway)
 	}
-	if resp != nil && resp.StatusCode != http.StatusOK {
-		responseBody, _ := io.ReadAll(resp.Body)
-		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
+	if responseErr := validateTaskSubmitHTTPResponse(resp); responseErr != nil {
+		if resp == nil || resp.Body == nil ||
+			isAmbiguousTaskSubmitStatus(resp.StatusCode) {
+			result.AcceptanceUncertain = true
+		}
+		return result, responseErr
 	}
 
-	// 10. 返回 OtherRatios 给下游（header 必须在 DoResponse 写 body 之前设置）
+	// 11. Return OtherRatios metadata to the client after the durable response.
 	otherRatios := info.PriceData.OtherRatios()
 	if otherRatios == nil {
 		otherRatios = map[string]float64{}
@@ -253,15 +348,33 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	ratiosJSON, _ := common.Marshal(otherRatios)
 	c.Header("X-New-Api-Other-Ratios", string(ratiosJSON))
 
-	// 11. 解析响应
-	upstreamTaskID, taskData, taskErr := adaptor.DoResponse(c, resp, info)
-	if taskErr != nil {
-		return nil, taskErr
+	// Any successful 2xx may represent an accepted task. Parsing failures are
+	// therefore ambiguous and must not be retried or automatically refunded.
+	result.AcceptanceUncertain = true
+	resp.Body = &boundedTaskResponseBody{
+		Reader: io.LimitReader(resp.Body, (4<<20)+1),
+		Closer: resp.Body,
 	}
+	submitResponse, taskErr := adaptor.DoResponse(c, resp, info)
+	_ = resp.Body.Close()
+	if taskErr != nil {
+		return result, taskErr
+	}
+	if submitResponse == nil ||
+		strings.TrimSpace(submitResponse.UpstreamTaskID) == "" ||
+		len(submitResponse.ResponseData) == 0 {
+		return result, service.TaskErrorWrapper(
+			errors.New("upstream task submission response is incomplete"),
+			"invalid_response",
+			http.StatusBadGateway,
+		)
+	}
+	result.ProviderAccepted = true
+	result.AcceptanceUncertain = false
 
-	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
+	// 12. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
 	finalQuota := info.PriceData.Quota
-	if adjustedRatios := adaptor.AdjustBillingOnSubmit(info, taskData); len(adjustedRatios) > 0 {
+	if adjustedRatios := adaptor.AdjustBillingOnSubmit(info, submitResponse.TaskData); len(adjustedRatios) > 0 {
 		if adjustedQuota, ok := recalcQuotaFromRatios(info, adjustedRatios); ok {
 			// 基于调整后的 ratios 重新计算 quota
 			finalQuota = adjustedQuota
@@ -270,12 +383,167 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		}
 	}
 
-	return &TaskSubmitResult{
-		UpstreamTaskID: upstreamTaskID,
-		TaskData:       taskData,
-		Platform:       platform,
-		Quota:          finalQuota,
-	}, nil
+	// 13. Durably record provider acceptance before billing settlement or any
+	// client success response. A failure here leaves the SUBMITTING row for
+	// administrator recovery and must not trigger an automatic refund.
+	updated, err := persistProviderAcceptance(task, submitResponse)
+	if err != nil {
+		return result, service.TaskErrorWrapperLocal(
+			fmt.Errorf("persist provider acceptance: %w", err),
+			"persist_provider_acceptance_failed",
+			http.StatusInternalServerError,
+		)
+	}
+	if !updated {
+		return result, service.TaskErrorWrapperLocal(
+			errors.New("task submission state changed before provider acceptance was persisted"),
+			"persist_provider_acceptance_failed",
+			http.StatusConflict,
+		)
+	}
+	logger.LogInfo(c, fmt.Sprintf(
+		"task_lifecycle stage=provider_accepted task_id=%s channel_id=%d",
+		task.TaskID,
+		task.ChannelId,
+	))
+
+	result.UpstreamTaskID = submitResponse.UpstreamTaskID
+	result.TaskData = submitResponse.TaskData
+	result.ResponseData = submitResponse.ResponseData
+	result.Quota = finalQuota
+	return result, nil
+}
+
+func persistProviderAcceptance(
+	task *model.Task,
+	response *channel.TaskSubmitResponse,
+) (bool, error) {
+	if task == nil || response == nil {
+		return false, errors.New("task provider acceptance is incomplete")
+	}
+	task.PrivateData.UpstreamTaskID = response.UpstreamTaskID
+	task.PrivateData.NoAutomaticRefund = true
+	task.Data = response.TaskData
+	task.Status = model.TaskStatusSubmitting
+	return task.UpdateWithStatus(model.TaskStatusSubmitting)
+}
+
+func validateTaskSubmitHTTPResponse(resp *http.Response) *dto.TaskError {
+	if resp == nil || resp.Body == nil {
+		return service.TaskErrorWrapper(
+			errors.New("upstream task submission returned an empty response"),
+			"invalid_response",
+			http.StatusBadGateway,
+		)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 32<<10))
+		_ = resp.Body.Close()
+		return service.TaskErrorWrapper(
+			fmt.Errorf("upstream task submission returned status %d", resp.StatusCode),
+			"fail_to_fetch_task",
+			resp.StatusCode,
+		)
+	}
+	return nil
+}
+
+func isAmbiguousTaskSubmitStatus(statusCode int) bool {
+	return statusCode == http.StatusRequestTimeout ||
+		statusCode >= http.StatusInternalServerError
+}
+
+func persistSubmittingTask(
+	c *gin.Context,
+	info *relaycommon.RelayInfo,
+	platform constant.TaskPlatform,
+	quota int,
+) (*model.Task, error) {
+	if info == nil || info.TaskRelayInfo == nil {
+		return nil, errors.New("task relay information is unavailable")
+	}
+
+	task := model.InitTask(platform, info)
+	task.Status = model.TaskStatusSubmitting
+	task.PrivateData.VideoTask =
+		info.RelayMode == relayconstant.RelayModeVideoSubmit ||
+			common.IsVideoTaskRequestPath(c.Request.URL.Path)
+	task.PrivateData.BillingSource = info.BillingSource
+	task.PrivateData.SubscriptionId = info.SubscriptionId
+	task.PrivateData.TokenId = info.TokenId
+	task.PrivateData.NodeName = common.NodeName
+	task.PrivateData.BillingReservationTarget = max(
+		quota,
+		info.PriceData.Quota,
+	)
+	task.PrivateData.BillingContext = &model.TaskBillingContext{
+		ModelPrice:      info.PriceData.ModelPrice,
+		GroupRatio:      info.PriceData.GroupRatioInfo.GroupRatio,
+		ModelRatio:      info.PriceData.ModelRatio,
+		OtherRatios:     info.PriceData.OtherRatios(),
+		OriginModelName: info.OriginModelName,
+		PerCallBilling: common.StringsContains(
+			constant.TaskPricePatches,
+			info.OriginModelName,
+		) || info.PriceData.UsePrice,
+	}
+	task.Quota = quota
+	task.Action = info.Action
+
+	if existing, ok := info.PersistedTask.(*model.Task); ok && existing != nil {
+		task.ID = existing.ID
+		task.CreatedAt = existing.CreatedAt
+		task.UpdatedAt = existing.UpdatedAt
+		if err := task.Update(); err != nil {
+			return nil, fmt.Errorf("update submitting task: %w", err)
+		}
+		info.PersistedTask = task
+		return task, nil
+	}
+
+	if err := task.Insert(); err != nil {
+		return nil, fmt.Errorf("insert submitting task: %w", err)
+	}
+	info.PersistedTask = task
+	return task, nil
+}
+
+func taskBillingRatioApplies(ratioName, billingMode string) bool {
+	if ratioName != "seconds" {
+		return true
+	}
+	return billingMode == billing_setting.BillingModePerSecond
+}
+
+func ensureTaskQuotaReserved(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError {
+	if info.PriceData.FreeModel {
+		return nil
+	}
+	info.ForcePreConsume = true
+	if info.Billing == nil {
+		return service.TaskErrorFromAPIError(
+			service.PreConsumeBilling(c, info.PriceData.Quota, info),
+		)
+	}
+	if info.QuotaClamp != nil {
+		return service.TaskErrorWrapperLocal(
+			info.QuotaClamp,
+			"model_price_error",
+			http.StatusBadRequest,
+		)
+	}
+	if err := info.Billing.Reserve(info.PriceData.Quota); err != nil {
+		var apiErr *relaykittypes.NewAPIError
+		if errors.As(err, &apiErr) {
+			return service.TaskErrorFromAPIError(apiErr)
+		}
+		return service.TaskErrorWrapperLocal(
+			err,
+			"reserve_task_quota_failed",
+			http.StatusInternalServerError,
+		)
+	}
+	return nil
 }
 
 // recalcQuotaFromRatios 根据 adjustedRatios 重新计算 quota。

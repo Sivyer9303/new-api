@@ -40,6 +40,29 @@ func TestChannelSupportsRequestPathKeepsSilkRoadVideoOnly(t *testing.T) {
 	}
 }
 
+func TestChannelSupportsRequestPathKeepsBrioiOnVideoToolRouteOnly(t *testing.T) {
+	brioi := &model.Channel{Type: constant.ChannelTypeBrioi}
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "/v1/video/generations", want: true},
+		{path: "/v1/video/generations/task-id", want: true},
+		{path: "/v1/videos", want: false},
+		{path: "/v1/videos/task-id", want: false},
+		{path: "/v1/chat/completions", want: false},
+		{path: "/v1/images/generations", want: false},
+		{path: "/v1/audio/speech", want: false},
+		{path: "/v1/embeddings", want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			assert.Equal(t, test.want, channelSupportsRequestPath(brioi, test.path, "seedance-2-0"))
+		})
+	}
+}
+
 func TestChannelSupportsRequestPathRejectsNewAPIVideoSubmissions(t *testing.T) {
 	newAPI := &model.Channel{Type: constant.ChannelTypeNewAPI}
 

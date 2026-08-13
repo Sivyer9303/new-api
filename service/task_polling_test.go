@@ -3,8 +3,11 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -14,11 +17,14 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type taskPollingFetchAdaptor struct {
@@ -33,6 +39,124 @@ type taskPollingFetchAdaptor struct {
 
 type sunoFailurePollingAdaptor struct {
 	failReason string
+}
+
+type trackingPollingBody struct {
+	*bytes.Reader
+	closed bool
+}
+
+func (b *trackingPollingBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+func TestReadTaskPollingResponseIsBoundedAndAlwaysClosed(t *testing.T) {
+	body := &trackingPollingBody{Reader: bytes.NewReader([]byte(`{"status":"queued"}`))}
+	data, err := readTaskPollingResponse(&http.Response{Body: body})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"status":"queued"}`, string(data))
+	assert.True(t, body.closed)
+
+	oversized := &trackingPollingBody{
+		Reader: bytes.NewReader(bytes.Repeat(
+			[]byte{'x'},
+			maxTaskPollingResponseSize+1,
+		)),
+	}
+	_, err = readTaskPollingResponse(&http.Response{Body: oversized})
+	require.Error(t, err)
+	assert.True(t, oversized.closed)
+
+	_, err = readTaskPollingResponse(nil)
+	require.Error(t, err)
+}
+
+func TestRecoverPendingTaskRefundRetriesAfterDatabaseFailure(t *testing.T) {
+	truncate(t)
+	const userID = 806
+	seedUser(t, userID, 1_000)
+	task := &model.Task{
+		TaskID:        "pending_refund_retry",
+		UserId:        userID,
+		Status:        model.TaskStatusFailure,
+		Quota:         500,
+		Progress:      taskcommon.ProgressComplete,
+		RefundPending: true,
+		PrivateData: model.TaskPrivateData{
+			BillingRefundReason: "provider failed",
+		},
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	forcedErr := errors.New("forced refund update failure")
+	require.NoError(t, model.DB.Callback().Update().Before("gorm:update").
+		Register("test:fail_pending_refund_once", func(tx *gorm.DB) {
+			if tx.Statement.Table == "users" {
+				tx.AddError(forcedErr)
+			}
+		}))
+	t.Cleanup(func() {
+		_ = model.DB.Callback().Update().Remove("test:fail_pending_refund_once")
+	})
+	require.NoError(t, recoverPendingTaskRefunds(context.Background(), 10))
+
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	assert.Equal(t, 500, stored.Quota)
+	assert.True(t, stored.RefundPending)
+	assert.Equal(t, 1, stored.RefundAttempts)
+	assert.Greater(t, stored.RefundRetryAt, time.Now().Unix())
+	assert.Equal(t, 1_000, getUserQuota(t, userID))
+	assert.False(t, HasPendingTaskRefunds())
+
+	require.NoError(t, model.DB.Callback().Update().Remove("test:fail_pending_refund_once"))
+	require.NoError(t, model.DB.Model(&model.Task{}).
+		Where("id = ?", task.ID).
+		Update("refund_retry_at", 0).Error)
+	require.NoError(t, recoverPendingTaskRefunds(context.Background(), 10))
+
+	stored = model.Task{}
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	assert.Zero(t, stored.Quota)
+	assert.False(t, stored.RefundPending)
+	assert.Equal(t, 1_500, getUserQuota(t, userID))
+	assert.False(t, HasPendingTaskRefunds())
+}
+
+func TestRecoverPendingTaskRefundRotatesFailedRows(t *testing.T) {
+	truncate(t)
+	const userID = 807
+	seedUser(t, userID, 1_000)
+	taskIDs := make([]int64, 0, 3)
+	for index := range 3 {
+		task := &model.Task{
+			TaskID:        fmt.Sprintf("poison_refund_%d", index),
+			UserId:        userID,
+			Status:        model.TaskStatusFailure,
+			Quota:         100,
+			RefundPending: true,
+			PrivateData: model.TaskPrivateData{
+				BillingSource:       BillingSourceSubscription,
+				SubscriptionId:      90_000 + index,
+				BillingRefundReason: "subscription disappeared",
+			},
+		}
+		require.NoError(t, model.DB.Create(task).Error)
+		taskIDs = append(taskIDs, task.ID)
+	}
+
+	require.NoError(t, recoverPendingTaskRefunds(context.Background(), 2))
+	require.NoError(t, recoverPendingTaskRefunds(context.Background(), 2))
+
+	var tasks []model.Task
+	require.NoError(t, model.DB.Where("id IN ?", taskIDs).Order("id").Find(&tasks).Error)
+	require.Len(t, tasks, 3)
+	for _, task := range tasks {
+		assert.Equal(t, 1, task.RefundAttempts)
+		assert.Greater(t, task.RefundRetryAt, time.Now().Unix())
+		assert.True(t, task.RefundPending)
+	}
 }
 
 func (a *sunoFailurePollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
@@ -194,6 +318,28 @@ func TestUpdateVideoTasksDefaultSleepWaitsBetweenTasks(t *testing.T) {
 
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Equal(t, 1, adaptor.fetchCount())
+}
+
+func TestRunTaskPollingSkipsSubmittingTasks(t *testing.T) {
+	truncate(t)
+
+	const channelID = 100
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_submitting", "upstream_submitting")
+	task.Status = model.TaskStatusSubmitting
+	require.NoError(t, task.Update())
+
+	adaptor := &taskPollingFetchAdaptor{}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	RunTaskPollingOnce(context.Background(), nil)
+
+	assert.Zero(t, adaptor.fetchCount())
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.Equal(t, model.TaskStatusSubmitting, reloaded.Status)
 }
 
 func TestUpdateVideoTasksCanSkipPollingSleepPerChannel(t *testing.T) {
@@ -385,6 +531,133 @@ type videoSuccessPollingAdaptor struct {
 	resultURL string
 }
 
+type videoHTTPStatusPollingAdaptor struct {
+	statusCode int
+	body       *trackingPollingBody
+	parsed     bool
+}
+
+func (a *videoHTTPStatusPollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
+
+func (a *videoHTTPStatusPollingAdaptor) FetchTask(
+	_ string,
+	_ string,
+	_ map[string]any,
+	_ string,
+) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: a.statusCode,
+		Body:       a.body,
+	}, nil
+}
+
+func (a *videoHTTPStatusPollingAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+	a.parsed = true
+	return &relaycommon.TaskInfo{Status: model.TaskStatusFailure}, nil
+}
+
+func (a *videoHTTPStatusPollingAdaptor) AdjustBillingOnComplete(
+	_ *model.Task,
+	_ *relaycommon.TaskInfo,
+) int {
+	return 0
+}
+
+func (a *videoHTTPStatusPollingAdaptor) PreferDirectTaskResultParsing() bool {
+	return true
+}
+
+func TestUpdateVideoSingleTaskClassifiesHTTPStatusBeforeParsing(t *testing.T) {
+	t.Run("retryable response remains pollable", func(t *testing.T) {
+		truncate(t)
+		task := &model.Task{
+			TaskID:    "video_public_retryable_http",
+			ChannelId: 701,
+			Status:    model.TaskStatusInProgress,
+			Quota:     500,
+			PrivateData: model.TaskPrivateData{
+				UpstreamTaskID: "video_upstream_retryable_http",
+				VideoTask:      true,
+			},
+		}
+		require.NoError(t, model.DB.Create(task).Error)
+		body := &trackingPollingBody{Reader: bytes.NewReader([]byte(
+			`{"status":"failed","message":"https://r2.example/input?X-Amz-Signature=secret"}`,
+		))}
+		adaptor := &videoHTTPStatusPollingAdaptor{
+			statusCode: http.StatusServiceUnavailable,
+			body:       body,
+		}
+
+		err := updateVideoSingleTask(
+			context.Background(),
+			adaptor,
+			&model.Channel{Id: 701, Key: "provider-key"},
+			task.GetUpstreamTaskID(),
+			map[string]*model.Task{task.GetUpstreamTaskID(): task},
+		)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "retryable status 503")
+		assert.True(t, body.closed)
+		assert.False(t, adaptor.parsed)
+
+		var stored model.Task
+		require.NoError(t, model.DB.First(&stored, task.ID).Error)
+		assert.EqualValues(t, model.TaskStatusInProgress, stored.Status)
+		assert.Equal(t, 500, stored.Quota)
+	})
+
+	t.Run("permanent response requires provider review", func(t *testing.T) {
+		truncate(t)
+		task := &model.Task{
+			TaskID:    "video_public_permanent_http",
+			ChannelId: 702,
+			Status:    model.TaskStatusInProgress,
+			Quota:     500,
+			PrivateData: model.TaskPrivateData{
+				UpstreamTaskID: "video_upstream_permanent_http",
+				VideoTask:      true,
+			},
+		}
+		require.NoError(t, model.DB.Create(task).Error)
+		body := &trackingPollingBody{Reader: bytes.NewReader([]byte(
+			`{"status":"failed","message":"https://r2.example/input?X-Amz-Signature=secret"}`,
+		))}
+		adaptor := &videoHTTPStatusPollingAdaptor{
+			statusCode: http.StatusUnauthorized,
+			body:       body,
+		}
+
+		require.NoError(t, updateVideoSingleTask(
+			context.Background(),
+			adaptor,
+			&model.Channel{Id: 702, Key: "provider-key"},
+			task.GetUpstreamTaskID(),
+			map[string]*model.Task{task.GetUpstreamTaskID(): task},
+		))
+		assert.True(t, body.closed)
+		assert.False(t, adaptor.parsed)
+
+		var stored model.Task
+		require.NoError(t, model.DB.First(&stored, task.ID).Error)
+		assert.EqualValues(t, model.TaskStatusFailure, stored.Status)
+		assert.True(t, stored.PrivateData.NoAutomaticRefund)
+		assert.Equal(t, model.TaskStorageStatusProviderReview, stored.PrivateData.StorageStatus)
+		assert.Equal(t, 500, stored.Quota)
+		assert.NotContains(t, stored.FailReason, "X-Amz-Signature")
+	})
+}
+
+func TestSanitizeTaskFailureReasonRedactsProviderURLsAndBoundsLength(t *testing.T) {
+	reason := "provider could not fetch https://r2.example/input.png?X-Amz-Signature=secret"
+	sanitized := sanitizeTaskFailureReason(reason)
+	assert.Equal(t, "provider could not fetch [provider URL redacted]", sanitized)
+	assert.NotContains(t, sanitized, "X-Amz-Signature")
+
+	longReason := strings.Repeat("故障", 600)
+	assert.LessOrEqual(t, len([]rune(sanitizeTaskFailureReason(longReason))), 515)
+}
+
 func (a *videoSuccessPollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
 
 func (a *videoSuccessPollingAdaptor) FetchTask(
@@ -426,16 +699,25 @@ func TestUpdateVideoTasksMovesProviderSuccessIntoStoragePhase(t *testing.T) {
 	withSilkRoadStorage(t, t.TempDir(), "node-a", "https://video.example.com")
 
 	const channelID = 504
-	seedTaskPollingChannel(t, channelID, true)
+	channel := &model.Channel{
+		Id:     channelID,
+		Type:   constant.ChannelTypeBrioi,
+		Name:   "brioi_polling_channel",
+		Key:    "sk-test",
+		Status: common.ChannelStatusEnabled,
+	}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{DisableTaskPollingSleep: true})
+	require.NoError(t, model.DB.Create(channel).Error)
 	task := &model.Task{
 		TaskID:     "video_public_storing",
-		Platform:   constant.TaskPlatform("kling"),
+		Platform:   constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeBrioi)),
 		ChannelId:  channelID,
 		Status:     model.TaskStatusInProgress,
 		Progress:   "50%",
 		SubmitTime: time.Now().Unix(),
 		PrivateData: model.TaskPrivateData{
 			UpstreamTaskID: "video_upstream_storing",
+			VideoTask:      true,
 		},
 	}
 	require.NoError(t, model.DB.Create(task).Error)
@@ -464,6 +746,142 @@ func TestUpdateVideoTasksMovesProviderSuccessIntoStoragePhase(t *testing.T) {
 	assert.NotContains(t, string(reloaded.Data), resultURL)
 	assert.NotContains(t, string(reloaded.Data), "upstream-secret")
 	assert.Contains(t, string(reloaded.Data), task.TaskID)
+}
+
+func TestUpdateVideoTasksRequiresResultBeforeSettlement(t *testing.T) {
+	truncate(t)
+
+	const channelID = 506
+	channel := &model.Channel{
+		Id:     channelID,
+		Type:   constant.ChannelTypeSilkRoad,
+		Name:   "silkroad_missing_result",
+		Key:    "sk-test",
+		Status: common.ChannelStatusEnabled,
+	}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{DisableTaskPollingSleep: true})
+	require.NoError(t, model.DB.Create(channel).Error)
+	task := &model.Task{
+		TaskID:     "video_missing_result",
+		Platform:   constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeSilkRoad)),
+		ChannelId:  channelID,
+		Status:     model.TaskStatusInProgress,
+		Progress:   "50%",
+		Quota:      321,
+		SubmitTime: time.Now().Unix(),
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "video_upstream_missing_result",
+			VideoTask:      true,
+		},
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	adaptor := &videoSuccessPollingAdaptor{}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+	require.NoError(t, UpdateVideoTasks(
+		context.Background(),
+		task.Platform,
+		map[int][]string{channelID: {task.GetUpstreamTaskID()}},
+		map[string]*model.Task{task.GetUpstreamTaskID(): task},
+	))
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), reloaded.Status)
+	assert.Equal(t, model.TaskStorageStatusProviderReview, reloaded.PrivateData.StorageStatus)
+	assert.True(t, reloaded.PrivateData.NoAutomaticRefund)
+	assert.Equal(t, 321, reloaded.Quota)
+	assert.Empty(t, reloaded.PrivateData.UpstreamResultURL)
+	assert.Contains(t, reloaded.FailReason, "without a usable result")
+}
+
+func TestUpdateVideoTasksMarksRemovedChannelForReview(t *testing.T) {
+	truncate(t)
+	previousMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemoryCacheEnabled })
+
+	task := seedPollingTask(t, 999_999, "video_missing_channel", "upstream_missing_channel")
+	task.Quota = 654
+	task.PrivateData.VideoTask = true
+	require.NoError(t, task.Update())
+
+	require.NoError(t, UpdateVideoTasks(
+		context.Background(),
+		task.Platform,
+		map[int][]string{task.ChannelId: {task.GetUpstreamTaskID()}},
+		map[string]*model.Task{task.GetUpstreamTaskID(): task},
+	))
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), reloaded.Status)
+	assert.Equal(t, model.TaskStorageStatusProviderReview, reloaded.PrivateData.StorageStatus)
+	assert.True(t, reloaded.PrivateData.NoAutomaticRefund)
+	assert.Equal(t, 654, reloaded.Quota)
+	assert.Contains(t, reloaded.FailReason, "no longer exists")
+}
+
+func TestUpdateVideoTasksLeavesTaskPendingOnChannelDatabaseFailure(t *testing.T) {
+	truncate(t)
+	previousMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemoryCacheEnabled })
+
+	task := seedPollingTask(t, 808, "video_transient_channel_error", "upstream_transient_channel_error")
+	healthyDB := model.DB
+	brokenDB, err := gorm.Open(
+		sqlite.Open("file:broken-video-channel-lookup?mode=memory&cache=shared"),
+		&gorm.Config{},
+	)
+	require.NoError(t, err)
+	sqlDB, err := brokenDB.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+	model.DB = brokenDB
+	t.Cleanup(func() { model.DB = healthyDB })
+
+	err = updateVideoTasks(
+		context.Background(),
+		task.Platform,
+		task.ChannelId,
+		[]string{task.GetUpstreamTaskID()},
+		map[string]*model.Task{task.GetUpstreamTaskID(): task},
+	)
+	require.Error(t, err)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusInProgress), task.Status)
+
+	model.DB = healthyDB
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusInProgress), reloaded.Status)
+	assert.Empty(t, reloaded.PrivateData.StorageStatus)
+}
+
+func TestUpdateVideoTasksFallsBackToDatabaseAfterCacheMiss(t *testing.T) {
+	truncate(t)
+	previousMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemoryCacheEnabled })
+
+	const channelID = 909_090
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "video_cache_miss", "upstream_cache_miss")
+	adaptor := &taskPollingFetchAdaptor{}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	require.NoError(t, updateVideoTasks(
+		context.Background(),
+		task.Platform,
+		channelID,
+		[]string{task.GetUpstreamTaskID()},
+		map[string]*model.Task{task.GetUpstreamTaskID(): task},
+	))
+	assert.Equal(t, 1, adaptor.fetchCount())
 }
 
 type blockingSettlementAdaptor struct {
@@ -524,8 +942,8 @@ func TestUpdateVideoTasksDoesNotExposeStorageBeforeBillingSettlement(t *testing.
 
 	var settling model.Task
 	require.NoError(t, model.DB.First(&settling, task.ID).Error)
-	assert.Equal(t, model.TaskStatusStorageProcessing, settling.Status)
-	assert.Equal(t, "settling", settling.PrivateData.StorageStatus)
+	assert.EqualValues(t, model.TaskStatusInProgress, settling.Status)
+	assert.Empty(t, settling.PrivateData.StorageStatus)
 	claimed, err := claimSilkRoadIngestTasks(1, 5)
 	require.NoError(t, err)
 	assert.Empty(t, claimed)
@@ -535,6 +953,43 @@ func TestUpdateVideoTasksDoesNotExposeStorageBeforeBillingSettlement(t *testing.
 	require.NoError(t, model.DB.First(&settling, task.ID).Error)
 	assert.Equal(t, model.TaskStatusStoring, settling.Status)
 	assert.Equal(t, "pending", settling.PrivateData.StorageStatus)
+}
+
+func TestRecoverStaleVideoSettlementResumesStorageExactlyOnce(t *testing.T) {
+	truncate(t)
+
+	const userID, initialQuota = 406, 10_000
+	seedUser(t, userID, initialQuota)
+	task := &model.Task{
+		TaskID:     "video_stale_settlement",
+		Platform:   constant.TaskPlatform("kling"),
+		UserId:     userID,
+		Status:     model.TaskStatusSettlementProcessing,
+		Progress:   "99%",
+		Quota:      500,
+		SubmitTime: time.Now().Add(-time.Hour).Unix(),
+		PrivateData: model.TaskPrivateData{
+			VideoTask:             true,
+			UpstreamTaskID:        "video_upstream_stale_settlement",
+			UpstreamResultURL:     "https://cdn.example/private-result.mp4",
+			StorageStatus:         "settling",
+			SettlementTargetQuota: 345,
+		},
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+	staleAt := time.Now().Add(-videoStorageClaimTimeout - time.Minute).Unix()
+	require.NoError(t, model.DB.Model(task).UpdateColumn("updated_at", staleAt).Error)
+
+	require.NoError(t, recoverStaleVideoSettlements(context.Background(), 10))
+	require.NoError(t, recoverStaleVideoSettlements(context.Background(), 10))
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.Equal(t, model.TaskStatusStoring, reloaded.Status)
+	assert.Equal(t, "pending", reloaded.PrivateData.StorageStatus)
+	assert.True(t, reloaded.PrivateData.BillingSettlementApplied)
+	assert.Equal(t, 345, reloaded.Quota)
+	assert.Equal(t, initialQuota+155, getUserQuota(t, userID))
 }
 
 func (a *videoFailurePollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
@@ -599,6 +1054,9 @@ func TestUpdateVideoTasksNoRefundFailureRetainsQuota(t *testing.T) {
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
 	assert.Contains(t, reloaded.FailReason, "人工介入")
+	assert.True(t, reloaded.PrivateData.NoAutomaticRefund)
+	assert.Equal(t, model.TaskStorageStatusProviderReview, reloaded.PrivateData.StorageStatus)
+	assert.Contains(t, reloaded.PrivateData.StorageLastError, "人工介入")
 	// 额度保留在任务上，未退款、无退款日志
 	assert.Equal(t, taskQuota, reloaded.Quota)
 	assert.Equal(t, initialUserQuota, getUserQuota(t, userID))
@@ -803,4 +1261,62 @@ func TestSweepTimedOutTasksHonorsRefundRolloutBoundary(t *testing.T) {
 	assert.Contains(t, reloadedModern.FailReason, "任务超时")
 	assert.Equal(t, initialQuota+modernTaskQuota, getUserQuota(t, userID))
 	assert.Equal(t, int64(1), countLogs(t))
+}
+
+func TestSweepTimedOutAcceptedSubmissionRequiresReviewWithoutRefund(t *testing.T) {
+	truncate(t)
+
+	const userID, initialQuota, taskQuota = 404, 10_000, 1_300
+	seedUser(t, userID, initialQuota)
+	task := makeTask(userID, 0, taskQuota, 0, BillingSourceWallet, 0)
+	task.TaskID = "accepted_submission_timeout"
+	task.Status = model.TaskStatusInProgress
+	task.Progress = "50%"
+	task.SubmitTime = time.Now().Add(-2 * time.Minute).Unix()
+	task.PrivateData.UpstreamTaskID = "upstream_accepted"
+	task.PrivateData.NoAutomaticRefund = false
+	require.NoError(t, model.DB.Create(task).Error)
+
+	previousTimeout := constant.TaskTimeoutMinutes
+	constant.TaskTimeoutMinutes = 1
+	t.Cleanup(func() { constant.TaskTimeoutMinutes = previousTimeout })
+
+	sweepTimedOutTasks(context.Background())
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Equal(t, model.TaskStorageStatusProviderReview, reloaded.PrivateData.StorageStatus)
+	assert.True(t, reloaded.PrivateData.NoAutomaticRefund)
+	assert.Equal(t, taskQuota, reloaded.Quota)
+	assert.Equal(t, initialQuota, getUserQuota(t, userID))
+	assert.Equal(t, int64(0), countLogs(t))
+}
+
+func TestSweepTimedOutSubmittingTaskNeverAssumesProviderRejectedIt(t *testing.T) {
+	truncate(t)
+
+	const userID, initialQuota, taskQuota = 405, 10_000, 900
+	seedUser(t, userID, initialQuota)
+	task := makeTask(userID, 0, taskQuota, 0, BillingSourceWallet, 0)
+	task.TaskID = "submission_timeout_without_persisted_acceptance"
+	task.Status = model.TaskStatusSubmitting
+	task.Progress = "0%"
+	task.SubmitTime = time.Now().Add(-2 * time.Minute).Unix()
+	require.NoError(t, model.DB.Create(task).Error)
+
+	previousTimeout := constant.TaskTimeoutMinutes
+	constant.TaskTimeoutMinutes = 1
+	t.Cleanup(func() { constant.TaskTimeoutMinutes = previousTimeout })
+
+	sweepTimedOutTasks(context.Background())
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Equal(t, model.TaskStorageStatusProviderReview, reloaded.PrivateData.StorageStatus)
+	assert.True(t, reloaded.PrivateData.NoAutomaticRefund)
+	assert.Equal(t, taskQuota, reloaded.Quota)
+	assert.Equal(t, initialQuota, getUserQuota(t, userID))
+	assert.Equal(t, int64(0), countLogs(t))
 }

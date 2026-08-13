@@ -25,6 +25,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/uptime/status", controller.GetUptimeKumaStatus)
 		apiRouter.GET("/extensions/availability", middleware.UserAuth(), controller.GetExtensionsAvailability)
 		apiRouter.GET("/video/tool-config", middleware.UserAuth(), controller.GetVideoToolConfig)
+		apiRouter.GET("/video/models", middleware.UserAuth(), controller.GetVideoToolModels)
 		apiRouter.GET("/video/storage-status", middleware.AdminAuth(), controller.GetVideoStorageStatus)
 		apiRouter.POST("/video/storage-status/refresh", middleware.AdminAuth(), controller.RefreshVideoStorageUsage)
 		apiRouter.GET("/silkroad/video-tool", middleware.UserAuth(), controller.GetSilkRoadVideoToolConfig)
@@ -202,6 +203,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			optionRoute.GET("/", controller.GetOptions)
 			optionRoute.PUT("/", controller.UpdateOption)
+			optionRoute.PUT("/video-provider", controller.UpdateVideoProviderOption)
 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			optionRoute.DELETE("/channel_affinity_cache", controller.ClearChannelAffinityCache)

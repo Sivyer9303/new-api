@@ -80,6 +80,7 @@ func TestRetryVideoStorageQueuesOnlyUnexpiredDeliveryFailures(t *testing.T) {
 		Quota:     20,
 		PrivateData: model.TaskPrivateData{
 			StorageStatus:     "failed",
+			UpstreamResultURL: "https://upstream.example/video.mp4",
 			StorageRetryCount: 3,
 			StorageLastError:  "disk full",
 			NoAutomaticRefund: true,
@@ -108,6 +109,7 @@ func TestRetryVideoStorageRejectsExpiredAndRefundedTasks(t *testing.T) {
 		Status:    model.TaskStatusFailure,
 		PrivateData: model.TaskPrivateData{
 			StorageStatus:     "failed",
+			UpstreamResultURL: "https://upstream.example/expired.mp4",
 			StorageExpiresAt:  time.Now().Add(-time.Hour).Unix(),
 			NoAutomaticRefund: true,
 		},
@@ -140,6 +142,7 @@ func TestRetryVideoStorageDoesNotInventExpiryFromTaskCreation(t *testing.T) {
 		Status:    model.TaskStatusFailure,
 		PrivateData: model.TaskPrivateData{
 			StorageStatus:     "failed",
+			UpstreamResultURL: "https://upstream.example/long.mp4",
 			NoAutomaticRefund: true,
 		},
 	}
@@ -148,6 +151,24 @@ func TestRetryVideoStorageDoesNotInventExpiryFromTaskCreation(t *testing.T) {
 	_, updated, err := RetryVideoStorage(task.TaskID)
 	require.NoError(t, err)
 	assert.True(t, updated)
+}
+
+func TestRetryVideoStorageRejectsProviderReviewWithoutResult(t *testing.T) {
+	setupVideoLifecycleTestDB(t)
+	task := model.Task{
+		TaskID: "task_provider_review",
+		Status: model.TaskStatusFailure,
+		PrivateData: model.TaskPrivateData{
+			StorageStatus:     model.TaskStorageStatusProviderReview,
+			NoAutomaticRefund: true,
+		},
+	}
+	require.NoError(t, model.DB.Create(&task).Error)
+
+	_, updated, err := RetryVideoStorage(task.TaskID)
+
+	assert.ErrorIs(t, err, ErrVideoStorageRetryNotAllowed)
+	assert.False(t, updated)
 }
 
 func TestConfirmVideoProviderResultDoesNotCompleteOrRefundTask(t *testing.T) {
@@ -168,7 +189,7 @@ func TestConfirmVideoProviderResultDoesNotCompleteOrRefundTask(t *testing.T) {
 		Quota:     80,
 		PrivateData: model.TaskPrivateData{
 			UpstreamTaskID:    "upstream-task",
-			StorageStatus:     "failed",
+			StorageStatus:     model.TaskStorageStatusProviderReview,
 			NoAutomaticRefund: true,
 		},
 	}

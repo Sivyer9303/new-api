@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { z } from 'zod'
 
 import {
+  CHANNEL_TYPE_BRIOI,
   CHANNEL_TYPE_NEW_API,
   CHANNEL_TYPE_SILKROAD,
   CHANNEL_STATUS,
@@ -301,9 +302,15 @@ export const channelFormSchema = z
   })
   .superRefine((data, ctx) => {
     if (
-      [3, 8, 36, 45, CHANNEL_TYPE_NEW_API, CHANNEL_TYPE_SILKROAD].includes(
-        data.type
-      ) &&
+      [
+        3,
+        8,
+        36,
+        45,
+        CHANNEL_TYPE_NEW_API,
+        CHANNEL_TYPE_SILKROAD,
+        CHANNEL_TYPE_BRIOI,
+      ].includes(data.type) &&
       !data.base_url?.trim()
     ) {
       addRequiredIssue(
@@ -525,6 +532,9 @@ export function transformChannelToFormDefaults(
       console.error('Failed to parse channel setting:', error)
     }
   }
+  if (channel.type === CHANNEL_TYPE_BRIOI) {
+    extraSettings.video_input_media_delivery = VIDEO_INPUT_MEDIA_R2_PRESIGNED
+  }
 
   // Parse type-specific settings from settings field
   let vertexKeyType: 'json' | 'api_key' = 'json'
@@ -651,9 +661,10 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     settingObj.http2_connection_shards = shards
   }
 
-  const inputMediaDelivery = normalizeVideoInputMediaDelivery(
-    formData.video_input_media_delivery
-  )
+  const inputMediaDelivery =
+    formData.type === CHANNEL_TYPE_BRIOI
+      ? VIDEO_INPUT_MEDIA_R2_PRESIGNED
+      : normalizeVideoInputMediaDelivery(formData.video_input_media_delivery)
   if (inputMediaDelivery === VIDEO_INPUT_MEDIA_R2_PRESIGNED) {
     settingObj.video_input_media_delivery = VIDEO_INPUT_MEDIA_R2_PRESIGNED
   }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -19,8 +20,11 @@ import (
 // MP3 clips are small; a larger payload is either abuse or a client bug.
 const maxStagedInputBytes = 24 << 20
 
-var errVideoInputStagingUnavailable = errors.New(
-	"video input media staging requires the R2 video storage driver",
+var (
+	ErrVideoInputStagingUnavailable = errors.New(
+		"video input media staging requires the R2 video storage driver",
+	)
+	ErrVideoInputStagingFailed = errors.New("video input media staging failed")
 )
 
 type videoInputStore interface {
@@ -52,42 +56,100 @@ func StageVideoInputMedia(ctx context.Context, channelID int, media string) (str
 
 	storage := videoStorageSetting()
 	if !storage.IsR2() {
-		return "", errVideoInputStagingUnavailable
+		return "", ErrVideoInputStagingUnavailable
 	}
 	if err := ValidateVideoR2StorageConfigured(); err != nil {
-		return "", fmt.Errorf("%w: %s", errVideoInputStagingUnavailable, err.Error())
+		return "", fmt.Errorf("%w: %s", ErrVideoInputStagingUnavailable, err.Error())
 	}
 	if blocked, reason := VideoStorageUploadBlocked(); blocked {
-		return "", reason
+		return "", fmt.Errorf("%w: %w", ErrVideoInputStagingUnavailable, reason)
 	}
 
-	body, contentType, err := openVideoDataURL(media)
+	payload, contentType, err := readVideoInputDataURL(ctx, media)
 	if err != nil {
 		return "", err
-	}
-	defer body.Close()
-
-	buffer := &bytes.Buffer{}
-	size, err := copyVideoWithContext(ctx, buffer, io.LimitReader(body, maxStagedInputBytes+1))
-	if err != nil {
-		return "", err
-	}
-	if size <= 0 {
-		return "", errors.New("reference media is empty")
-	}
-	if size > maxStagedInputBytes {
-		return "", fmt.Errorf("reference media exceeds %d bytes", maxStagedInputBytes)
 	}
 
 	store, err := videoInputStagingStore(storage.R2)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: create object store: %v", ErrVideoInputStagingFailed, err)
 	}
 	key := stagedVideoInputKey(storage.R2.InputPrefix, channelID, contentType)
-	if err := store.PutObject(ctx, key, bytes.NewReader(buffer.Bytes()), size, contentType); err != nil {
-		return "", err
+	size := int64(len(payload))
+	if err := store.PutObject(ctx, key, bytes.NewReader(payload), size, contentType); err != nil {
+		return "", fmt.Errorf("%w: put object: %v", ErrVideoInputStagingFailed, err)
 	}
-	return store.PresignGetObject(ctx, key, storage.R2.InputPresignTTL())
+	stagedURL, err := store.PresignGetObject(ctx, key, storage.R2.InputPresignTTL())
+	if err != nil {
+		return "", fmt.Errorf("%w: presign object: %v", ErrVideoInputStagingFailed, err)
+	}
+	return stagedURL, nil
+}
+
+// ValidateVideoInputImageDataURL verifies the same per-item size and content
+// boundary used by R2 staging before any upstream channel is attempted.
+func ValidateVideoInputImageDataURL(media string) error {
+	payload, declaredType, err := readVideoInputDataURL(context.Background(), media)
+	if err != nil {
+		return err
+	}
+	declaredType = normalizeVideoInputImageType(declaredType)
+	switch declaredType {
+	case "image/gif", "image/jpeg", "image/png", "image/webp":
+	default:
+		return fmt.Errorf("reference image type %q is not supported", declaredType)
+	}
+
+	detectedType := normalizeVideoInputImageType(http.DetectContentType(payload))
+	if detectedType != declaredType {
+		return fmt.Errorf(
+			"reference image content type %q does not match declared type %q",
+			detectedType,
+			declaredType,
+		)
+	}
+	config, _, err := getImageConfig(bytes.NewReader(payload))
+	if err != nil || config.Width <= 0 || config.Height <= 0 {
+		return errors.New("reference image payload is invalid")
+	}
+	return nil
+}
+
+func readVideoInputDataURL(ctx context.Context, media string) ([]byte, string, error) {
+	body, contentType, err := openVideoDataURL(media)
+	if err != nil {
+		return nil, "", err
+	}
+	defer body.Close()
+
+	buffer := &bytes.Buffer{}
+	size, err := copyVideoWithContext(
+		ctx,
+		buffer,
+		io.LimitReader(body, maxStagedInputBytes+1),
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	if size <= 0 {
+		return nil, "", errors.New("reference media is empty")
+	}
+	if size > maxStagedInputBytes {
+		return nil, "", fmt.Errorf("reference media exceeds %d bytes", maxStagedInputBytes)
+	}
+	return buffer.Bytes(), contentType, nil
+}
+
+func normalizeVideoInputImageType(contentType string) string {
+	contentType, _, err := mime.ParseMediaType(strings.TrimSpace(contentType))
+	if err != nil {
+		return ""
+	}
+	contentType = strings.ToLower(contentType)
+	if contentType == "image/jpg" {
+		return "image/jpeg"
+	}
+	return contentType
 }
 
 // StageVideoInputMediaList stages every asset, preserving order.

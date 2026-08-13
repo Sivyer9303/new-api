@@ -22,6 +22,17 @@ var videoStorageSetting = func() video_setting.StorageSetting {
 	return setting.GetEffectiveVideoSetting().Storage
 }
 
+var videoGenerationEnabled = func() bool {
+	return setting.GetEffectiveVideoSetting().Enabled
+}
+
+func ValidateVideoGenerationReady() error {
+	if !videoGenerationEnabled() {
+		return errors.New("video generation is not enabled")
+	}
+	return ValidateVideoStorageReady()
+}
+
 func ValidateVideoStorageReady() error {
 	effective := setting.GetEffectiveVideoSetting()
 	if !effective.StorageEnabled {

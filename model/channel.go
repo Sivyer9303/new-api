@@ -423,6 +423,18 @@ func GetChannelById(id int, selectAll bool) (*Channel, error) {
 	return channel, nil
 }
 
+func GetChannelByIdIfExists(id int, selectAll bool) (*Channel, bool, error) {
+	channel, err := GetChannelById(id, selectAll)
+	exists, recordErr := RecordExist(err)
+	if recordErr != nil {
+		return nil, false, recordErr
+	}
+	if !exists {
+		return nil, false, nil
+	}
+	return channel, true, nil
+}
+
 func BatchInsertChannels(channels []Channel) error {
 	if len(channels) == 0 {
 		return nil
@@ -968,7 +980,13 @@ func (channel *Channel) ValidateSettings() error {
 	if err := channelParams.ValidateVideoInputMediaDelivery(); err != nil {
 		return err
 	}
-	if channelParams.UsesR2VideoInputMedia() && validateVideoR2StorageFunc != nil {
+	if channel.Type == constant.ChannelTypeBrioi && !channelParams.UsesR2VideoInputMedia() {
+		return errors.New("Brioi requires R2 presigned URL input delivery")
+	}
+	if channelParams.UsesR2VideoInputMedia() {
+		if validateVideoR2StorageFunc == nil {
+			return errors.New("video_input_media_delivery requires the R2 video storage validator")
+		}
 		if err := validateVideoR2StorageFunc(); err != nil {
 			return fmt.Errorf(
 				"video_input_media_delivery requires R2 video storage: %w", err,

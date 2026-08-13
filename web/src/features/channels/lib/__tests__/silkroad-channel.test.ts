@@ -56,12 +56,12 @@ describe('SilkRoad channel', () => {
       )
     )
     assert.equal(MODEL_FETCHABLE_TYPES.has(CHANNEL_TYPE_SILKROAD), true)
-    assert.equal(getChannelTypeIcon(CHANNEL_TYPE_SILKROAD), 'NewAPI')
+    assert.equal(getChannelTypeIcon(CHANNEL_TYPE_SILKROAD), 'SilkRoad')
     assert.equal(
       getKeyPromptForType(CHANNEL_TYPE_SILKROAD),
       'Enter API key for this channel'
     )
-    assert.equal(getChannelTypeConfig(CHANNEL_TYPE_SILKROAD).icon, 'NewAPI')
+    assert.equal(getChannelTypeConfig(CHANNEL_TYPE_SILKROAD).icon, 'SilkRoad')
   })
 
   test('requires a non-blank Base URL', () => {

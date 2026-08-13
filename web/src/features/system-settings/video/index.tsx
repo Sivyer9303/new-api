@@ -7,6 +7,10 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import { SettingsPage } from '../components/settings-page'
+import {
+  defaultBrioiProfiles,
+  serializeBrioiProfiles,
+} from '../extensions/brioi-profile-schemas'
 import type { VideoSettings } from '../types'
 import { DEFAULT_VIDEO_STORAGE, resolveVideoSettings } from './compatibility'
 import {
@@ -27,6 +31,8 @@ const defaultVideoSettings: VideoSettings = {
   'silkroad_setting.common': DEFAULT_COMMON,
   'silkroad_setting.profiles': DEFAULT_PROFILES,
   'silkroad_setting.default_profile_id': 'seedance_reverse',
+  'brioi_setting.profiles': serializeBrioiProfiles(defaultBrioiProfiles()),
+  'brioi_setting.video_tool_groups': '[]',
   'silkroad_setting.storage':
     '{"enabled":false,"driver":"local","local_dir":"data/silkroad-videos","retention_days":7,"max_retry":5,"ingest_node_name":"","public_download_base_url":""}',
   'silkroad_setting.video_tool_groups': '[]',

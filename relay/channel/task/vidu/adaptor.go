@@ -162,7 +162,7 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *taskdto.TaskError) {
+func (a *TaskAdaptor) DoResponse(_ *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (submitResult *channel.TaskSubmitResponse, taskErr *taskdto.TaskError) {
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		taskErr = service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
@@ -172,7 +172,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	var vResp responsePayload
 	err = common.Unmarshal(responseBody, &vResp)
 	if err != nil {
-		taskErr = service.TaskErrorWrapper(errors.Wrap(err, fmt.Sprintf("%s", responseBody)), "unmarshal_response_failed", http.StatusInternalServerError)
+		taskErr = service.TaskErrorWrapper(errors.Wrap(err, "parse Vidu submit response"), "unmarshal_response_failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -186,8 +186,15 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	ov.TaskID = info.PublicTaskID
 	ov.CreatedAt = time.Now().Unix()
 	ov.Model = info.OriginModelName
-	c.JSON(http.StatusOK, ov)
-	return vResp.TaskId, responseBody, nil
+	responseData, err := common.Marshal(ov)
+	if err != nil {
+		return nil, service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError)
+	}
+	return &channel.TaskSubmitResponse{
+		UpstreamTaskID: vResp.TaskId,
+		TaskData:       responseBody,
+		ResponseData:   responseData,
+	}, nil
 }
 
 func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {

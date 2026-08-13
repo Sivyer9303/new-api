@@ -31,17 +31,15 @@ func TestDoResponseHidesUpstreamURLsAndRewritesTaskID(t *testing.T) {
 	}
 
 	a := &TaskAdaptor{}
-	upstreamID, taskData, taskErr := a.DoResponse(c, resp, info)
+	submitResponse, taskErr := a.DoResponse(c, resp, info)
 	require.Nil(t, taskErr)
-	assert.Equal(t, "cgt-upstream-1", upstreamID)
-	assert.Contains(t, string(taskData), "task_pub_123")
-	assert.NotContains(t, string(taskData), "cgt-upstream-1")
-	assert.NotContains(t, string(taskData), "cdn.example")
+	require.NotNil(t, submitResponse)
+	assert.Equal(t, "cgt-upstream-1", submitResponse.UpstreamTaskID)
+	assert.Contains(t, string(submitResponse.ResponseData), "task_pub_123")
+	assert.NotContains(t, string(submitResponse.ResponseData), "cgt-upstream-1")
+	assert.NotContains(t, string(submitResponse.ResponseData), "cdn.example")
 
-	clientBody := recorder.Body.String()
-	assert.Contains(t, clientBody, "task_pub_123")
-	assert.NotContains(t, clientBody, "cgt-upstream-1")
-	assert.NotContains(t, clientBody, "cdn.example")
+	assert.Empty(t, recorder.Body.String())
 }
 
 func TestDoResponseUsesFlatOpenAIVideoEnvelopeForVideosRoute(t *testing.T) {
@@ -61,16 +59,18 @@ func TestDoResponseUsesFlatOpenAIVideoEnvelopeForVideosRoute(t *testing.T) {
 		)),
 	}
 
-	upstreamID, taskData, taskErr := (&TaskAdaptor{}).DoResponse(c, resp, info)
+	submitResponse, taskErr := (&TaskAdaptor{}).DoResponse(c, resp, info)
 	require.Nil(t, taskErr)
-	assert.Equal(t, "upstream-secret", upstreamID)
-	assert.Contains(t, recorder.Body.String(), `"id":"task_pub_openai"`)
-	assert.Contains(t, recorder.Body.String(), `"object":"video"`)
-	assert.Contains(t, recorder.Body.String(), `"model":"public-seedance"`)
-	assert.Contains(t, recorder.Body.String(), `"status":"queued"`)
-	assert.Contains(t, recorder.Body.String(), `"progress":0`)
-	assert.Contains(t, recorder.Body.String(), `"created_at":`)
-	assert.JSONEq(t, recorder.Body.String(), string(taskData))
-	assert.NotContains(t, recorder.Body.String(), "upstream-secret")
-	assert.NotContains(t, recorder.Body.String(), "cdn.example")
+	require.NotNil(t, submitResponse)
+	assert.Equal(t, "upstream-secret", submitResponse.UpstreamTaskID)
+	assert.Contains(t, string(submitResponse.ResponseData), `"id":"task_pub_openai"`)
+	assert.Contains(t, string(submitResponse.ResponseData), `"object":"video"`)
+	assert.Contains(t, string(submitResponse.ResponseData), `"model":"public-seedance"`)
+	assert.Contains(t, string(submitResponse.ResponseData), `"status":"queued"`)
+	assert.Contains(t, string(submitResponse.ResponseData), `"progress":0`)
+	assert.Contains(t, string(submitResponse.ResponseData), `"created_at":`)
+	assert.JSONEq(t, string(submitResponse.ResponseData), string(submitResponse.TaskData))
+	assert.NotContains(t, string(submitResponse.ResponseData), "upstream-secret")
+	assert.NotContains(t, string(submitResponse.ResponseData), "cdn.example")
+	assert.Empty(t, recorder.Body.String())
 }

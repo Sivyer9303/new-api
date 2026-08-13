@@ -8,13 +8,11 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
@@ -24,14 +22,14 @@ import (
 )
 
 const (
-	silkRoadVideoIngestInterval = 30 * time.Second
-	silkRoadVideoIngestBatch    = 20
-	videoStorageClaimTimeout    = 10 * time.Minute
+	videoIngestInterval      = 30 * time.Second
+	videoIngestBatch         = 20
+	videoStorageClaimTimeout = 10 * time.Minute
 )
 
-// silkRoadPrivateDataTextExpr is the SQL expression for LIKE on private_data
-// without dialect-specific JSON operators (see claimSilkRoadIngestTasks).
-func silkRoadPrivateDataTextExpr() string {
+// videoPrivateDataTextExpr is the SQL expression for LIKE on private_data
+// without dialect-specific JSON operators.
+func videoPrivateDataTextExpr() string {
 	switch common.MainDatabaseType() {
 	case common.DatabaseTypeSQLite:
 		return "CAST(private_data AS TEXT)"
@@ -42,21 +40,25 @@ func silkRoadPrivateDataTextExpr() string {
 	}
 }
 
-var silkRoadVideoIngestOnce sync.Once
+var videoIngestOnce sync.Once
 
-// silkRoadVideoFetchFunc downloads an upstream video body. Tests inject httptest.
-type silkRoadVideoFetchFunc func(url string) (io.ReadCloser, error)
+// videoFetchFunc downloads an upstream video body. Tests inject httptest.
+type videoFetchFunc func(url string) (io.ReadCloser, error)
 
-// shouldSilkRoadStore reports whether a completed task should be queued for
-// local SilkRoad video ingest instead of exposing the upstream ResultURL.
+// shouldStoreVideoResult reports whether a completed task can enter the
+// mandatory result-storage lifecycle.
 // Requires Storage.Enabled plus non-empty ingest node name and public download
 // base URL. When Enabled but ingest/public are incomplete, callers must fail
 // closed (proxy URL) rather than writing the upstream CDN URL into ResultURL.
-func shouldSilkRoadStore(task *model.Task) bool {
+func shouldStoreVideoResult(task *model.Task) bool {
 	if task == nil {
 		return false
 	}
 	return videoStorageWiringComplete()
+}
+
+func shouldSilkRoadStore(task *model.Task) bool {
+	return shouldStoreVideoResult(task)
 }
 
 // videoStorageWiringComplete reports whether storage is enabled and has every
@@ -75,40 +77,43 @@ func videoStorageWiringComplete() bool {
 	return strings.TrimSpace(storage.Storage.IngestNodeName) != ""
 }
 
-// silkRoadNewAPIAvoidUpstreamResultURL is true when NewAPI storage is enabled
-// but incomplete (missing ingest node and/or public base). Polling Success must
-// use BuildProxyURL instead of the upstream ResultURL.
-func silkRoadNewAPIAvoidUpstreamResultURL(task *model.Task) bool {
-	if !isSilkRoadVideoTask(task) {
+// videoTaskAvoidUpstreamResultURL is true when mandatory video storage is
+// incomplete. Polling success must never expose the upstream ResultURL.
+func videoTaskAvoidUpstreamResultURL(task *model.Task) bool {
+	if !IsVideoTask(task) {
 		return false
 	}
 	return !videoStorageWiringComplete()
 }
 
-func isSilkRoadVideoTask(task *model.Task) bool {
-	if task == nil {
-		return false
-	}
-	return task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeNewAPI)) ||
-		task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeSilkRoad))
+func silkRoadNewAPIAvoidUpstreamResultURL(task *model.Task) bool {
+	return videoTaskAvoidUpstreamResultURL(task)
 }
 
-// markSilkRoadPendingStore records the upstream URL privately and points
+func isSilkRoadVideoTask(task *model.Task) bool {
+	return IsVideoTask(task)
+}
+
+// markVideoPendingStore records the upstream URL privately and points
 // ResultURL at the public content path. Never puts the upstream URL in ResultURL.
-func markSilkRoadPendingStore(task *model.Task, upstreamURL string) {
+func markVideoPendingStore(task *model.Task, upstreamURL string) {
 	task.PrivateData.UpstreamResultURL = upstreamURL
 	task.PrivateData.StorageStatus = "pending"
 	task.PrivateData.StorageRetryCount = 0
 	task.PrivateData.StorageLastError = ""
 	task.PrivateData.NoAutomaticRefund = false
-	task.PrivateData.ResultURL = BuildSilkRoadPublicURL(task.TaskID)
+	task.PrivateData.ResultURL = BuildVideoPublicURL(task.TaskID)
 	task.Status = model.TaskStatusStoring
 	task.Progress = "99%"
 }
 
-// redactSilkRoadUpstreamURLs removes upstream CDN URL fields from task.Data JSON
+func markSilkRoadPendingStore(task *model.Task, upstreamURL string) {
+	markVideoPendingStore(task, upstreamURL)
+}
+
+// redactVideoUpstreamURLs removes upstream CDN URL fields from task.Data JSON
 // so TaskDto.Data cannot leak video_url / url / result_url (including nested maps).
-func redactSilkRoadUpstreamURLs(data []byte, publicTaskID string) ([]byte, error) {
+func redactVideoUpstreamURLs(data []byte, publicTaskID string) ([]byte, error) {
 	if len(data) == 0 {
 		return data, nil
 	}
@@ -116,21 +121,29 @@ func redactSilkRoadUpstreamURLs(data []byte, publicTaskID string) ([]byte, error
 	if err := common.Unmarshal(data, &v); err != nil {
 		return nil, err
 	}
-	sanitizeSilkRoadPublicTaskData(v, publicTaskID)
+	sanitizePublicVideoTaskData(v, publicTaskID)
 	return common.Marshal(v)
 }
 
-// applySilkRoadDataRedaction redacts upstream URL fields from task.Data.
+func redactSilkRoadUpstreamURLs(data []byte, publicTaskID string) ([]byte, error) {
+	return redactVideoUpstreamURLs(data, publicTaskID)
+}
+
+// applyVideoDataRedaction redacts upstream URL fields from task.Data.
 // On error it fail-closes to an empty JSON object so unredacted video_url cannot leak.
-func applySilkRoadDataRedaction(data []byte, publicTaskID string) ([]byte, error) {
-	redacted, err := redactSilkRoadUpstreamURLs(data, publicTaskID)
+func applyVideoDataRedaction(data []byte, publicTaskID string) ([]byte, error) {
+	redacted, err := redactVideoUpstreamURLs(data, publicTaskID)
 	if err != nil {
 		return []byte("{}"), err
 	}
 	return redacted, nil
 }
 
-func sanitizeSilkRoadPublicTaskData(v any, publicTaskID string) {
+func applySilkRoadDataRedaction(data []byte, publicTaskID string) ([]byte, error) {
+	return applyVideoDataRedaction(data, publicTaskID)
+}
+
+func sanitizePublicVideoTaskData(v any, publicTaskID string) {
 	switch x := v.(type) {
 	case map[string]any:
 		delete(x, "video_url")
@@ -145,38 +158,55 @@ func sanitizeSilkRoadPublicTaskData(v any, publicTaskID string) {
 				}
 				continue
 			}
-			sanitizeSilkRoadPublicTaskData(child, publicTaskID)
+			if text, ok := child.(string); ok && containsPrivateVideoMedia(text) {
+				x[key] = "[redacted]"
+				continue
+			}
+			sanitizePublicVideoTaskData(child, publicTaskID)
 		}
 	case []any:
-		for _, child := range x {
-			sanitizeSilkRoadPublicTaskData(child, publicTaskID)
+		for index, child := range x {
+			if text, ok := child.(string); ok && containsPrivateVideoMedia(text) {
+				x[index] = "[redacted]"
+				continue
+			}
+			sanitizePublicVideoTaskData(child, publicTaskID)
 		}
 	}
 }
 
-// StartSilkRoadVideoIngestTask starts the periodic ingest ticker once.
+func containsPrivateVideoMedia(value string) bool {
+	lower := strings.ToLower(value)
+	return strings.Contains(lower, "http://") ||
+		strings.Contains(lower, "https://") ||
+		strings.Contains(lower, "data:image/") ||
+		strings.Contains(lower, "data:audio/") ||
+		strings.Contains(lower, "data:video/")
+}
+
+// StartVideoStorageTask starts the periodic ingest ticker once.
 // Each tick (and the initial run) no-ops unless this process is the ingest
 // node and storage is enabled, so late SyncOptions config takes effect without restart.
 func StartVideoStorageTask() {
-	silkRoadVideoIngestOnce.Do(func() {
+	videoIngestOnce.Do(func() {
 		gopool.Go(func() {
 			logger.LogInfo(context.Background(), fmt.Sprintf(
-				"silkroad video ingest ticker started: tick=%s",
-				silkRoadVideoIngestInterval,
+				"video ingest ticker started: tick=%s",
+				videoIngestInterval,
 			))
-			ticker := time.NewTicker(silkRoadVideoIngestInterval)
+			ticker := time.NewTicker(videoIngestInterval)
 			defer ticker.Stop()
 
-			runSilkRoadVideoIngestTick()
+			runVideoIngestTick()
 			for range ticker.C {
-				runSilkRoadVideoIngestTick()
+				runVideoIngestTick()
 			}
 		})
 	})
 }
 
-func runSilkRoadVideoIngestTick() {
-	if !IsSilkRoadIngestNode() {
+func runVideoIngestTick() {
+	if !IsVideoIngestNode() {
 		return
 	}
 	if !setting.GetEffectiveVideoSetting().StorageEnabled {
@@ -186,11 +216,11 @@ func runSilkRoadVideoIngestTick() {
 	_ = RunVideoCleanupOnce(context.Background())
 }
 
-// RunSilkRoadVideoIngestOnce claims pending/failed SilkRoad video tasks and
-// downloads them to local storage. No-op unless this process is the ingest node.
+// RunVideoStorageOnce claims pending/failed video tasks and stores their result.
+// It is a no-op unless this process is an ingest node.
 // Download failures never refund quota.
 func RunVideoStorageOnce(ctx context.Context) error {
-	if !IsSilkRoadIngestNode() {
+	if !IsVideoIngestNode() {
 		return nil
 	}
 	storage := setting.GetEffectiveVideoSetting()
@@ -198,7 +228,10 @@ func RunVideoStorageOnce(ctx context.Context) error {
 		return nil
 	}
 
-	tasks, err := claimSilkRoadIngestTasks(silkRoadVideoIngestBatch, storage.Storage.MaxRetry)
+	if err := recoverStaleVideoSettlements(ctx, videoIngestBatch); err != nil {
+		return err
+	}
+	tasks, err := claimVideoIngestTasks(videoIngestBatch, storage.Storage.MaxRetry)
 	if err != nil {
 		return err
 	}
@@ -209,12 +242,96 @@ func RunVideoStorageOnce(ctx context.Context) error {
 				task.TaskID, task.PrivateData.StorageRetryCount,
 			))
 		}
-		if _, err := task.UpdateWithStatus(model.TaskStatusStorageProcessing); err != nil {
+		updated, err := task.UpdateWithStatus(model.TaskStatusStorageProcessing)
+		if err != nil {
 			logger.LogError(ctx, fmt.Sprintf(
-				"silkroad ingest persist failed task=%s: %s",
+				"video ingest persist failed task=%s: %s",
 				task.TaskID, err.Error(),
 			))
+		} else if updated && task.Status == model.TaskStatusSuccess {
+			logger.LogInfo(ctx, fmt.Sprintf(
+				"task_lifecycle stage=storage_ready task_id=%s channel_id=%d",
+				task.TaskID,
+				task.ChannelId,
+			))
 		}
+	}
+	return nil
+}
+
+func recoverStaleVideoSettlements(ctx context.Context, limit int) error {
+	if limit <= 0 {
+		return nil
+	}
+	likeExpr := videoPrivateDataTextExpr()
+	var candidates []*model.Task
+	err := model.DB.
+		Where("status IN ? AND updated_at < ?", []model.TaskStatus{
+			model.TaskStatusSettlementProcessing,
+			model.TaskStatusSettlementRecovering,
+		}, time.Now().Add(-videoStorageClaimTimeout).Unix()).
+		Where(
+			likeExpr+` LIKE ? OR `+likeExpr+` LIKE ?`,
+			`%"storage_status":"settling"%`,
+			`%"storage_status":"settled"%`,
+		).
+		Order("id").
+		Limit(limit).
+		Find(&candidates).Error
+	if err != nil {
+		return err
+	}
+
+	for _, task := range candidates {
+		fromStatus := task.Status
+		won, err := task.ClaimWithStatusAndUpdatedAt(
+			fromStatus,
+			model.TaskStatusSettlementRecovering,
+		)
+		if err != nil {
+			return err
+		}
+		if !won {
+			continue
+		}
+
+		if !task.PrivateData.BillingSettlementApplied {
+			if err := settleTaskBillingOnComplete(ctx, nil, task, nil); err != nil {
+				expectedUpdatedAt := task.UpdatedAt
+				task.Status = model.TaskStatusFailure
+				task.Progress = taskcommon.ProgressComplete
+				task.FinishTime = time.Now().Unix()
+				task.FailReason = "Video billing settlement recovery requires administrator review"
+				task.PrivateData.NoAutomaticRefund = true
+				task.PrivateData.StorageStatus = model.TaskStorageStatusProviderReview
+				task.PrivateData.StorageLastError = err.Error()
+				if _, updateErr := task.UpdateWithStatusAndUpdatedAt(
+					model.TaskStatusSettlementRecovering,
+					expectedUpdatedAt,
+				); updateErr != nil {
+					return updateErr
+				}
+				continue
+			}
+		}
+
+		expectedUpdatedAt := task.UpdatedAt
+		task.Status = model.TaskStatusStoring
+		task.PrivateData.StorageStatus = "pending"
+		won, err = task.UpdateWithStatusAndUpdatedAt(
+			model.TaskStatusSettlementRecovering,
+			expectedUpdatedAt,
+		)
+		if err != nil {
+			return err
+		}
+		if !won {
+			continue
+		}
+		logger.LogInfo(ctx, fmt.Sprintf(
+			"recovered video settlement for task %s",
+			task.TaskID,
+		))
 	}
 	return nil
 }
@@ -227,13 +344,13 @@ func RunSilkRoadVideoIngestOnce(ctx context.Context) error {
 	return RunVideoStorageOnce(ctx)
 }
 
-func claimSilkRoadIngestTasks(limit int, maxRetry int) ([]*model.Task, error) {
+func claimVideoIngestTasks(limit int, maxRetry int) ([]*model.Task, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
 	var candidates []*model.Task
 	// LIKE keeps SQLite/MySQL/PostgreSQL compatible without dialect JSON ops.
-	likeExpr := silkRoadPrivateDataTextExpr()
+	likeExpr := videoPrivateDataTextExpr()
 	err := model.DB.
 		Where(
 			"status IN ?",
@@ -303,6 +420,10 @@ func claimSilkRoadIngestTasks(limit int, maxRetry int) ([]*model.Task, error) {
 	return out, nil
 }
 
+func claimSilkRoadIngestTasks(limit int, maxRetry int) ([]*model.Task, error) {
+	return claimVideoIngestTasks(limit, maxRetry)
+}
+
 func openVideoDataURL(dataURL string) (io.ReadCloser, string, error) {
 	parts := strings.SplitN(dataURL, ",", 2)
 	if len(parts) != 2 || !strings.HasPrefix(parts[0], "data:") ||
@@ -322,7 +443,7 @@ func openVideoDataURL(dataURL string) (io.ReadCloser, string, error) {
 
 // ingestOne downloads the upstream video into LocalDir and updates PrivateData.
 // On failure it increments StorageRetryCount and sets pending/failed; it never refunds.
-func ingestOne(task *model.Task, fetch silkRoadVideoFetchFunc) error {
+func ingestOne(task *model.Task, fetch videoFetchFunc) error {
 	if task == nil {
 		return fmt.Errorf("nil task")
 	}
@@ -331,7 +452,7 @@ func ingestOne(task *model.Task, fetch silkRoadVideoFetchFunc) error {
 	}
 	upstreamURL := strings.TrimSpace(task.PrivateData.UpstreamResultURL)
 	if upstreamURL == "" && fetch != nil {
-		return markSilkRoadIngestFailure(task, fmt.Errorf("missing upstream result url"))
+		return markVideoIngestFailure(task, fmt.Errorf("missing upstream result url"))
 	}
 	var body io.ReadCloser
 	var contentType string
@@ -350,18 +471,18 @@ func ingestOne(task *model.Task, fetch silkRoadVideoFetchFunc) error {
 		body, err = fetch(upstreamURL)
 	}
 	if err != nil {
-		return markSilkRoadIngestFailure(task, err)
+		return markVideoIngestFailure(task, err)
 	}
 	defer body.Close()
 
 	contentType, err = NormalizeStoredVideoContentType(contentType)
 	if err != nil {
-		return markSilkRoadIngestFailure(task, err)
+		return markVideoIngestFailure(task, err)
 	}
 	storage := setting.GetEffectiveVideoSetting().Storage
 	driver, err := NewVideoStorageDriver(storage)
 	if err != nil {
-		return markSilkRoadIngestFailure(task, err)
+		return markVideoIngestFailure(task, err)
 	}
 	stored, err := driver.Store(
 		context.Background(),
@@ -370,14 +491,14 @@ func ingestOne(task *model.Task, fetch silkRoadVideoFetchFunc) error {
 		VideoObjectMetadata{ContentType: contentType},
 	)
 	if err != nil {
-		return markSilkRoadIngestFailure(task, err)
+		return markVideoIngestFailure(task, err)
 	}
 	// Object-storage drivers have no local path; only the local driver records one.
 	path := ""
 	if !storage.IsR2() {
-		path, err = filepath.Abs(SilkRoadVideoLocalPath(stored.ObjectKey))
+		path, err = filepath.Abs(VideoLocalPath(stored.ObjectKey))
 		if err != nil {
-			return markSilkRoadIngestFailure(task, err)
+			return markVideoIngestFailure(task, err)
 		}
 	}
 
@@ -394,7 +515,7 @@ func ingestOne(task *model.Task, fetch silkRoadVideoFetchFunc) error {
 	task.PrivateData.StorageLastError = ""
 	task.PrivateData.UpstreamResultURL = ""
 	if task.PrivateData.ResultURL == "" {
-		task.PrivateData.ResultURL = BuildSilkRoadPublicURL(task.TaskID)
+		task.PrivateData.ResultURL = BuildVideoPublicURL(task.TaskID)
 	}
 	return nil
 }
@@ -422,7 +543,7 @@ func markVideoQuotaDeliveryFailure(task *model.Task, cause error) error {
 	return cause
 }
 
-func markSilkRoadIngestFailure(task *model.Task, cause error) error {
+func markVideoIngestFailure(task *model.Task, cause error) error {
 	task.PrivateData.StorageRetryCount++
 	maxRetry := setting.GetEffectiveVideoSetting().Storage.MaxRetry
 	if maxRetry < 1 {
@@ -442,4 +563,8 @@ func markSilkRoadIngestFailure(task *model.Task, cause error) error {
 	}
 	task.PrivateData.StorageLastError = cause.Error()
 	return cause
+}
+
+func markSilkRoadIngestFailure(task *model.Task, cause error) error {
+	return markVideoIngestFailure(task, cause)
 }

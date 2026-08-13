@@ -507,8 +507,20 @@ func RelayTask(c *gin.Context) {
 
 	var result *relay.TaskSubmitResult
 	var taskErr *taskdto.TaskError
+	submissionFailureFinalized := false
 	defer func() {
-		if taskErr != nil && relayInfo.Billing != nil {
+		acceptedOrUncertain := result != nil &&
+			(result.ProviderAccepted ||
+				result.AcceptanceUncertain ||
+				result.ReservationUncertain)
+		if taskErr != nil && relayInfo.Billing != nil && !acceptedOrUncertain {
+			if result != nil && result.Task != nil {
+				if submissionFailureFinalized &&
+					service.RefundTaskQuota(c, result.Task, "task submission failed") {
+					relayInfo.Billing.MarkPersistedRefund()
+				}
+				return
+			}
 			relayInfo.Billing.Refund(c)
 		}
 	}()
@@ -554,8 +566,18 @@ func RelayTask(c *gin.Context) {
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
 
-		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
+		attemptResult, attemptErr := relay.RelayTaskSubmit(c, relayInfo)
+		if attemptResult != nil {
+			result = attemptResult
+		}
+		taskErr = attemptErr
 		if taskErr == nil {
+			break
+		}
+		if attemptResult != nil &&
+			(attemptResult.ProviderAccepted ||
+				attemptResult.AcceptanceUncertain ||
+				attemptResult.ReservationUncertain) {
 			break
 		}
 
@@ -577,41 +599,75 @@ func RelayTask(c *gin.Context) {
 		logger.LogInfo(c, retryLogStr)
 	}
 
-	// ── 成功：结算 + 日志 + 插入任务 ──
+	// ── Success: settle and respond only after provider acceptance is durable. ──
 	if taskErr == nil {
 		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
 			common.SysError("settle task billing error: " + settleErr.Error())
-		}
-		service.LogTaskConsumption(c, relayInfo)
-
-		task := model.InitTask(result.Platform, relayInfo)
-		task.PrivateData.VideoTask =
-			relayInfo.RelayMode == relayconstant.RelayModeVideoSubmit ||
-				common.IsVideoTaskRequestPath(c.Request.URL.Path)
-		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
-		task.PrivateData.BillingSource = relayInfo.BillingSource
-		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
-		task.PrivateData.TokenId = relayInfo.TokenId
-		task.PrivateData.NodeName = common.NodeName
-		task.PrivateData.BillingContext = &model.TaskBillingContext{
-			ModelPrice:      relayInfo.PriceData.ModelPrice,
-			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
-			ModelRatio:      relayInfo.PriceData.ModelRatio,
-			OtherRatios:     relayInfo.PriceData.OtherRatios(),
-			OriginModelName: relayInfo.OriginModelName,
-			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
-		}
-		task.Quota = result.Quota
-		task.Data = result.TaskData
-		task.Action = relayInfo.Action
-		if insertErr := task.Insert(); insertErr != nil {
-			common.SysError("insert task error: " + insertErr.Error())
+			taskErr = service.TaskErrorWrapperLocal(
+				settleErr,
+				"settle_task_billing_failed",
+				http.StatusInternalServerError,
+			)
+		} else {
+			result.Task.Status = model.TaskStatusSubmitted
+			result.Task.Quota = result.Quota
+			result.Task.PrivateData.NoAutomaticRefund = false
+			updated, updateErr := result.Task.UpdateWithStatus(model.TaskStatusSubmitting)
+			if updateErr != nil {
+				common.SysError("mark task submission ready error: " + updateErr.Error())
+				taskErr = service.TaskErrorWrapperLocal(
+					updateErr,
+					"persist_task_submission_ready_failed",
+					http.StatusInternalServerError,
+				)
+			} else if !updated {
+				taskErr = service.TaskErrorWrapperLocal(
+					errors.New("task submission state changed before it became pollable"),
+					"persist_task_submission_ready_failed",
+					http.StatusConflict,
+				)
+			} else {
+				logger.LogInfo(c, fmt.Sprintf(
+					"task_lifecycle stage=submission_ready task_id=%s channel_id=%d",
+					result.Task.TaskID,
+					result.Task.ChannelId,
+				))
+				service.LogTaskConsumption(c, relayInfo)
+				c.Data(http.StatusOK, "application/json; charset=utf-8", result.ResponseData)
+			}
 		}
 	}
 
 	if taskErr != nil {
+		submissionFailureFinalized = finalizeSubmittingTaskFailure(result, taskErr)
 		respondTaskError(c, taskErr)
 	}
+}
+
+func finalizeSubmittingTaskFailure(result *relay.TaskSubmitResult, taskErr *taskdto.TaskError) bool {
+	if result == nil || result.Task == nil || result.ProviderAccepted {
+		return false
+	}
+
+	task := result.Task
+	task.Status = model.TaskStatusFailure
+	task.Progress = "100%"
+	task.FailReason = "Task submission did not complete."
+	if result.AcceptanceUncertain || result.ReservationUncertain {
+		task.PrivateData.NoAutomaticRefund = true
+		task.PrivateData.StorageStatus = model.TaskStorageStatusProviderReview
+		task.FailReason = "Task submission or billing reservation outcome is uncertain; administrator review is required."
+	} else if task.Quota != 0 {
+		task.MarkRefundPending(task.FailReason)
+	}
+	if updated, err := task.UpdateWithStatus(model.TaskStatusSubmitting); err != nil {
+		common.SysError("finalize submitting task error: " + err.Error())
+		return false
+	} else if !updated && taskErr != nil {
+		common.SysError("submitting task changed before failure finalization: " + task.TaskID)
+		return false
+	}
+	return true
 }
 
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）
@@ -658,8 +714,5 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskEr
 	if taskErr.LocalError {
 		return false
 	}
-	if taskErr.StatusCode/100 == 2 {
-		return false
-	}
-	return true
+	return false
 }

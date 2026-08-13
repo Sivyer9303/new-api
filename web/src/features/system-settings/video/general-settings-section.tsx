@@ -18,11 +18,8 @@ import {
   FormControl,
   FormDescription,
   FormField,
-  FormItem,
   FormLabel,
-  FormMessage,
 } from '@/components/ui/form'
-import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 
 import {
@@ -36,40 +33,13 @@ import { useUpdateOption } from '../hooks/use-update-option'
 
 const schema = z.object({
   enabled: z.boolean(),
-  groupsText: z.string(),
 })
 
 type Values = z.infer<typeof schema>
 
-function parseGroups(raw: string): string {
-  try {
-    const groups = JSON.parse(raw) as unknown
-    if (!Array.isArray(groups)) return ''
-    return groups
-      .filter((group): group is string => typeof group === 'string')
-      .map((group) => group.trim())
-      .filter(Boolean)
-      .join(', ')
-  } catch {
-    return ''
-  }
-}
-
-function normalizeGroups(value: string): string[] {
-  return [
-    ...new Set(
-      value
-        .split(/[,，\n]/)
-        .map((group) => group.trim())
-        .filter(Boolean)
-    ),
-  ]
-}
-
 export function VideoGeneralSettingsSection(props: {
   defaultValues: {
     enabled: boolean
-    groupsJson: string
   }
 }) {
   const { t } = useTranslation()
@@ -78,32 +48,24 @@ export function VideoGeneralSettingsSection(props: {
     resolver: zodResolver(schema),
     defaultValues: {
       enabled: props.defaultValues.enabled,
-      groupsText: parseGroups(props.defaultValues.groupsJson),
     },
   })
 
   useEffect(() => {
     form.reset({
       enabled: props.defaultValues.enabled,
-      groupsText: parseGroups(props.defaultValues.groupsJson),
     })
   }, [form, props.defaultValues])
 
   async function onSubmit(values: Values) {
-    const groups = normalizeGroups(values.groupsText)
     try {
-      const groupsResult = await updateOption.mutateAsync({
-        key: 'video_setting.video_tool_groups',
-        value: JSON.stringify(groups),
-      })
-      if (!groupsResult.success) return
       const enabledResult = await updateOption.mutateAsync({
         key: 'video_setting.enabled',
         value: values.enabled,
       })
       if (!enabledResult.success) return
       toast.success(t('Settings saved'))
-      form.reset({ enabled: values.enabled, groupsText: groups.join(', ') })
+      form.reset({ enabled: values.enabled })
     } catch {
       toast.error(t('Failed to save settings'))
     }
@@ -141,28 +103,6 @@ export function VideoGeneralSettingsSection(props: {
                   />
                 </FormControl>
               </SettingsSwitchItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name='groupsText'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('Video tool allowed groups')}</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder='default, video'
-                    {...field}
-                    disabled={busy}
-                  />
-                </FormControl>
-                <FormDescription>
-                  {t(
-                    'Comma-separated group names whose API keys can use the Video Generation tool. Leave empty to allow no keys.'
-                  )}
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
             )}
           />
         </SettingsForm>

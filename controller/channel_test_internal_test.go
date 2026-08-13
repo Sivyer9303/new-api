@@ -3,6 +3,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +22,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func allowBrioiR2Validation(t *testing.T) {
+	t.Helper()
+	model.RegisterVideoR2StorageValidator(func() error { return nil })
+	t.Cleanup(func() {
+		model.RegisterVideoR2StorageValidator(service.ValidateVideoR2StorageConfigured)
+	})
+}
+
+func brioiR2ChannelSetting(t *testing.T) *string {
+	t.Helper()
+	setting, err := common.Marshal(dto.ChannelSettings{
+		VideoInputMediaDelivery: dto.VideoInputMediaR2Presigned,
+	})
+	require.NoError(t, err)
+	value := string(setting)
+	return &value
+}
 
 func TestValidateChannelProxy(t *testing.T) {
 	tests := []struct {
@@ -115,6 +134,65 @@ func TestValidateChannelRequiresSilkRoadBaseURL(t *testing.T) {
 	}
 }
 
+func TestValidateChannelRequiresBrioiBaseURL(t *testing.T) {
+	allowBrioiR2Validation(t)
+	tests := []struct {
+		name    string
+		baseURL *string
+		wantErr bool
+	}{
+		{name: "missing", wantErr: true},
+		{name: "blank", baseURL: common.GetPointer("  "), wantErr: true},
+		{name: "configured", baseURL: common.GetPointer("https://brioi.example")},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			channel := &model.Channel{
+				Type:    constant.ChannelTypeBrioi,
+				BaseURL: test.baseURL,
+				Setting: brioiR2ChannelSetting(t),
+			}
+
+			err := validateChannel(channel, false)
+
+			if test.wantErr {
+				require.ErrorContains(t, err, "Brioi channel base URL cannot be empty")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestValidateChannelRequiresBrioiR2DeliveryAndStorage(t *testing.T) {
+	baseURL := "https://brioi.example"
+	inlineSetting, err := common.Marshal(dto.ChannelSettings{
+		VideoInputMediaDelivery: dto.VideoInputMediaInlineBase64,
+	})
+	require.NoError(t, err)
+	inlineSettingValue := string(inlineSetting)
+
+	allowBrioiR2Validation(t)
+	err = validateChannel(&model.Channel{
+		Type:    constant.ChannelTypeBrioi,
+		BaseURL: &baseURL,
+		Setting: &inlineSettingValue,
+	}, false)
+	require.ErrorContains(t, err, "Brioi requires R2 presigned URL input delivery")
+
+	model.RegisterVideoR2StorageValidator(func() error {
+		return errors.New("R2 unavailable")
+	})
+	err = validateChannel(&model.Channel{
+		Type:    constant.ChannelTypeBrioi,
+		BaseURL: &baseURL,
+		Setting: brioiR2ChannelSetting(t),
+	}, false)
+	require.ErrorContains(t, err, "video_input_media_delivery requires R2 video storage")
+	require.ErrorContains(t, err, "R2 unavailable")
+}
+
 func TestNewAPIChannelRegistration(t *testing.T) {
 	apiType, ok := common.ChannelType2APIType(constant.ChannelTypeNewAPI)
 
@@ -131,7 +209,7 @@ func TestSilkRoadChannelRegistration(t *testing.T) {
 	assert.False(t, ok)
 	assert.Equal(t, constant.APITypeOpenAI, apiType)
 	assert.Equal(t, 61, constant.ChannelTypeSilkRoad)
-	assert.Equal(t, constant.ChannelTypeSilkRoad+1, constant.ChannelTypeDummy)
+	assert.Equal(t, constant.ChannelTypeSilkRoad+1, constant.ChannelTypeBrioi)
 	assert.Equal(t, "SilkRoad", constant.GetChannelTypeName(constant.ChannelTypeSilkRoad))
 	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeSilkRoad)
 	assert.Empty(t, constant.ChannelBaseURLs[constant.ChannelTypeSilkRoad])
@@ -145,6 +223,153 @@ func TestSilkRoadChannelRegistration(t *testing.T) {
 		[]constant.EndpointType{constant.EndpointTypeOpenAIVideo},
 		common.GetEndpointTypesByChannelType(constant.ChannelTypeSilkRoad, "dall-e-3"),
 	)
+}
+
+func TestBrioiChannelRegistration(t *testing.T) {
+	apiType, ok := common.ChannelType2APIType(constant.ChannelTypeBrioi)
+
+	assert.False(t, ok)
+	assert.Equal(t, constant.APITypeOpenAI, apiType)
+	assert.Equal(t, 62, constant.ChannelTypeBrioi)
+	assert.Equal(t, constant.ChannelTypeBrioi+1, constant.ChannelTypeDummy)
+	assert.Equal(t, "Brioi", constant.GetChannelTypeName(constant.ChannelTypeBrioi))
+	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeBrioi)
+	assert.Empty(t, constant.ChannelBaseURLs[constant.ChannelTypeBrioi])
+	assert.Equal(
+		t,
+		[]constant.EndpointType{constant.EndpointTypeOpenAIVideo},
+		common.GetEndpointTypesByChannelType(constant.ChannelTypeBrioi, "seedance-2-0"),
+	)
+	assert.True(t, common.ChannelTypeSupportsRequestPath(
+		constant.ChannelTypeBrioi,
+		"/v1/video/generations",
+	))
+	assert.False(t, common.ChannelTypeSupportsRequestPath(
+		constant.ChannelTypeBrioi,
+		"/v1/videos",
+	))
+	assert.False(t, common.ChannelTypeSupportsRequestPath(
+		constant.ChannelTypeBrioi,
+		"/v1/chat/completions",
+	))
+}
+
+func TestBrioiChannelTestUsesNonBillableModelListEndpoint(t *testing.T) {
+	allowBrioiR2Validation(t)
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/v1/models", r.URL.Path)
+		assert.Equal(t, "Bearer brioi-key", r.Header.Get("Authorization"))
+		_, _ = w.Write([]byte(`{"data":[{"id":"seedance-2-0"},{"id":"seedance-2-5"}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	baseURL := server.URL + "/"
+	result := testChannel(context.Background(), &model.Channel{
+		Type:    constant.ChannelTypeBrioi,
+		Key:     "brioi-key",
+		BaseURL: &baseURL,
+		Setting: brioiR2ChannelSetting(t),
+	}, 0, "seedance-2-0", "", false)
+
+	require.NoError(t, result.localErr)
+	assert.Nil(t, result.newAPIError)
+	assert.Equal(t, []string{"seedance-2-0", "seedance-2-5"}, result.models)
+	assert.Equal(t, 1, requestCount)
+}
+
+func TestBrioiChannelTestUsesConfiguredProxy(t *testing.T) {
+	allowBrioiR2Validation(t)
+	proxyCalls := 0
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyCalls++
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "brioi.invalid", r.URL.Host)
+		assert.Equal(t, "/v1/models", r.URL.Path)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	t.Cleanup(proxy.Close)
+
+	settingBytes, err := common.Marshal(dto.ChannelSettings{
+		Proxy:                   proxy.URL,
+		VideoInputMediaDelivery: dto.VideoInputMediaR2Presigned,
+	})
+	require.NoError(t, err)
+	setting := string(settingBytes)
+	baseURL := "http://brioi.invalid"
+	result := testChannel(context.Background(), &model.Channel{
+		Type:    constant.ChannelTypeBrioi,
+		Key:     "brioi-key",
+		BaseURL: &baseURL,
+		Setting: &setting,
+	}, 0, "", "", false)
+
+	require.NoError(t, result.localErr)
+	assert.Empty(t, result.models)
+	assert.Equal(t, 1, proxyCalls)
+}
+
+func TestBrioiChannelTestReportsAuthenticationFailureWithoutSubmittingVideo(t *testing.T) {
+	allowBrioiR2Validation(t)
+	modelCalls := 0
+	videoCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			modelCalls++
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"message":"invalid Brioi key"}}`))
+		case "/v1/videos":
+			videoCalls++
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	baseURL := server.URL
+	result := testChannel(context.Background(), &model.Channel{
+		Type:    constant.ChannelTypeBrioi,
+		Key:     "bad-key",
+		BaseURL: &baseURL,
+		Setting: brioiR2ChannelSetting(t),
+	}, 0, "", "", false)
+
+	require.Error(t, result.localErr)
+	require.NotNil(t, result.newAPIError)
+	assert.Contains(t, result.localErr.Error(), "invalid Brioi key")
+	assert.Equal(t, 1, modelCalls)
+	assert.Zero(t, videoCalls)
+}
+
+func TestBrioiChannelTestRequiresR2BeforeCallingUpstream(t *testing.T) {
+	model.RegisterVideoR2StorageValidator(func() error {
+		return errors.New("R2 unavailable")
+	})
+	t.Cleanup(func() {
+		model.RegisterVideoR2StorageValidator(service.ValidateVideoR2StorageConfigured)
+	})
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	baseURL := server.URL
+	result := testChannel(context.Background(), &model.Channel{
+		Type:    constant.ChannelTypeBrioi,
+		Key:     "brioi-key",
+		BaseURL: &baseURL,
+		Setting: brioiR2ChannelSetting(t),
+	}, 0, "", "", false)
+
+	require.ErrorContains(t, result.localErr, "R2 unavailable")
+	assert.Zero(t, requestCount)
 }
 
 func TestSilkRoadChannelSkipsSynchronousChannelTest(t *testing.T) {

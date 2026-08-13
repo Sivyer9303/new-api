@@ -68,7 +68,10 @@ type TaskAdaptor interface {
 	BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error)
 
 	DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error)
-	DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, err *taskdto.TaskError)
+	// DoResponse parses a successful upstream response. It must not write to the
+	// client response; the common task controller writes ResponseData only after
+	// provider acceptance and the task record are durable.
+	DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*TaskSubmitResponse, *taskdto.TaskError)
 
 	GetModelList() []string
 	GetChannelName() string
@@ -77,6 +80,12 @@ type TaskAdaptor interface {
 
 	FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error)
 	ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error)
+}
+
+type TaskSubmitResponse struct {
+	UpstreamTaskID string
+	TaskData       []byte
+	ResponseData   []byte
 }
 
 type OpenAIVideoConverter interface {

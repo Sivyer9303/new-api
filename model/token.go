@@ -421,6 +421,20 @@ func IncreaseTokenQuota(tokenId int, key string, quota int) (err error) {
 	return increaseTokenQuota(tokenId, quota)
 }
 
+func IncreaseTokenQuotaDirect(tokenId int, key string, quota int) error {
+	if quota < 0 {
+		return errors.New("quota 不能为负数！")
+	}
+	if common.RedisEnabled {
+		gopool.Go(func() {
+			if err := cacheIncrTokenQuota(key, int64(quota)); err != nil {
+				common.SysLog("failed to increase token quota: " + err.Error())
+			}
+		})
+	}
+	return increaseTokenQuota(tokenId, quota)
+}
+
 func increaseTokenQuota(id int, quota int) (err error) {
 	err = DB.Model(&Token{}).Where("id = ?", id).Updates(
 		map[string]interface{}{
@@ -447,6 +461,20 @@ func DecreaseTokenQuota(id int, key string, quota int) (err error) {
 	if common.BatchUpdateEnabled {
 		addNewRecord(BatchUpdateTypeTokenQuota, id, -quota)
 		return nil
+	}
+	return decreaseTokenQuota(id, quota)
+}
+
+func DecreaseTokenQuotaDirect(id int, key string, quota int) error {
+	if quota < 0 {
+		return errors.New("quota 不能为负数！")
+	}
+	if common.RedisEnabled {
+		gopool.Go(func() {
+			if err := cacheDecrTokenQuota(key, int64(quota)); err != nil {
+				common.SysLog("failed to decrease token quota: " + err.Error())
+			}
+		})
 	}
 	return decreaseTokenQuota(id, quota)
 }

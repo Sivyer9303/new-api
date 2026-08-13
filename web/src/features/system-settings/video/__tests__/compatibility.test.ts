@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
@@ -15,6 +33,8 @@ const legacySettings: VideoSettings = {
   'silkroad_setting.common': '{}',
   'silkroad_setting.profiles': '[{"id":"legacy"}]',
   'silkroad_setting.default_profile_id': 'legacy',
+  'brioi_setting.profiles': '[]',
+  'brioi_setting.video_tool_groups': '[]',
   'silkroad_setting.storage':
     '{"enabled":true,"driver":"local","local_dir":"legacy/videos","retention_days":7,"max_retry":9,"ingest_node_name":"legacy-node","public_download_base_url":"https://video.example.com"}',
   'silkroad_setting.video_tool_groups': '["default","vip"]',
@@ -81,6 +101,29 @@ describe('video settings compatibility', () => {
       },
     ]
 
-    assert.deepEqual(resolveVideoSettings(explicit, raw), explicit)
+    assert.deepEqual(resolveVideoSettings(explicit, raw), {
+      ...explicit,
+      'silkroad_setting.video_tool_groups': '["video"]',
+    })
+  })
+
+  test('hydrates SilkRoad provider groups from the legacy generic option', () => {
+    const settings = {
+      ...legacySettings,
+      'video_setting.video_tool_groups': '["legacy-video"]',
+      'silkroad_setting.video_tool_groups': '[]',
+    }
+    const raw: SystemOption[] = [
+      {
+        key: 'video_setting.video_tool_groups',
+        value: '["legacy-video"]',
+      },
+    ]
+
+    const resolved = resolveVideoSettings(settings, raw)
+    assert.equal(
+      resolved['silkroad_setting.video_tool_groups'],
+      '["legacy-video"]'
+    )
   })
 })

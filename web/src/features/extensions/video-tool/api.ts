@@ -20,11 +20,16 @@ import axios from 'axios'
 
 import { api } from '@/lib/api'
 
+import { normalizeVideoToolConfig } from './lib/provider-config'
 import type {
   VideoFetchResponse,
   VideoSubmitResponse,
   VideoToolConfig,
+  VideoToolModel,
+  VideoToolModelDiscovery,
 } from './types'
+
+export const VIDEO_TOOL_MODELS_ENDPOINT = '/api/video/models'
 
 function bearerKey(tokenKey: string): string {
   return tokenKey.startsWith('sk-') ? tokenKey : `sk-${tokenKey}`
@@ -47,24 +52,134 @@ export async function fetchVideoToolConfig(): Promise<{
   message?: string
   data?: VideoToolConfig
 }> {
-  const res = await api.get('/api/video/tool-config')
-  return res.data
+  const res = await api.get<{
+    success: boolean
+    message?: string
+    data?: unknown
+  }>('/api/video/tool-config')
+  return {
+    success: res.data.success,
+    message: res.data.message,
+    data:
+      res.data.data === undefined
+        ? undefined
+        : normalizeVideoToolConfig(res.data.data),
+  }
 }
 
-export async function fetchModelsWithTokenKey(
-  tokenKey: string
-): Promise<string[]> {
-  try {
-    const res = await axios.get<{ data?: Array<{ id?: string }> }>(
-      '/v1/models',
-      {
-        headers: {
-          Authorization: `Bearer ${bearerKey(tokenKey)}`,
-        },
+export function normalizeVideoModelList(value: unknown): VideoToolModel[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === 'string') {
+          const id = item.trim()
+          return id ? { id, profile_model: id } : null
+        }
+        if (!item || typeof item !== 'object') return null
+        const model = item as Record<string, unknown>
+        const id = model.id ?? model.model ?? model.model_name
+        if (typeof id !== 'string' || !id.trim()) return null
+        const rawProfileModel =
+          model.profile_model ??
+          model.capability_model ??
+          model.upstream_model ??
+          model.mapped_model
+        const profileModel =
+          typeof rawProfileModel === 'string' && rawProfileModel.trim()
+            ? rawProfileModel.trim()
+            : id.trim()
+        const rawProvider =
+          model.provider_id ?? model.provider ?? model.owned_by
+        return {
+          id: id.trim(),
+          profile_model: profileModel,
+          provider_id:
+            typeof rawProvider === 'string' ? rawProvider.trim() : undefined,
+        }
+      })
+      .filter((model): model is VideoToolModel => model !== null)
+  }
+  if (!value || typeof value !== 'object') return []
+  const record = value as Record<string, unknown>
+  const rawProfileMap =
+    record.profile_models ??
+    record.upstream_models ??
+    record.model_mapping ??
+    record.capability_models
+  const profileMap =
+    rawProfileMap &&
+    typeof rawProfileMap === 'object' &&
+    !Array.isArray(rawProfileMap)
+      ? (rawProfileMap as Record<string, unknown>)
+      : null
+  for (const key of ['models', 'items', 'data']) {
+    if (record[key] !== undefined) {
+      const models = normalizeVideoModelList(record[key])
+      if (models.length > 0) {
+        return models.map((model) => {
+          const mapped = profileMap?.[model.id]
+          return typeof mapped === 'string' && mapped.trim()
+            ? { ...model, profile_model: mapped.trim() }
+            : model
+        })
       }
-    )
-    const items = res.data?.data ?? []
-    return items.map((m) => m.id?.trim() ?? '').filter((id) => id.length > 0)
+    }
+  }
+  return []
+}
+
+export function normalizeVideoModelDiscovery(
+  payload: unknown
+): VideoToolModelDiscovery {
+  const record =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : null
+  const models = normalizeVideoModelList(payload)
+  const resolvedGroups = Array.isArray(record?.resolved_groups)
+    ? record.resolved_groups
+        .filter((group): group is string => typeof group === 'string')
+        .map((group) => group.trim())
+        .filter(Boolean)
+    : []
+  return {
+    group: typeof record?.group === 'string' ? record.group.trim() : '',
+    resolved_groups: [...new Set(resolvedGroups)],
+    provider:
+      typeof record?.provider === 'string'
+        ? record.provider.trim() || undefined
+        : undefined,
+    reason:
+      typeof record?.reason === 'string'
+        ? record.reason.trim() || undefined
+        : undefined,
+    models: [
+      ...new Map(models.map((model) => [model.id, model] as const)).values(),
+    ],
+  }
+}
+
+export async function fetchVideoModelsForToken(
+  tokenId: number,
+  signal?: AbortSignal
+): Promise<VideoToolModelDiscovery> {
+  try {
+    const res = await api.get<unknown>(VIDEO_TOOL_MODELS_ENDPOINT, {
+      params: { token_id: tokenId },
+      signal,
+    })
+    const envelope =
+      res.data && typeof res.data === 'object' && !Array.isArray(res.data)
+        ? (res.data as Record<string, unknown>)
+        : null
+    if (envelope?.success === false) {
+      throw new Error(
+        typeof envelope.message === 'string'
+          ? envelope.message
+          : 'Failed to load models'
+      )
+    }
+    return normalizeVideoModelDiscovery(envelope?.data ?? res.data)
   } catch (err) {
     throw axiosErrorMessage(err, 'Failed to load models')
   }

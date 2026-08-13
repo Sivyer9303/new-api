@@ -225,7 +225,7 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 }
 
 // DoResponse handles upstream response, returns taskID etc.
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *dto.TaskError) {
+func (a *TaskAdaptor) DoResponse(_ *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (submitResult *channel.TaskSubmitResponse, taskErr *dto.TaskError) {
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		taskErr = service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
@@ -236,7 +236,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	// Parse Sora response
 	var dResp responseTask
 	if err := common.Unmarshal(responseBody, &dResp); err != nil {
-		taskErr = service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError)
+		taskErr = service.TaskErrorWrapper(errors.Wrap(err, "parse Sora submit response"), "unmarshal_response_body_failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -252,8 +252,15 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	// 使用公开 task_xxxx ID 返回给客户端
 	dResp.ID = info.PublicTaskID
 	dResp.TaskID = info.PublicTaskID
-	c.JSON(http.StatusOK, dResp)
-	return upstreamID, responseBody, nil
+	responseData, err := common.Marshal(dResp)
+	if err != nil {
+		return nil, service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError)
+	}
+	return &channel.TaskSubmitResponse{
+		UpstreamTaskID: upstreamID,
+		TaskData:       responseBody,
+		ResponseData:   responseData,
+	}, nil
 }
 
 // FetchTask fetch task status

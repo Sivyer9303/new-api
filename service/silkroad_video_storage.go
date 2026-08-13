@@ -38,22 +38,26 @@ func SilkRoadVideoLocalPath(taskID string) string {
 	return VideoLocalPath(taskID)
 }
 
-// WriteSilkRoadVideoFile writes video bytes for taskID under LocalDir.
-func WriteSilkRoadVideoFile(taskID string, r io.Reader) (absPath string, size int64, err error) {
+// WriteVideoFile writes video bytes for taskID under LocalDir.
+func WriteVideoFile(taskID string, r io.Reader) (absPath string, size int64, err error) {
 	driver := localVideoStorageDriver()
 	stored, err := driver.Store(context.Background(), taskID, r, VideoObjectMetadata{})
 	if err != nil {
 		return "", 0, err
 	}
-	abs, err := filepath.Abs(SilkRoadVideoLocalPath(stored.ObjectKey))
+	abs, err := filepath.Abs(VideoLocalPath(stored.ObjectKey))
 	if err != nil {
 		return "", 0, err
 	}
 	return abs, stored.Size, nil
 }
 
-// OpenSilkRoadVideoFile opens the local video file for reading.
-func OpenSilkRoadVideoFile(taskID string) (*os.File, error) {
+func WriteSilkRoadVideoFile(taskID string, r io.Reader) (absPath string, size int64, err error) {
+	return WriteVideoFile(taskID, r)
+}
+
+// OpenVideoFile opens the local video file for reading.
+func OpenVideoFile(taskID string) (*os.File, error) {
 	handle, err := localVideoStorageDriver().Open(context.Background(), taskID)
 	if err != nil {
 		return nil, err
@@ -64,6 +68,10 @@ func OpenSilkRoadVideoFile(taskID string) (*os.File, error) {
 		return nil, os.ErrInvalid
 	}
 	return file, nil
+}
+
+func OpenSilkRoadVideoFile(taskID string) (*os.File, error) {
+	return OpenVideoFile(taskID)
 }
 
 // OpenStoredVideo opens a stored video for streaming. Object-storage drivers
@@ -120,13 +128,17 @@ func PresignStoredVideoURL(ctx context.Context, task *model.Task) (string, bool,
 	return signed, true, nil
 }
 
-// DeleteSilkRoadVideoFile removes the stored video object for taskID.
-func DeleteSilkRoadVideoFile(taskID string) error {
+// DeleteVideoFile removes the stored video object for taskID.
+func DeleteVideoFile(taskID string) error {
 	driver, err := CurrentVideoStorageDriver()
 	if err != nil {
 		return err
 	}
 	return driver.Delete(context.Background(), taskID)
+}
+
+func DeleteSilkRoadVideoFile(taskID string) error {
+	return DeleteVideoFile(taskID)
 }
 
 // BuildSilkRoadPublicURL builds the public content URL for a stored video.

@@ -48,7 +48,8 @@ func RefundVideoDeliveryFailure(
 			return nil
 		}
 		if task.Status != TaskStatusFailure ||
-			task.PrivateData.StorageStatus != "failed" ||
+			(task.PrivateData.StorageStatus != "failed" &&
+				task.PrivateData.StorageStatus != TaskStorageStatusProviderReview) ||
 			!task.PrivateData.NoAutomaticRefund ||
 			task.Quota <= 0 {
 			return ErrVideoTaskNotDeliveryFailure

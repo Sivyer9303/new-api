@@ -8,6 +8,7 @@ License, or (at your option) any later version.
 */
 import { createElement } from 'react'
 
+import { BrioiSettingsSection } from '../extensions/brioi-settings-section'
 import { SilkRoadSettingsSection } from '../extensions/silkroad-settings-section'
 import type { VideoSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
@@ -22,7 +23,6 @@ const VIDEO_SECTIONS = [
       createElement(VideoGeneralSettingsSection, {
         defaultValues: {
           enabled: settings['video_setting.enabled'],
-          groupsJson: settings['video_setting.video_tool_groups'],
         },
       }),
   },
@@ -43,6 +43,18 @@ const VIDEO_SECTIONS = [
           commonJson: settings['silkroad_setting.common'],
           profilesJson: settings['silkroad_setting.profiles'],
           defaultProfileID: settings['silkroad_setting.default_profile_id'],
+          groupsJson: settings['silkroad_setting.video_tool_groups'],
+        },
+      }),
+  },
+  {
+    id: 'brioi',
+    titleKey: 'Brioi',
+    build: (settings: VideoSettings) =>
+      createElement(BrioiSettingsSection, {
+        defaultValues: {
+          groupsJson: settings['brioi_setting.video_tool_groups'],
+          profilesJson: settings['brioi_setting.profiles'],
         },
       }),
   },

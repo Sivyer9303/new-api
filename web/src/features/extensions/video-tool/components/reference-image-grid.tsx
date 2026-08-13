@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Cancel01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -28,29 +28,46 @@ import {
   createReferenceImageItem,
   type ReferenceImageItem,
 } from '../lib/reference-image'
+import type { VideoMediaRole } from '../types'
 
 type ReferenceImageGridProps = {
   items: ReferenceImageItem[]
   onChange: (items: ReferenceImageItem[]) => void
   min: number
   max: number
+  roles: VideoMediaRole[]
   disabled?: boolean
 }
 
 /**
- * 3×3-style reference image picker. Empty cells open a file dialog; multi-select
+ * Three-column reference image picker. Empty cells open a file dialog; multi-select
  * appends until max. Existing thumbnails can be removed individually.
  */
 export function ReferenceImageGrid(props: ReferenceImageGridProps) {
   const { t } = useTranslation()
   const inputRef = useRef<HTMLInputElement>(null)
   const replaceIndexRef = useRef<number | null>(null)
+  const mountedRef = useRef(true)
+  const previewRequestRef = useRef(0)
+  const [creatingPreviews, setCreatingPreviews] = useState(false)
   const inputId = useId()
-  const maxSlots = Math.min(Math.max(props.max, 0), 9)
+  const maxSlots = Math.min(Math.max(props.max, 0), 30)
   const remaining = Math.max(0, props.max - props.items.length)
+  const disabled = props.disabled || creatingPreviews
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    previewRequestRef.current += 1
+    setCreatingPreviews(false)
+  }, [props.max])
 
   const openPicker = (replaceIndex: number | null) => {
-    if (props.disabled) return
+    if (disabled) return
     if (replaceIndex === null && remaining <= 0) {
       toast.error(
         t('You can upload at most {{max}} image(s)', { max: props.max })
@@ -66,7 +83,7 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
     }
   }
 
-  const handleFilesSelected = (fileList: FileList | null) => {
+  const handleFilesSelected = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return
     const picked = [...fileList].filter((f) => f.type.startsWith('image/'))
     if (picked.length === 0) {
@@ -83,11 +100,19 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
       replaceIndex < props.items.length
     ) {
       // Replace a single slot (first picked file only).
+      const requestId = ++previewRequestRef.current
+      setCreatingPreviews(true)
+      const created = await createReferenceImageItem(picked[0])
+      if (!mountedRef.current || requestId !== previewRequestRef.current) {
+        URL.revokeObjectURL(created.previewUrl)
+        return
+      }
       const next = [...props.items]
       const prev = next[replaceIndex]
       URL.revokeObjectURL(prev.previewUrl)
-      next[replaceIndex] = createReferenceImageItem(picked[0])
+      next[replaceIndex] = created
       props.onChange(next)
+      setCreatingPreviews(false)
       if (picked.length > 1) {
         toast.message(
           t('Replaced one image. Extra selected files were ignored.')
@@ -104,8 +129,15 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
       return
     }
     const accepted = picked.slice(0, room)
-    const created = accepted.map(createReferenceImageItem)
+    const requestId = ++previewRequestRef.current
+    setCreatingPreviews(true)
+    const created = await Promise.all(accepted.map(createReferenceImageItem))
+    if (!mountedRef.current || requestId !== previewRequestRef.current) {
+      for (const item of created) URL.revokeObjectURL(item.previewUrl)
+      return
+    }
     props.onChange([...props.items, ...created])
+    setCreatingPreviews(false)
     if (picked.length > room) {
       toast.message(
         t('Only {{count}} more image(s) could be added (max {{max}}).', {
@@ -125,9 +157,13 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
 
   if (maxSlots <= 0) return null
 
-  const slots: Array<ReferenceImageItem | null> = [...Array(maxSlots)].map(
-    (_, i) => props.items[i] ?? null
+  const visibleSlotCount = Math.min(
+    maxSlots,
+    Math.max(props.items.length + (remaining > 0 ? 1 : 0), props.min)
   )
+  const slots: Array<ReferenceImageItem | null> = [
+    ...Array(visibleSlotCount),
+  ].map((_, i) => props.items[i] ?? null)
 
   return (
     <div className='space-y-2'>
@@ -138,12 +174,16 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
         accept='image/*'
         multiple
         className='sr-only'
-        disabled={props.disabled}
-        onChange={(e) => handleFilesSelected(e.target.files)}
+        disabled={disabled}
+        onChange={(e) => void handleFilesSelected(e.target.files)}
       />
       <div className='grid w-fit grid-cols-3 gap-2'>
         {slots.map((item, index) => {
           if (item) {
+            const role = props.roles[index] ?? props.roles[0] ?? 'reference'
+            let roleLabel = t('Reference')
+            if (role === 'first_frame') roleLabel = t('First frame')
+            if (role === 'last_frame') roleLabel = t('Last frame')
             return (
               <div
                 key={item.id}
@@ -153,7 +193,7 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
                   type='button'
                   className='size-full cursor-pointer'
                   onClick={() => openPicker(index)}
-                  disabled={props.disabled}
+                  disabled={disabled}
                   aria-label={t('Replace image {{n}}', { n: index + 1 })}
                 >
                   <img
@@ -169,13 +209,13 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
                     'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
                   )}
                   onClick={() => removeAt(index)}
-                  disabled={props.disabled}
+                  disabled={disabled}
                   aria-label={t('Remove image {{n}}', { n: index + 1 })}
                 >
                   <HugeiconsIcon icon={Cancel01Icon} className='size-3' />
                 </button>
-                <span className='bg-background/80 absolute bottom-1 left-1 rounded px-1 py-0.5 text-[10px] font-medium tabular-nums'>
-                  {index + 1}
+                <span className='bg-background/80 absolute bottom-1 left-1 rounded px-1 py-0.5 text-[10px] font-medium'>
+                  {index + 1} · {roleLabel}
                 </span>
               </div>
             )
@@ -187,11 +227,11 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
             <button
               key={`empty-slot-${index + 1}-of-${maxSlots}`}
               type='button'
-              disabled={props.disabled || !canAdd}
+              disabled={disabled || !canAdd}
               onClick={() => openPicker(null)}
               className={cn(
                 'border-muted-foreground/30 text-muted-foreground flex size-28 flex-col items-center justify-center gap-0.5 rounded-md border border-dashed text-xs transition-colors sm:size-32',
-                canAdd && !props.disabled
+                canAdd && !disabled
                   ? 'hover:border-primary hover:text-primary cursor-pointer'
                   : 'cursor-not-allowed opacity-40'
               )}

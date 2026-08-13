@@ -257,6 +257,48 @@ func TestUpdateWithStatus_ConcurrentWinner(t *testing.T) {
 	assert.Equal(t, 1, winCount, "exactly one goroutine should win the CAS")
 }
 
+func TestSettlementRecoveryLeasePreventsStaleWorkerOverwrite(t *testing.T) {
+	truncateTables(t)
+	task := &Task{
+		TaskID: "settlement_recovery_lease",
+		Status: TaskStatusSettlementProcessing,
+	}
+	insertTask(t, task)
+
+	firstWorker := *task
+	claimed, err := firstWorker.ClaimWithStatusAndUpdatedAt(
+		TaskStatusSettlementProcessing,
+		TaskStatusSettlementRecovering,
+	)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	firstLease := firstWorker.UpdatedAt
+
+	var secondWorker Task
+	require.NoError(t, DB.First(&secondWorker, task.ID).Error)
+	claimed, err = secondWorker.ClaimWithStatusAndUpdatedAt(
+		TaskStatusSettlementRecovering,
+		TaskStatusSettlementRecovering,
+	)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	assert.Greater(t, secondWorker.UpdatedAt, firstLease)
+
+	firstWorker.Status = TaskStatusFailure
+	firstWorker.FailReason = "stale worker must not win"
+	updated, err := firstWorker.UpdateWithStatusAndUpdatedAt(
+		TaskStatusSettlementRecovering,
+		firstLease,
+	)
+	require.NoError(t, err)
+	assert.False(t, updated)
+
+	var stored Task
+	require.NoError(t, DB.First(&stored, task.ID).Error)
+	assert.Equal(t, TaskStatusSettlementRecovering, stored.Status)
+	assert.NotEqual(t, "stale worker must not win", stored.FailReason)
+}
+
 func TestGetVideoTaskByTaskIDRejectsAmbiguousIdentifier(t *testing.T) {
 	truncateTables(t)
 	for _, userID := range []int{1, 2} {

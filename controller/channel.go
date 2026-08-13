@@ -475,6 +475,10 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	if channel == nil {
 		return fmt.Errorf("channel cannot be empty")
 	}
+	if channel.Type == constant.ChannelTypeBrioi &&
+		strings.TrimSpace(channel.GetBaseURL()) == "" {
+		return fmt.Errorf("Brioi channel base URL cannot be empty")
+	}
 
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
@@ -487,6 +491,8 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 			return fmt.Errorf("New API channel base URL cannot be empty")
 		case constant.ChannelTypeSilkRoad:
 			return fmt.Errorf("SilkRoad channel base URL cannot be empty")
+		case constant.ChannelTypeBrioi:
+			return fmt.Errorf("Brioi channel base URL cannot be empty")
 		}
 	}
 

@@ -59,7 +59,8 @@ const (
 	ChannelTypeSub2API        = 59
 	ChannelTypeNewAPI         = 60
 	ChannelTypeSilkRoad       = 61
-	ChannelTypeDummy          = 62 // this one is only for count, do not add any channel after this
+	ChannelTypeBrioi          = 62
+	ChannelTypeDummy          = 63 // this one is only for count, do not add any channel after this
 
 )
 
@@ -126,6 +127,7 @@ var ChannelBaseURLs = []string{
 	"",                                          //59
 	"",                                          //60
 	"",                                          //61
+	"",                                          //62
 }
 
 var ChannelTypeNames = map[int]string{
@@ -187,6 +189,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeSub2API:        "Sub2API",
 	ChannelTypeNewAPI:         "New API",
 	ChannelTypeSilkRoad:       "SilkRoad",
+	ChannelTypeBrioi:          "Brioi",
 }
 
 func GetChannelTypeName(channelType int) string {

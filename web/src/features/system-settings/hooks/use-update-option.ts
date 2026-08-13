@@ -20,8 +20,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 
-import { updateSystemOption } from '../api'
-import type { UpdateOptionRequest } from '../types'
+import { updateSystemOption, updateVideoProviderOption } from '../api'
+import type {
+  UpdateOptionRequest,
+  UpdateVideoProviderOptionRequest,
+} from '../types'
 
 // Configuration keys that require status refresh
 const STATUS_RELATED_KEYS = new Set([
@@ -47,6 +50,14 @@ const STATUS_RELATED_KEYS = new Set([
   'TurnstileSecretKey',
 ])
 
+function isVideoToolRelatedKey(key: string) {
+  return (
+    key === 'video_setting.enabled' ||
+    key.startsWith('silkroad_setting.') ||
+    key.startsWith('brioi_setting.')
+  )
+}
+
 export function useUpdateOption() {
   const queryClient = useQueryClient()
 
@@ -58,13 +69,19 @@ export function useUpdateOption() {
         queryClient.invalidateQueries({ queryKey: ['system-options'] })
 
         // If updating frontend-display-related config, also refresh status
-        if (STATUS_RELATED_KEYS.has(variables.key)) {
+        if (
+          STATUS_RELATED_KEYS.has(variables.key) ||
+          isVideoToolRelatedKey(variables.key)
+        ) {
           queryClient.invalidateQueries({ queryKey: ['status'] })
           try {
             window.localStorage.removeItem('status')
           } catch {
             /* empty */
           }
+        }
+        if (isVideoToolRelatedKey(variables.key)) {
+          queryClient.invalidateQueries({ queryKey: ['video-tool-config'] })
         }
 
         // Backend may return a non-empty message on success as a warning
@@ -81,6 +98,26 @@ export function useUpdateOption() {
     },
     onError: (error: Error) => {
       toast.error(error.message || i18next.t('Failed to update setting'))
+    },
+  })
+}
+
+export function useUpdateVideoProviderOption() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (request: UpdateVideoProviderOptionRequest) =>
+      updateVideoProviderOption(request),
+    onSuccess: (data) => {
+      if (!data.success) return
+      queryClient.invalidateQueries({ queryKey: ['system-options'] })
+      queryClient.invalidateQueries({ queryKey: ['status'] })
+      queryClient.invalidateQueries({ queryKey: ['video-tool-config'] })
+      try {
+        window.localStorage.removeItem('status')
+      } catch {
+        /* empty */
+      }
     },
   })
 }

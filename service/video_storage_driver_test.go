@@ -115,3 +115,24 @@ func TestValidateVideoStorageReadyRejectsDisabledOrIncompleteConfiguration(t *te
 	s.Storage.PublicDownloadBaseURL = "https://video.example.com"
 	require.NoError(t, ValidateVideoStorageReady())
 }
+
+func TestValidateVideoGenerationReadyEnforcesFeatureSwitch(t *testing.T) {
+	previous := videoGenerationEnabled
+	videoGenerationEnabled = func() bool { return false }
+	t.Cleanup(func() { videoGenerationEnabled = previous })
+
+	require.ErrorContains(t, ValidateVideoGenerationReady(), "not enabled")
+
+	videoGenerationEnabled = func() bool { return true }
+	s := silkroad_setting.GetSilkRoadSetting()
+	previousStorage := s.Storage
+	t.Cleanup(func() { s.Storage = previousStorage })
+	s.Storage.Enabled = true
+	s.Storage.Driver = "local"
+	s.Storage.LocalDir = t.TempDir()
+	s.Storage.MaxRetry = 3
+	s.Storage.IngestNodeName = "node-a"
+	s.Storage.PublicDownloadBaseURL = "https://video.example.com"
+
+	require.NoError(t, ValidateVideoGenerationReady())
+}

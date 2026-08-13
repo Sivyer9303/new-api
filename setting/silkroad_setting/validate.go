@@ -9,8 +9,18 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
-// ValidateSilkRoadSetting checks silkroad_setting invariants before save/use.
+// ValidateSilkRoadSetting checks the complete legacy module. Section-specific
+// option saves use the narrower provider/storage validators below.
 func ValidateSilkRoadSetting(s *SilkRoadSetting) error {
+	if err := ValidateSilkRoadProviderSetting(s); err != nil {
+		return err
+	}
+	return ValidateSilkRoadStorageSetting(&s.Storage)
+}
+
+// ValidateSilkRoadProviderSetting validates only provider capabilities and
+// groups, without depending on the deprecated storage section.
+func ValidateSilkRoadProviderSetting(s *SilkRoadSetting) error {
 	if s == nil {
 		return errors.New("silkroad setting is nil")
 	}
@@ -72,11 +82,15 @@ func ValidateSilkRoadSetting(s *SilkRoadSetting) error {
 	if _, ok := seenIDs[s.DefaultProfileID]; !ok {
 		return fmt.Errorf("default_profile_id %q does not reference an existing profile", s.DefaultProfileID)
 	}
-	if err := validateStorage(&s.Storage); err != nil {
-		return err
-	}
 	s.VideoToolGroups = NormalizeVideoToolGroups(s.VideoToolGroups)
 	return nil
+}
+
+func ValidateSilkRoadStorageSetting(s *StorageSetting) error {
+	if s == nil {
+		return errors.New("silkroad storage setting is nil")
+	}
+	return validateStorage(s)
 }
 
 // NormalizeVideoToolGroups trims, drops empties, and deduplicates group names

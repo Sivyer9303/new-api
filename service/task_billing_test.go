@@ -308,6 +308,9 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 
 	seedUser(t, userID, initQuota)
 	seedToken(t, tokenID, userID, "sk-test-key", tokenRemain)
+	require.NoError(t, model.DB.Model(&model.Token{}).
+		Where("id = ?", tokenID).
+		Update("used_quota", preConsumed).Error)
 	seedChannel(t, channelID)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
@@ -320,7 +323,7 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 
 	// Token remain_quota should increase, used_quota should decrease
 	assert.Equal(t, tokenRemain+preConsumed, getTokenRemainQuota(t, tokenID))
-	assert.Equal(t, -preConsumed, getTokenUsedQuota(t, tokenID))
+	assert.Zero(t, getTokenUsedQuota(t, tokenID))
 
 	// A refund log should be created
 	log := getLastLog(t)

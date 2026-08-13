@@ -295,27 +295,51 @@ func ValidateVideoSetting(s *VideoSetting) error {
 	if s == nil {
 		return errors.New("video setting is nil")
 	}
-	NormalizeStorageSetting(&s.Storage)
+	if err := ValidateVideoStorageSetting(&s.Storage); err != nil {
+		return err
+	}
 	switch s.Storage.Driver {
 	case DriverLocal:
-		if err := validateLocalStorage(s.Storage, s.Enabled); err != nil {
-			return err
+		if s.Enabled {
+			if strings.TrimSpace(s.Storage.IngestNodeName) == "" {
+				return errors.New("storage.ingest_node_name is required when video generation is enabled")
+			}
+			if strings.TrimSpace(s.Storage.PublicDownloadBaseURL) == "" {
+				return errors.New("storage.public_download_base_url is required when video generation is enabled")
+			}
 		}
 	case DriverR2:
-		if err := validateR2Storage(s.Storage.R2); err != nil {
-			return err
-		}
 		if s.Enabled && strings.TrimSpace(s.Storage.PublicDownloadBaseURL) == "" {
 			return errors.New("storage.public_download_base_url is required when video generation is enabled")
 		}
-	default:
-		return fmt.Errorf("storage.driver must be %q or %q, got %q",
-			DriverLocal, DriverR2, s.Storage.Driver)
-	}
-	if s.Storage.MaxRetry < 1 {
-		return errors.New("storage.max_retry must be >= 1")
 	}
 	s.VideoToolGroups = NormalizeVideoToolGroups(s.VideoToolGroups)
+	return nil
+}
+
+// ValidateVideoStorageSetting validates only the Storage section. Readiness
+// requirements that depend on the General enabled switch are checked at use.
+func ValidateVideoStorageSetting(s *StorageSetting) error {
+	if s == nil {
+		return errors.New("video storage setting is nil")
+	}
+	NormalizeStorageSetting(s)
+	switch s.Driver {
+	case DriverLocal:
+		if err := validateLocalStorage(*s, false); err != nil {
+			return err
+		}
+	case DriverR2:
+		if err := validateR2Storage(s.R2); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("storage.driver must be %q or %q, got %q",
+			DriverLocal, DriverR2, s.Driver)
+	}
+	if s.MaxRetry < 1 {
+		return errors.New("storage.max_retry must be >= 1")
+	}
 	return nil
 }
 

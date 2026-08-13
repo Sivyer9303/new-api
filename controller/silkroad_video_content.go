@@ -50,6 +50,11 @@ func serveSilkRoadVideoContent(c *gin.Context, task *model.Task) {
 			return
 		}
 		if redirects {
+			logger.LogInfo(c.Request.Context(), fmt.Sprintf(
+				"task_lifecycle stage=content_delivery task_id=%s channel_id=%d driver=object",
+				task.TaskID,
+				task.ChannelId,
+			))
 			c.Header("Cache-Control", "private, no-store")
 			c.Redirect(http.StatusFound, signedURL)
 			return
@@ -89,6 +94,11 @@ func serveSilkRoadVideoContent(c *gin.Context, task *model.Task) {
 		c.Header("Content-Type", contentType)
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("Cache-Control", "public, max-age=86400")
+		logger.LogInfo(c.Request.Context(), fmt.Sprintf(
+			"task_lifecycle stage=content_delivery task_id=%s channel_id=%d driver=local",
+			task.TaskID,
+			task.ChannelId,
+		))
 		http.ServeContent(c.Writer, c.Request, task.TaskID+".mp4", stat.ModTime(), f)
 		return
 	default:

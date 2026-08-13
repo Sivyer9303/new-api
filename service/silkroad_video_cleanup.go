@@ -12,12 +12,12 @@ import (
 	"github.com/QuantumNous/new-api/setting"
 )
 
-const silkRoadVideoCleanupBatch = 20
+const videoCleanupBatch = 20
 
-// RunSilkRoadVideoCleanupOnce deletes local files past retention and marks tasks
-// expired. No-op unless this process is the ingest node.
+// RunVideoCleanupOnce deletes stored objects past retention and marks tasks
+// expired. It is a no-op unless this process is an ingest node.
 func RunVideoCleanupOnce(ctx context.Context) error {
-	if !IsSilkRoadIngestNode() {
+	if !IsVideoIngestNode() {
 		return nil
 	}
 	storage := setting.GetEffectiveVideoSetting()
@@ -26,12 +26,12 @@ func RunVideoCleanupOnce(ctx context.Context) error {
 	}
 
 	now := time.Now().Unix()
-	tasks, err := claimSilkRoadExpiredVideoTasks(silkRoadVideoCleanupBatch, now)
+	tasks, err := claimExpiredVideoTasks(videoCleanupBatch, now)
 	if err != nil {
 		return err
 	}
 	for _, task := range tasks {
-		if err := expireOneSilkRoadVideo(task); err != nil {
+		if err := expireOneVideo(task); err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf(
 				"video cleanup delete failed task=%s: %s",
 				task.TaskID, err.Error(),
@@ -40,7 +40,7 @@ func RunVideoCleanupOnce(ctx context.Context) error {
 		}
 		if _, err := task.UpdateWithStatus(model.TaskStatusStorageDeleting); err != nil {
 			logger.LogError(ctx, fmt.Sprintf(
-				"silkroad cleanup persist failed task=%s: %s",
+				"video cleanup persist failed task=%s: %s",
 				task.TaskID, err.Error(),
 			))
 		}
@@ -52,7 +52,7 @@ func RunSilkRoadVideoCleanupOnce(ctx context.Context) error {
 	return RunVideoCleanupOnce(ctx)
 }
 
-func claimSilkRoadExpiredVideoTasks(limit int, now int64) ([]*model.Task, error) {
+func claimExpiredVideoTasks(limit int, now int64) ([]*model.Task, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
@@ -63,7 +63,7 @@ func claimSilkRoadExpiredVideoTasks(limit int, now int64) ([]*model.Task, error)
 	for len(out) < limit {
 		var candidates []*model.Task
 		// LIKE keeps SQLite/MySQL/PostgreSQL compatible without dialect JSON ops.
-		likeExpr := silkRoadPrivateDataTextExpr()
+		likeExpr := videoPrivateDataTextExpr()
 		q := model.DB.
 			Where(
 				"(status = ? OR (status = ? AND updated_at < ?))",
@@ -115,7 +115,11 @@ func claimSilkRoadExpiredVideoTasks(limit int, now int64) ([]*model.Task, error)
 	return out, nil
 }
 
-func expireOneSilkRoadVideo(task *model.Task) error {
+func claimSilkRoadExpiredVideoTasks(limit int, now int64) ([]*model.Task, error) {
+	return claimExpiredVideoTasks(limit, now)
+}
+
+func expireOneVideo(task *model.Task) error {
 	if task == nil {
 		return nil
 	}
@@ -129,7 +133,7 @@ func expireOneSilkRoadVideo(task *model.Task) error {
 			return fmt.Errorf("delete legacy stored video: %w", err)
 		}
 	} else if objectKey != "" {
-		if err := DeleteSilkRoadVideoFile(objectKey); err != nil && !os.IsNotExist(err) {
+		if err := DeleteVideoFile(objectKey); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("delete stored video: %w", err)
 		}
 	}
@@ -147,4 +151,8 @@ func expireOneSilkRoadVideo(task *model.Task) error {
 	task.PrivateData.StorageContentType = ""
 	task.PrivateData.StorageSize = 0
 	return nil
+}
+
+func expireOneSilkRoadVideo(task *model.Task) error {
+	return expireOneVideo(task)
 }

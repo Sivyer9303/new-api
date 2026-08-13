@@ -16,6 +16,10 @@ type BillingSettler interface {
 	// NeedsRefund 返回会话是否存在需要退还的预扣状态（未结算且未退款）。
 	NeedsRefund() bool
 
+	// MarkPersistedRefund closes the in-memory session after the durable task
+	// refund transaction has committed.
+	MarkPersistedRefund()
+
 	// GetPreConsumedQuota 返回实际预扣的额度值（信任用户可能为 0）。
 	GetPreConsumedQuota() int
 

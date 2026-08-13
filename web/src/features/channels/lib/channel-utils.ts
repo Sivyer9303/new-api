@@ -54,7 +54,8 @@ export function getChannelTypeIcon(type: number): string {
     58: 'NewAPI', // Advanced Custom
     59: 'Sub2API', // Sub2API
     60: 'NewAPI', // New API
-    61: 'NewAPI', // SilkRoad
+    61: 'SilkRoad', // SilkRoad (letter fallback)
+    62: 'Brioi', // Brioi (letter fallback)
     3: 'Azure', // Azure
 
     // Anthropic

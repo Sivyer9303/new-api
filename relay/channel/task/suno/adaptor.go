@@ -92,7 +92,7 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *dto.TaskError) {
+func (a *TaskAdaptor) DoResponse(_ *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (submitResult *channel.TaskSubmitResponse, taskErr *dto.TaskError) {
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		taskErr = service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
@@ -115,9 +115,14 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		Message: sunoResponse.Message,
 		Data:    info.PublicTaskID,
 	}
-	c.JSON(http.StatusOK, publicResponse)
-
-	return sunoResponse.Data, nil, nil
+	responseData, err := common.Marshal(publicResponse)
+	if err != nil {
+		return nil, service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError)
+	}
+	return &channel.TaskSubmitResponse{
+		UpstreamTaskID: sunoResponse.Data,
+		ResponseData:   responseData,
+	}, nil
 }
 
 func (a *TaskAdaptor) GetModelList() []string {

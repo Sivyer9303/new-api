@@ -70,6 +70,10 @@ export function resolveVideoSettings(
     resolved['video_setting.video_tool_groups'] =
       settings['silkroad_setting.video_tool_groups']
   }
+  if (!hasOption(raw, 'silkroad_setting.video_tool_groups')) {
+    resolved['silkroad_setting.video_tool_groups'] =
+      resolved['video_setting.video_tool_groups']
+  }
   if (!hasOption(raw, 'video_setting.storage')) {
     resolved['video_setting.storage'] = resolveLegacyStorage(
       settings['silkroad_setting.storage']

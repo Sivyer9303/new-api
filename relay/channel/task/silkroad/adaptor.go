@@ -71,7 +71,7 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *taskdto.TaskError) {
+func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (submitResult *channel.TaskSubmitResponse, taskErr *taskdto.TaskError) {
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		taskErr = service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
@@ -81,7 +81,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 
 	var dResp taskResultResponse
 	if err := common.Unmarshal(responseBody, &dResp); err != nil {
-		taskErr = service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError)
+		taskErr = service.TaskErrorWrapper(errors.Wrap(err, "parse SilkRoad submit response"), "unmarshal_response_body_failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -109,13 +109,16 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 			CreatedAt: time.Now().Unix(),
 		}
 	}
-	c.JSON(http.StatusOK, publicResponse)
-	taskData, err = common.Marshal(publicResponse)
+	responseData, err := common.Marshal(publicResponse)
 	if err != nil {
 		taskErr = service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError)
 		return
 	}
-	return upstreamID, taskData, nil
+	return &channel.TaskSubmitResponse{
+		UpstreamTaskID: upstreamID,
+		TaskData:       responseData,
+		ResponseData:   responseData,
+	}, nil
 }
 
 func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy string) (*http.Response, error) {
@@ -161,9 +164,13 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	taskResult := relaycommon.TaskInfo{
 		Code:     0,
 		TaskID:   result.UpstreamTaskID,
-		Reason:   result.FailureReason,
 		Url:      result.ResultURL,
 		NoRefund: result.NoRefund,
+	}
+	if result.NoRefund {
+		taskResult.Reason = "SilkRoad returned an unknown task status; administrator review is required"
+	} else if result.Status == videocommon.ProviderTaskFailed {
+		taskResult.Reason = "SilkRoad task failed"
 	}
 	if result.Progress > 0 {
 		taskResult.Progress = strconv.Itoa(result.Progress)

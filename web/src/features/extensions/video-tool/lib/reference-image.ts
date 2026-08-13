@@ -23,11 +23,48 @@ export type ReferenceImageItem = {
   previewUrl: string
 }
 
-export function createReferenceImageItem(file: File): ReferenceImageItem {
+const THUMBNAIL_MAX_EDGE = 320
+
+export async function createReferenceImageItem(
+  file: File
+): Promise<ReferenceImageItem> {
+  const sourceUrl = URL.createObjectURL(file)
+  let previewUrl = sourceUrl
+  let image: HTMLImageElement | null = null
+
+  try {
+    image = new Image()
+    image.src = sourceUrl
+    await image.decode()
+
+    const scale = Math.min(
+      1,
+      THUMBNAIL_MAX_EDGE / Math.max(image.naturalWidth, image.naturalHeight)
+    )
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+    const context = canvas.getContext('2d')
+    if (context) {
+      context.drawImage(image, 0, 0, canvas.width, canvas.height)
+      const thumbnail = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, 'image/webp', 0.82)
+      })
+      if (thumbnail) {
+        previewUrl = URL.createObjectURL(thumbnail)
+        URL.revokeObjectURL(sourceUrl)
+      }
+    }
+  } catch {
+    // The original object URL remains a safe fallback if thumbnailing fails.
+  } finally {
+    if (image) image.src = ''
+  }
+
   return {
     id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
     file,
-    previewUrl: URL.createObjectURL(file),
+    previewUrl,
   }
 }
 

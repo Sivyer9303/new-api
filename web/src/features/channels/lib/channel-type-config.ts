@@ -167,11 +167,21 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
   61: {
     id: 61,
     name: CHANNEL_TYPES[61],
-    icon: 'NewAPI',
+    icon: 'SilkRoad',
     hints: {
       baseUrl: 'Base URL is required for this channel type',
       key: 'Enter API key for this channel',
       models: 'Video models',
+    },
+  },
+  62: {
+    id: 62,
+    name: CHANNEL_TYPES[62],
+    icon: 'Brioi',
+    hints: {
+      baseUrl: 'Base URL is required for this channel type',
+      key: 'Enter API key for this channel',
+      models: 'Brioi video models',
     },
   },
 }

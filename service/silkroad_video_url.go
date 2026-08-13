@@ -15,13 +15,19 @@ import (
 
 const maxUpstreamVideoURLSearchDepth = 6
 
-// ShouldHideSilkRoadUpstreamURLs reports whether outbound task payloads must
+// ShouldHideVideoUpstreamURLs reports whether outbound task payloads must
 // never include upstream CDN URLs (ResultURL / Data.video_url / etc.).
-func ShouldHideSilkRoadUpstreamURLs(task *model.Task) bool {
+func ShouldHideVideoUpstreamURLs(task *model.Task) bool {
 	if task == nil {
 		return false
 	}
 	return IsVideoTask(task)
+}
+
+// ShouldHideSilkRoadUpstreamURLs is retained for callers compiled against the
+// legacy provider-named entry point.
+func ShouldHideSilkRoadUpstreamURLs(task *model.Task) bool {
+	return ShouldHideVideoUpstreamURLs(task)
 }
 
 func IsVideoTask(task *model.Task) bool {
@@ -30,9 +36,16 @@ func IsVideoTask(task *model.Task) bool {
 	}
 	if task.PrivateData.VideoTask ||
 		strings.TrimSpace(task.PrivateData.StorageStatus) != "" ||
-		strings.TrimSpace(task.PrivateData.UpstreamResultURL) != "" {
+		strings.TrimSpace(task.PrivateData.UpstreamResultURL) != "" ||
+		strings.TrimSpace(task.PrivateData.StorageObjectKey) != "" ||
+		strings.TrimSpace(task.PrivateData.StoragePath) != "" ||
+		task.PrivateData.StorageReadyAt > 0 ||
+		task.PrivateData.StorageExpiresAt > 0 {
 		return true
 	}
+	// Historical tasks predate the provider-neutral marker. Keep the original
+	// action/provider fallbacks until those rows have been backfilled, otherwise
+	// their signed upstream result URLs can become client-visible again.
 	switch task.Action {
 	case constant.TaskActionGenerate,
 		constant.TaskActionTextGenerate,
@@ -49,33 +62,37 @@ func IsVideoTask(task *model.Task) bool {
 		task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeSilkRoad))
 }
 
-// PublicSilkRoadResultURL returns the only client-visible download URL for a
-// SilkRoad-stored (or storage-bound) task: this site's content endpoint.
-func PublicSilkRoadResultURL(taskID string) string {
+// PublicVideoResultURL returns the only client-visible download URL for a
+// stored (or storage-bound) video task: this site's content endpoint.
+func PublicVideoResultURL(taskID string) string {
 	if strings.TrimSpace(setting.GetEffectiveVideoSetting().Storage.PublicDownloadBaseURL) != "" {
-		return BuildSilkRoadPublicURL(taskID)
+		return BuildVideoPublicURL(taskID)
 	}
 	return taskcommon.BuildProxyURL(taskID)
 }
 
+func PublicSilkRoadResultURL(taskID string) string {
+	return PublicVideoResultURL(taskID)
+}
+
 // SanitizeTaskForClient returns ResultURL and Data safe for API clients.
-// When SilkRoad storage policy applies, upstream CDN fields are stripped and
-// ResultURL is forced to this site's content path.
+// Video tasks never expose upstream CDN fields; ready results use this site's
+// content path.
 func SanitizeTaskForClient(task *model.Task) (resultURL string, data json.RawMessage) {
 	if task == nil {
 		return "", nil
 	}
 	resultURL = task.GetResultURL()
 	data = task.Data
-	if !ShouldHideSilkRoadUpstreamURLs(task) {
+	if !ShouldHideVideoUpstreamURLs(task) {
 		return resultURL, data
 	}
 	if task.Status == model.TaskStatusSuccess && task.PrivateData.StorageStatus == "ready" {
-		resultURL = PublicSilkRoadResultURL(task.TaskID)
+		resultURL = PublicVideoResultURL(task.TaskID)
 	} else {
 		resultURL = ""
 	}
-	cleaned, err := applySilkRoadDataRedaction(data, task.TaskID)
+	cleaned, err := applyVideoDataRedaction(data, task.TaskID)
 	if err != nil {
 		return resultURL, json.RawMessage(`{}`)
 	}
@@ -97,7 +114,7 @@ func ExtractUpstreamVideoURLFromJSON(raw []byte) string {
 		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
 			continue
 		}
-		if isSilkRoadContentProxyURL(u) {
+		if isVideoContentProxyURL(u) {
 			continue
 		}
 		return u
@@ -132,7 +149,7 @@ func collectUpstreamVideoURLCandidates(node any, depth int) []string {
 	}
 }
 
-func isSilkRoadContentProxyURL(raw string) bool {
+func isVideoContentProxyURL(raw string) bool {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return false
@@ -157,36 +174,48 @@ func isSilkRoadContentProxyURL(raw string) bool {
 		strings.EqualFold(parsed.Host, base.Host)
 }
 
-// applySilkRoadSuccessStore queues local ingest, forces public ResultURL, and
-// redacts upstream URLs from task.Data. Never writes upstream CDN into ResultURL.
-func ApplySilkRoadSuccessStore(task *model.Task, resultURL string, responseBody []byte) {
-	applySilkRoadSuccessStore(task, resultURL, responseBody)
+func isSilkRoadContentProxyURL(raw string) bool {
+	return isVideoContentProxyURL(raw)
 }
 
-func applySilkRoadSuccessStore(task *model.Task, resultURL string, responseBody []byte) {
+// ApplyVideoSuccessStore queues result ingest, forces a public ResultURL, and
+// redacts upstream URLs from task.Data. Never writes upstream CDN into ResultURL.
+func ApplyVideoSuccessStore(task *model.Task, resultURL string, responseBody []byte) {
+	applyVideoSuccessStore(task, resultURL, responseBody)
+}
+
+func ApplySilkRoadSuccessStore(task *model.Task, resultURL string, responseBody []byte) {
+	ApplyVideoSuccessStore(task, resultURL, responseBody)
+}
+
+func applyVideoSuccessStore(task *model.Task, resultURL string, responseBody []byte) {
 	if task == nil {
 		return
 	}
 
 	upstream := strings.TrimSpace(resultURL)
-	if upstream == "" || isSilkRoadContentProxyURL(upstream) {
+	if upstream == "" || isVideoContentProxyURL(upstream) {
 		upstream = ExtractUpstreamVideoURLFromJSON(responseBody)
 	}
-	if upstream == "" || isSilkRoadContentProxyURL(upstream) {
+	if upstream == "" || isVideoContentProxyURL(upstream) {
 		upstream = ExtractUpstreamVideoURLFromJSON(task.Data)
 	}
 
 	switch task.PrivateData.StorageStatus {
 	case "ready":
-		task.PrivateData.ResultURL = PublicSilkRoadResultURL(task.TaskID)
+		task.PrivateData.ResultURL = PublicVideoResultURL(task.TaskID)
 	default:
-		markSilkRoadPendingStore(task, upstream)
+		markVideoPendingStore(task, upstream)
 	}
 
-	cleaned, err := applySilkRoadDataRedaction(task.Data, task.TaskID)
+	cleaned, err := applyVideoDataRedaction(task.Data, task.TaskID)
 	if err != nil {
 		task.Data = []byte("{}")
 		return
 	}
 	task.Data = cleaned
+}
+
+func applySilkRoadSuccessStore(task *model.Task, resultURL string, responseBody []byte) {
+	applyVideoSuccessStore(task, resultURL, responseBody)
 }

@@ -34,7 +34,7 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse}
 	case constant.ChannelTypeSora:
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
-	case constant.ChannelTypeSilkRoad:
+	case constant.ChannelTypeSilkRoad, constant.ChannelTypeBrioi:
 		return []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
 	case constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI:
 		endpointTypes = []constant.EndpointType{
@@ -70,7 +70,13 @@ func IsOpenAIVideoRequestPath(requestPath string) bool {
 	path := strings.TrimSpace(requestPath)
 	return path == "/v1/videos" ||
 		strings.HasPrefix(path, "/v1/videos/") ||
-		path == "/v1/video/generations" ||
+		IsVideoGenerationRequestPath(path)
+}
+
+// IsVideoGenerationRequestPath recognizes the provider-neutral video tool API.
+func IsVideoGenerationRequestPath(requestPath string) bool {
+	path := strings.TrimSpace(requestPath)
+	return path == "/v1/video/generations" ||
 		strings.HasPrefix(path, "/v1/video/generations/")
 }
 
@@ -94,6 +100,8 @@ func ChannelTypeSupportsRequestPath(channelType int, requestPath string) bool {
 	switch channelType {
 	case constant.ChannelTypeSilkRoad:
 		return isVideo
+	case constant.ChannelTypeBrioi:
+		return IsVideoGenerationRequestPath(requestPath)
 	case constant.ChannelTypeNewAPI:
 		return !isVideo
 	default:

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 )
+
+var ErrBillingReservationUncertain = errors.New("billing reservation outcome is uncertain")
 
 // ---------------------------------------------------------------------------
 // BillingSession — 统一计费会话
@@ -61,9 +64,33 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	var tokenErr error
 	if !s.relayInfo.IsPlayground {
 		if delta > 0 {
-			tokenErr = model.DecreaseTokenQuota(s.relayInfo.TokenId, s.relayInfo.TokenKey, delta)
+			if s.relayInfo.ForcePreConsume {
+				tokenErr = model.DecreaseTokenQuotaDirect(
+					s.relayInfo.TokenId,
+					s.relayInfo.TokenKey,
+					delta,
+				)
+			} else {
+				tokenErr = model.DecreaseTokenQuota(
+					s.relayInfo.TokenId,
+					s.relayInfo.TokenKey,
+					delta,
+				)
+			}
 		} else {
-			tokenErr = model.IncreaseTokenQuota(s.relayInfo.TokenId, s.relayInfo.TokenKey, -delta)
+			if s.relayInfo.ForcePreConsume {
+				tokenErr = model.IncreaseTokenQuotaDirect(
+					s.relayInfo.TokenId,
+					s.relayInfo.TokenKey,
+					-delta,
+				)
+			} else {
+				tokenErr = model.IncreaseTokenQuota(
+					s.relayInfo.TokenId,
+					s.relayInfo.TokenKey,
+					-delta,
+				)
+			}
 		}
 		if tokenErr != nil {
 			// 资金来源已提交，令牌调整失败只能记录日志；标记 settled 防止 Refund 误退资金
@@ -102,6 +129,7 @@ func (s *BillingSession) Refund(c *gin.Context) {
 	tokenConsumed := s.tokenConsumed
 	extraReserved := s.extraReserved
 	subscriptionId := s.relayInfo.SubscriptionId
+	forcePreConsume := s.relayInfo.ForcePreConsume
 	funding := s.funding
 
 	gopool.Go(func() {
@@ -116,7 +144,13 @@ func (s *BillingSession) Refund(c *gin.Context) {
 		}
 		// 2) 退还令牌额度
 		if tokenConsumed > 0 && !isPlayground {
-			if err := model.IncreaseTokenQuota(tokenId, tokenKey, tokenConsumed); err != nil {
+			var err error
+			if forcePreConsume {
+				err = model.IncreaseTokenQuotaDirect(tokenId, tokenKey, tokenConsumed)
+			} else {
+				err = model.IncreaseTokenQuota(tokenId, tokenKey, tokenConsumed)
+			}
+			if err != nil {
 				common.SysLog("error refunding token quota: " + err.Error())
 			}
 		}
@@ -128,6 +162,12 @@ func (s *BillingSession) NeedsRefund() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.needsRefundLocked()
+}
+
+func (s *BillingSession) MarkPersistedRefund() {
+	s.mu.Lock()
+	s.refunded = true
+	s.mu.Unlock()
 }
 
 func (s *BillingSession) needsRefundLocked() bool {
@@ -167,7 +207,14 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 		return err
 	}
 	if err := s.reserveToken(delta); err != nil {
-		s.rollbackFundingReserve(delta)
+		if rollbackErr := s.rollbackFundingReserve(delta); rollbackErr != nil {
+			return fmt.Errorf(
+				"%w: token top-up failed: %v; funding compensation failed: %v",
+				ErrBillingReservationUncertain,
+				err,
+				rollbackErr,
+			)
+		}
 		return err
 	}
 
@@ -208,9 +255,33 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	if err := s.funding.PreConsume(effectiveQuota); err != nil {
 		// 预扣费失败，回滚令牌额度
 		if s.tokenConsumed > 0 && !s.relayInfo.IsPlayground {
-			if rollbackErr := model.IncreaseTokenQuota(s.relayInfo.TokenId, s.relayInfo.TokenKey, s.tokenConsumed); rollbackErr != nil {
+			var rollbackErr error
+			if s.relayInfo.ForcePreConsume {
+				rollbackErr = model.IncreaseTokenQuotaDirect(
+					s.relayInfo.TokenId,
+					s.relayInfo.TokenKey,
+					s.tokenConsumed,
+				)
+			} else {
+				rollbackErr = model.IncreaseTokenQuota(
+					s.relayInfo.TokenId,
+					s.relayInfo.TokenKey,
+					s.tokenConsumed,
+				)
+			}
+			if rollbackErr != nil {
 				common.SysLog(fmt.Sprintf("error rolling back token quota (userId=%d, tokenId=%d, amount=%d, fundingErr=%s): %s",
 					s.relayInfo.UserId, s.relayInfo.TokenId, s.tokenConsumed, err.Error(), rollbackErr.Error()))
+				return types.NewError(
+					fmt.Errorf(
+						"%w: funding reservation failed: %v; token compensation failed: %v",
+						ErrBillingReservationUncertain,
+						err,
+						rollbackErr,
+					),
+					types.ErrorCodeUpdateDataError,
+					types.ErrOptionWithSkipRetry(),
+				)
 			}
 			s.tokenConsumed = 0
 		}
@@ -237,7 +308,7 @@ func (s *BillingSession) reserveFunding(delta int) error {
 		// 全额无条件扣减，余额不足的部分记为欠费（余额可为负），不中断请求，
 		// 保证日志记录的预扣额度与用户余额的实际变动始终对账一致。
 		// DecreaseUserQuota 仅在数据库错误时失败。
-		if err := model.DecreaseUserQuota(funding.userId, delta, false); err != nil {
+		if err := model.DecreaseUserQuota(funding.userId, delta, funding.forceDB); err != nil {
 			return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 		}
 		funding.consumed += delta
@@ -258,18 +329,21 @@ func (s *BillingSession) reserveFunding(delta int) error {
 	}
 }
 
-func (s *BillingSession) rollbackFundingReserve(delta int) {
+func (s *BillingSession) rollbackFundingReserve(delta int) error {
 	switch funding := s.funding.(type) {
 	case *WalletFunding:
-		if err := model.IncreaseUserQuota(funding.userId, delta, false); err != nil {
-			common.SysLog("error rolling back wallet funding reserve: " + err.Error())
-		} else {
-			funding.consumed -= delta
+		if err := model.IncreaseUserQuota(funding.userId, delta, funding.forceDB); err != nil {
+			return err
 		}
+		funding.consumed -= delta
+		return nil
 	case *SubscriptionFunding:
 		if err := model.PostConsumeUserSubscriptionDelta(funding.subscriptionId, -int64(delta)); err != nil {
-			common.SysLog("error rolling back subscription funding reserve: " + err.Error())
+			return err
 		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported funding source: %s", s.funding.Source())
 	}
 }
 
@@ -386,7 +460,10 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 
 		session := &BillingSession{
 			relayInfo: relayInfo,
-			funding:   &WalletFunding{userId: relayInfo.UserId},
+			funding: &WalletFunding{
+				userId:  relayInfo.UserId,
+				forceDB: relayInfo.ForcePreConsume,
+			},
 		}
 		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
 			return nil, apiErr

@@ -16,9 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -42,33 +41,33 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { getApiKeys, fetchTokenKey } from '@/features/keys/api'
+import { fetchTokenKey } from '@/features/keys/api'
 import type { ApiKey } from '@/features/keys/types'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
 import { getConfiguredGroupRatio } from '@/features/pricing/lib/model-helpers'
 import { formatCurrencyFromUSD } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 
+import { fetchVideoModelsForToken, submitVideoGeneration } from '../api'
+import { useVideoTaskPolling } from '../hooks/use-video-task-polling'
+import { useVideoToolBootstrap } from '../hooks/use-video-tool-bootstrap'
 import {
-  fetchModelsWithTokenKey,
-  fetchVideoContentBlob,
-  fetchVideoGeneration,
-  fetchVideoToolConfig,
-  submitVideoGeneration,
-} from '../api'
-import {
-  filterModelsForProfile,
-  isVideoStoragePhase,
-  modelHasConfiguredMatch,
-  resolveVideoProfile,
+  generationTypesForProfile,
+  retainCompatibleVideoModel,
+  resolveProviderVideoProfile,
+  resolveSelectedOption,
 } from '../lib/capabilities'
+import { estimateVideoPrice } from '../lib/pricing'
+import { resolveVideoProviderByID } from '../lib/provider-config'
 import {
   revokeReferenceImageItems,
   type ReferenceImageItem,
 } from '../lib/reference-image'
 import { buildVideoGenerationRequest } from '../lib/request'
-import type { PublicGenerationType } from '../types'
+import type { PublicGenerationType, VideoToolModel } from '../types'
 import { ReferenceImageGrid } from './reference-image-grid'
+import { VideoTaskResultCard } from './video-task-result-card'
+import { VideoToolStateCard } from './video-tool-state-card'
 
 function generationTypeDisplayLabel(
   gt: PublicGenerationType,
@@ -78,10 +77,16 @@ function generationTypeDisplayLabel(
     case 'text2video':
       return translate('Text to video')
     case 'image2video':
-      return translate('Image to video')
+    case 'image_reference':
+      return translate('Image reference')
     case 'multi_image':
       return translate('Multi-image reference')
+    case 'first_frame':
+    case 'start_frame':
+      return translate('First frame')
     case 'start_end':
+    case 'first_last':
+    case 'first_last_frame':
       return translate('First & last frame')
     case 'reference_audio':
       return translate('Reference audio')
@@ -90,30 +95,11 @@ function generationTypeDisplayLabel(
   }
 }
 
-function isTerminalSuccess(status: string | undefined): boolean {
-  const s = (status || '').toLowerCase()
-  return s === 'completed' || s === 'success'
-}
-
-function isTerminalFailure(status: string | undefined): boolean {
-  const s = (status || '').toLowerCase()
-  return (
-    s === 'failed' || s === 'failure' || s === 'cancelled' || s === 'canceled'
-  )
-}
-
-function isTerminalStatus(status: string | undefined): boolean {
-  return isTerminalSuccess(status) || isTerminalFailure(status)
-}
-
 function apiKeySelectLabel(key: ApiKey): string {
   const name = key.name?.trim() || `Key #${key.id}`
   const group = key.group?.trim() || 'default'
   return `${name} (${group})`
 }
-
-const POLL_INTERVAL_MS = 3000
-const POLL_MAX_ATTEMPTS = 120
 
 async function filesToDataUrls(files: File[]): Promise<string[]> {
   if (files.length === 0) return []
@@ -121,8 +107,12 @@ async function filesToDataUrls(files: File[]): Promise<string[]> {
     (file) =>
       new Promise<string>((resolve, reject) => {
         const reader = new FileReader()
-        reader.onload = () => resolve(String(reader.result || ''))
-        reader.onerror = () => reject(reader.error ?? new Error('read failed'))
+        reader.addEventListener('load', () =>
+          resolve(String(reader.result || ''))
+        )
+        reader.addEventListener('error', () =>
+          reject(reader.error ?? new Error('read failed'))
+        )
         reader.readAsDataURL(file)
       })
   )
@@ -136,13 +126,27 @@ async function fileToDataURL(file: File): Promise<string> {
 
 export function VideoToolPage() {
   const { t } = useTranslation()
+  const controlId = useId()
+  const {
+    config,
+    keys,
+    videoToolGroups,
+    isLoading: bootstrapLoading,
+    error: bootstrapError,
+    retry: retryBootstrap,
+  } = useVideoToolBootstrap()
   const [tokenId, setTokenId] = useState<string>('')
-  const [models, setModels] = useState<string[]>([])
+  const [models, setModels] = useState<VideoToolModel[]>([])
+  const [modelProviderId, setModelProviderId] = useState('')
+  const [modelPricingGroup, setModelPricingGroup] = useState('')
   const [loadingModels, setLoadingModels] = useState(false)
+  const [modelLoadError, setModelLoadError] = useState('')
+  const [modelLoadRevision, setModelLoadRevision] = useState(0)
   const [modelId, setModelId] = useState('')
   const [generationType, setGenerationType] = useState('')
   const [prompt, setPrompt] = useState('')
   const [durationValue, setDurationValue] = useState('')
+  const [resolution, setResolution] = useState('')
   const [aspectRatio, setAspectRatio] = useState('')
   const [referenceImages, setReferenceImages] = useState<ReferenceImageItem[]>(
     []
@@ -150,44 +154,27 @@ export function VideoToolPage() {
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [audioPreviewUrl, setAudioPreviewUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [taskId, setTaskId] = useState('')
-  const [taskStatus, setTaskStatus] = useState('')
-  const [taskProgress, setTaskProgress] = useState('')
-  const [previewUrl, setPreviewUrl] = useState('')
-  const [pollError, setPollError] = useState('')
-  const [pollingTokenKey, setPollingTokenKey] = useState('')
-  const pollAttemptRef = useRef(0)
-  const seenTerminalToastRef = useRef('')
+  const {
+    taskId,
+    taskStatus,
+    taskProgress,
+    previewUrl,
+    pollError,
+    pollingPaused,
+    pollingTokenKey,
+    isPolling,
+    reset: resetTaskPolling,
+    start: startTaskPolling,
+    failSubmission,
+    resume: resumeTaskPolling,
+  } = useVideoTaskPolling()
   const loadModelsRequestRef = useRef(0)
-
-  const configQuery = useQuery({
-    queryKey: ['video-tool-config', 1],
-    queryFn: async () => {
-      const res = await fetchVideoToolConfig()
-      if (!res.success || !res.data) {
-        throw new Error(res.message || 'Failed to load video tool config')
-      }
-      if (res.data.version !== 1) {
-        throw new Error(t('Unsupported video tool capability version'))
-      }
-      return res.data
-    },
-  })
-
-  const keysQuery = useQuery({
-    queryKey: ['video-tool-api-keys'],
-    queryFn: async () => {
-      const res = await getApiKeys({ p: 1, size: 100 })
-      if (!res.success || !res.data?.items) {
-        throw new Error(res.message || 'Failed to load API keys')
-      }
-      return res.data.items.filter((k: ApiKey) => k.status === 1)
-    },
-  })
+  const referenceImagesRef = useRef(referenceImages)
+  referenceImagesRef.current = referenceImages
 
   const { models: pricingModels, groupRatio } = usePricingData()
 
-  // Models with a configured ModelPrice (> 0). Unpriced models are hidden
+  // Models with a configured positive ModelPrice. Unpriced models are hidden
   // from the selector so users cannot submit without an estimate path.
   const pricedModelIds = useMemo(() => {
     const ids = new Set<string>()
@@ -199,29 +186,25 @@ export function VideoToolPage() {
     return ids
   }, [pricingModels])
 
-  const profiles = useMemo(
-    () => configQuery.data?.profiles ?? [],
-    [configQuery.data?.profiles]
+  const selectedApiKey = useMemo(
+    () => keys.find((key) => String(key.id) === tokenId) ?? null,
+    [keys, tokenId]
   )
-  const videoToolGroups = useMemo(
-    () => configQuery.data?.video_tool_groups ?? [],
-    [configQuery.data?.video_tool_groups]
-  )
-  const allowedGroupSet = useMemo(
-    () => new Set(videoToolGroups.map((g) => g.trim()).filter(Boolean)),
-    [videoToolGroups]
-  )
-  const keys = useMemo(() => {
-    const all = keysQuery.data ?? []
-    if (allowedGroupSet.size === 0) return []
-    return all.filter((k) => allowedGroupSet.has((k.group || '').trim()))
-  }, [keysQuery.data, allowedGroupSet])
+  const activeProvider = useMemo(() => {
+    if (!config || !selectedApiKey) return null
+    return resolveVideoProviderByID(
+      config,
+      modelProviderId || models[0]?.provider_id
+    )
+  }, [config, modelProviderId, models, selectedApiKey])
 
   useEffect(() => {
     if (!tokenId) return
     if (!keys.some((k) => String(k.id) === tokenId)) {
       setTokenId('')
       setModels([])
+      setModelProviderId('')
+      setModelPricingGroup('')
       setModelId('')
     }
   }, [keys, tokenId])
@@ -230,47 +213,94 @@ export function VideoToolPage() {
   useEffect(() => {
     if (!tokenId) {
       setModels([])
+      setModelProviderId('')
+      setModelPricingGroup('')
       setModelId('')
       setLoadingModels(false)
+      setModelLoadError('')
       return
     }
-    if (profiles.length === 0) return
+    if (!config || !selectedApiKey) {
+      setModels([])
+      setModelProviderId('')
+      setModelPricingGroup('')
+      setModelId('')
+      setLoadingModels(false)
+      setModelLoadError('')
+      return
+    }
 
     const requestId = ++loadModelsRequestRef.current
-    let cancelled = false
+    const abortController = new AbortController()
 
     const load = async () => {
+      setModels([])
+      setModelProviderId('')
+      setModelPricingGroup('')
+      setModelId('')
       setLoadingModels(true)
+      setModelLoadError('')
       try {
-        const keyRes = await fetchTokenKey(Number(tokenId))
-        if (cancelled || requestId !== loadModelsRequestRef.current) return
-        if (!keyRes.success || !keyRes.data?.key) {
-          throw new Error(keyRes.message || 'Failed to fetch API key')
-        }
-        const all = await fetchModelsWithTokenKey(keyRes.data.key)
-        if (cancelled || requestId !== loadModelsRequestRef.current) return
-        const defaultProfileID = configQuery.data?.default_profile_id ?? ''
-        const hasDefaultProfile = profiles.some(
-          (profile) => profile.id === defaultProfileID
+        const discovery = await fetchVideoModelsForToken(
+          Number(tokenId),
+          abortController.signal
         )
-        const matched = hasDefaultProfile
-          ? all
-          : all.filter((id) => modelHasConfiguredMatch(profiles, id))
+        if (
+          abortController.signal.aborted ||
+          requestId !== loadModelsRequestRef.current
+        ) {
+          return
+        }
+        const currentConfig = config
+        const discoveredProvider = resolveVideoProviderByID(
+          currentConfig,
+          discovery.provider
+        )
+        const matched = discovery.models.filter((model) => {
+          const modelProvider =
+            resolveVideoProviderByID(currentConfig, model.provider_id) ??
+            discoveredProvider
+          if (!modelProvider) return false
+          return (
+            resolveProviderVideoProfile(modelProvider, model.profile_model) !==
+            null
+          )
+        })
+        let pricingGroup = discovery.group
+        if (discovery.group === 'auto') {
+          pricingGroup =
+            discovery.resolved_groups.length === 1
+              ? discovery.resolved_groups[0]
+              : ''
+        }
         setModels(matched)
+        setModelProviderId(discovery.provider || matched[0]?.provider_id || '')
+        setModelPricingGroup(pricingGroup)
         if (matched.length === 0) {
           setModelId('')
           toast.error(t('No video models available for this key'))
         }
         // Selection is synced from filteredModels (priced + mode) via safeModelId.
       } catch (err) {
-        if (cancelled || requestId !== loadModelsRequestRef.current) return
+        if (
+          abortController.signal.aborted ||
+          requestId !== loadModelsRequestRef.current
+        ) {
+          return
+        }
         setModels([])
+        setModelProviderId('')
+        setModelPricingGroup('')
         setModelId('')
-        toast.error(
+        const message =
           err instanceof Error ? err.message : t('Failed to load models')
-        )
+        setModelLoadError(message)
+        toast.error(message)
       } finally {
-        if (!cancelled && requestId === loadModelsRequestRef.current) {
+        if (
+          !abortController.signal.aborted &&
+          requestId === loadModelsRequestRef.current
+        ) {
           setLoadingModels(false)
         }
       }
@@ -278,30 +308,26 @@ export function VideoToolPage() {
 
     void load()
     return () => {
-      cancelled = true
+      abortController.abort()
     }
-  }, [tokenId, profiles, configQuery.data?.default_profile_id, t])
+  }, [config, modelLoadRevision, selectedApiKey, t, tokenId])
 
-  const selectedApiKey = useMemo(
-    () => keys.find((k) => String(k.id) === tokenId) ?? null,
-    [keys, tokenId]
+  const selectedModel = useMemo(
+    () => models.find((model) => model.id === modelId) ?? null,
+    [modelId, models]
   )
-
   const selectedProfile = useMemo(() => {
-    const id = modelId || ''
-    return id
-      ? resolveVideoProfile(
-          profiles,
-          id,
-          configQuery.data?.default_profile_id ?? ''
-        )
+    return selectedModel && activeProvider
+      ? resolveProviderVideoProfile(activeProvider, selectedModel.profile_model)
       : null
-  }, [modelId, profiles, configQuery.data?.default_profile_id])
+  }, [activeProvider, selectedModel])
 
-  const generationTypes = useMemo(
-    () => configQuery.data?.generation_types ?? [],
-    [configQuery.data?.generation_types]
-  )
+  const generationTypes = useMemo(() => {
+    if (!activeProvider) return []
+    return selectedProfile
+      ? generationTypesForProfile(activeProvider, selectedProfile)
+      : activeProvider.generation_types
+  }, [activeProvider, selectedProfile])
 
   const selectedGenType = useMemo(() => {
     if (!generationType) return null
@@ -309,6 +335,7 @@ export function VideoToolPage() {
   }, [generationType, generationTypes])
 
   const durationOptions = selectedProfile?.durations ?? []
+  const resolutionOptions = selectedProfile?.resolutions ?? []
   const aspectOptions = selectedProfile?.aspect_ratios ?? []
 
   const durationFieldKey =
@@ -318,28 +345,41 @@ export function VideoToolPage() {
 
   useEffect(() => {
     if (
-      !generationType ||
-      !generationTypes.some((g) => g.value === generationType)
+      generationType &&
+      !generationTypes.some((candidate) => candidate.value === generationType)
     ) {
-      setGenerationType(generationTypes[0]?.value ?? '')
+      setGenerationType('')
+      toast.message(
+        t(
+          'Selected generation mode was cleared because it is not supported by the selected model.'
+        )
+      )
     }
-  }, [generationType, generationTypes])
+  }, [generationType, generationTypes, t])
 
   useEffect(() => {
-    if (!selectedProfile) return
-    if (
-      !durationValue ||
-      !selectedProfile.durations.some((d) => d.value === durationValue)
-    ) {
-      setDurationValue(selectedProfile.durations[0]?.value ?? '')
+    if (!selectedProfile) {
+      setDurationValue('')
+      setResolution('')
+      setAspectRatio('')
+      return
     }
-    if (
-      !aspectRatio ||
-      !selectedProfile.aspect_ratios.some((a) => a.value === aspectRatio)
-    ) {
-      setAspectRatio(selectedProfile.aspect_ratios[0]?.value ?? '')
-    }
-  }, [selectedProfile, durationValue, aspectRatio])
+    const nextDuration = resolveSelectedOption(
+      durationValue,
+      selectedProfile.durations
+    )
+    const nextResolution = resolveSelectedOption(
+      resolution,
+      selectedProfile.resolutions
+    )
+    const nextAspectRatio = resolveSelectedOption(
+      aspectRatio,
+      selectedProfile.aspect_ratios
+    )
+    if (nextDuration !== durationValue) setDurationValue(nextDuration)
+    if (nextResolution !== resolution) setResolution(nextResolution)
+    if (nextAspectRatio !== aspectRatio) setAspectRatio(nextAspectRatio)
+  }, [selectedProfile, durationValue, resolution, aspectRatio])
 
   // Trim or clear reference images when the selected mode's image limit changes.
   useEffect(() => {
@@ -348,6 +388,11 @@ export function VideoToolPage() {
       if (referenceImages.length > 0) {
         revokeReferenceImageItems(referenceImages)
         setReferenceImages([])
+        toast.message(
+          t(
+            'Reference images were cleared because they are not supported by the selected mode.'
+          )
+        )
       }
       return
     }
@@ -364,28 +409,35 @@ export function VideoToolPage() {
     }
     // intentionally only react to generation-type limit changes
     // eslint-disable-next-line react-hooks/exhaustive-deps -- trim on mode change, not every image edit
-  }, [selectedGenType?.images_max, selectedGenType?.value])
+  }, [selectedGenType?.images_max, selectedGenType?.value, t])
 
   // Clear reference audio when the mode does not allow it.
   useEffect(() => {
     if (selectedGenType?.allow_audio) return
+    if (audioFile) {
+      toast.message(
+        t(
+          'Reference audio was cleared because it is not supported by the selected mode.'
+        )
+      )
+    }
     setAudioFile(null)
-    setAudioPreviewUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return ''
-    })
-  }, [selectedGenType?.allow_audio, selectedGenType?.value])
+    setAudioPreviewUrl('')
+  }, [audioFile, selectedGenType?.allow_audio, selectedGenType?.value, t])
 
   useEffect(() => {
     return () => {
-      revokeReferenceImageItems(referenceImages)
-      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl)
+      revokeReferenceImageItems(referenceImagesRef.current)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- revoke current list on unmount only
   }, [])
 
+  useEffect(() => {
+    if (!audioPreviewUrl) return
+    return () => URL.revokeObjectURL(audioPreviewUrl)
+  }, [audioPreviewUrl])
+
   const availableModels = useMemo(
-    () => models.filter((id) => pricedModelIds.has(id)),
+    () => models.filter((model) => pricedModelIds.has(model.id)),
     [models, pricedModelIds]
   )
 
@@ -395,7 +447,7 @@ export function VideoToolPage() {
     if (loadingModels || !tokenId) return
     if (models.length === 0 || availableModels.length > 0) return
     if (pricingModels.length === 0) return
-    const toastKey = `${tokenId}:${models.join('\0')}`
+    const toastKey = `${tokenId}:${models.map((model) => model.id).join('\0')}`
     if (noPricedModelsToastKeyRef.current === toastKey) return
     noPricedModelsToastKeyRef.current = toastKey
     toast.error(
@@ -413,43 +465,41 @@ export function VideoToolPage() {
   ])
 
   const filteredModels = useMemo(() => {
-    const defaultProfileID = configQuery.data?.default_profile_id ?? ''
-    const hasDefaultProfile = profiles.some(
-      (profile) => profile.id === defaultProfileID
-    )
-    if (!selectedProfile) {
-      return hasDefaultProfile
-        ? availableModels
-        : availableModels.filter((id) => modelHasConfiguredMatch(profiles, id))
-    }
-    return filterModelsForProfile(
-      availableModels,
-      selectedProfile,
-      Boolean(selectedGenType?.require_ref_model),
-      selectedProfile.id === defaultProfileID,
-      profiles
-    )
-  }, [
-    availableModels,
-    profiles,
-    selectedProfile,
-    selectedGenType,
-    configQuery.data?.default_profile_id,
-  ])
+    if (!activeProvider) return []
+    return availableModels.filter((model) => {
+      const profile = resolveProviderVideoProfile(
+        activeProvider,
+        model.profile_model
+      )
+      if (!profile) return false
+      const profileGenerationTypes = generationTypesForProfile(
+        activeProvider,
+        profile
+      )
+      const mode = profileGenerationTypes.find(
+        (candidate) => candidate.value === generationType
+      )
+      if (generationType && !mode) return false
+      return !mode?.require_ref_model || model.profile_model.includes('-ref')
+    })
+  }, [activeProvider, availableModels, generationType])
 
-  // Base UI Select throws if value is not among items. When switching to a
-  // require_ref generation type, filteredModels shrinks to *-ref ids before
-  // the sync effect can update modelId — keep a render-safe selection.
-  const safeModelId = useMemo(() => {
-    if (filteredModels.length === 0) return ''
-    if (modelId && filteredModels.includes(modelId)) return modelId
-    return filteredModels[0]
-  }, [filteredModels, modelId])
+  // Base UI Select requires its value to remain among the rendered items.
+  // Clear an incompatible user choice instead of silently replacing it.
+  const safeModelId = useMemo(
+    () => retainCompatibleVideoModel(modelId, filteredModels),
+    [filteredModels, modelId]
+  )
 
   useEffect(() => {
-    if (safeModelId === modelId) return
-    setModelId(safeModelId)
-  }, [safeModelId, modelId])
+    if (!modelId || safeModelId === modelId) return
+    setModelId('')
+    toast.message(
+      t(
+        'Selected model was cleared because it does not support this generation mode.'
+      )
+    )
+  }, [safeModelId, modelId, t])
 
   const priceEstimate = useMemo(() => {
     if (!safeModelId || !durationValue) return null
@@ -459,71 +509,81 @@ export function VideoToolPage() {
     }
     const seconds = Number(durationValue)
     if (!Number.isFinite(seconds) || seconds <= 0) return null
-    const group =
-      (selectedApiKey?.group || '').trim() || videoToolGroups[0] || 'default'
+    if (!modelPricingGroup) return null
     const ratios = pricing.group_ratio || groupRatio || {}
-    const ratio = getConfiguredGroupRatio(ratios, group)
-    // NewAPI video adaptor always multiplies ModelPrice by duration seconds.
-    const usd = pricing.model_price * seconds * ratio
+    const ratio = getConfiguredGroupRatio(ratios, modelPricingGroup)
+    const estimate = estimateVideoPrice({
+      modelPrice: pricing.model_price,
+      billingMode: pricing.billing_mode,
+      quotaType: pricing.quota_type,
+      durationSeconds: seconds,
+      groupRatio: ratio,
+    })
+    if (!estimate) return null
     let formatted = '-'
     try {
-      formatted = formatCurrencyFromUSD(usd)
+      formatted = formatCurrencyFromUSD(estimate.usd)
     } catch {
-      formatted = `$${usd}`
+      formatted = `$${estimate.usd}`
     }
     return {
-      usd,
-      seconds,
-      unitPrice: pricing.model_price,
-      group,
-      ratio,
+      ...estimate,
+      group: modelPricingGroup,
       formatted,
     }
-  }, [
-    safeModelId,
-    durationValue,
-    pricingModels,
-    selectedApiKey,
-    videoToolGroups,
-    groupRatio,
-  ])
+  }, [safeModelId, durationValue, pricingModels, modelPricingGroup, groupRatio])
 
   const requestPreview = useMemo(() => {
-    const body: Record<string, unknown> = {
+    const images =
+      (selectedGenType?.images_max ?? 0) > 0
+        ? referenceImages.map((item) => {
+            const mime = item.file.type || 'image/jpeg'
+            return `data:${mime};base64,…(${item.file.name || 'image'})`
+          })
+        : []
+    const audioURL =
+      selectedGenType?.allow_audio && audioFile
+        ? `data:audio/mpeg;base64,…(${audioFile.name})`
+        : undefined
+    const body = buildVideoGenerationRequest({
       model: safeModelId,
       prompt,
-      generation_type: generationType,
-      aspect_ratio: aspectRatio,
-    }
-    if (durationFieldKey === 'duration') {
-      body.duration = Number(durationValue)
-    } else {
-      body.seconds = durationValue
-    }
-    if ((selectedGenType?.images_max ?? 0) > 0 && referenceImages.length > 0) {
-      // Preview only: full base64 payloads are substituted on submit.
-      body.images = referenceImages.map((item) => {
-        const mime = item.file.type || 'image/jpeg'
-        return `data:${mime};base64,…(${item.file.name || 'image'})`
-      })
-    }
-    if (selectedGenType?.allow_audio) {
-      body.audio_url = audioFile
-        ? `data:audio/mpeg;base64,…(${audioFile.name})`
-        : 'data:audio/mpeg;base64,…'
-    }
+      generationType,
+      aspectRatio,
+      durationFieldKey,
+      durationValue,
+      resolution,
+      images,
+      imageRoles: selectedGenType?.image_roles,
+      audioURL,
+      mediaFormat: activeProvider?.id === 'silkroad' ? 'legacy' : 'normalized',
+    })
     return JSON.stringify(body, null, 2)
   }, [
     safeModelId,
     prompt,
     generationType,
     aspectRatio,
+    resolution,
     durationFieldKey,
     durationValue,
     selectedGenType,
     referenceImages,
     audioFile,
+    activeProvider?.id,
   ])
+
+  let priceEstimateDescription = ''
+  if (priceEstimate?.billingMode === 'fixed') {
+    priceEstimateDescription = t(
+      'Based on fixed model price × group ratio. Duration does not change this estimate. Reference only — final charge follows actual billing.'
+    )
+  } else if (priceEstimate) {
+    priceEstimateDescription = t(
+      'Based on model unit price × {{seconds}}s × group ratio. Reference only — final charge follows actual billing.',
+      { seconds: priceEstimate.seconds }
+    )
+  }
 
   async function handleSubmit() {
     if (!tokenId) {
@@ -535,7 +595,8 @@ export function VideoToolPage() {
       !generationType ||
       !prompt.trim() ||
       !durationValue ||
-      !aspectRatio
+      !aspectRatio ||
+      (resolutionOptions.length > 0 && !resolution)
     ) {
       toast.error(t('Please fill in all required fields'))
       return
@@ -563,14 +624,7 @@ export function VideoToolPage() {
     }
 
     setSubmitting(true)
-    setPollError('')
-    setPreviewUrl('')
-    setTaskStatus('')
-    setTaskProgress('')
-    setTaskId('')
-    setPollingTokenKey('')
-    pollAttemptRef.current = 0
-    seenTerminalToastRef.current = ''
+    resetTaskPolling()
     try {
       const keyRes = await fetchTokenKey(Number(tokenId))
       if (!keyRes.success || !keyRes.data?.key) {
@@ -592,23 +646,19 @@ export function VideoToolPage() {
         }
       }
 
-      let submitModel = safeModelId
-      if (selectedGenType.require_ref_model && !submitModel.includes('-ref')) {
-        const refCandidate = filteredModels.find((id) => id.includes('-ref'))
-        if (refCandidate) {
-          submitModel = refCandidate
-        }
-      }
-
       const body = buildVideoGenerationRequest({
-        model: submitModel,
+        model: safeModelId,
         prompt: prompt.trim(),
         generationType,
         aspectRatio,
         durationFieldKey,
         durationValue,
+        resolution,
         images,
+        imageRoles: selectedGenType.image_roles,
         audioURL,
+        mediaFormat:
+          activeProvider?.id === 'silkroad' ? 'legacy' : 'normalized',
       })
 
       const submitRes = await submitVideoGeneration(tokenKey, body)
@@ -616,105 +666,23 @@ export function VideoToolPage() {
       if (!publicId) {
         throw new Error(t('Submit succeeded but no task id returned'))
       }
-      setTaskId(publicId)
-      setTaskStatus(submitRes.status || 'queued')
-      setTaskProgress('')
-      setPollingTokenKey(tokenKey)
+      startTaskPolling({
+        taskId: publicId,
+        status: submitRes.status || 'queued',
+        tokenKey,
+      })
       toast.success(t('Video task submitted'))
     } catch (err) {
       const message =
         err instanceof Error ? err.message : t('Failed to submit video task')
       toast.error(message)
-      setPollError(message)
+      failSubmission(message)
     } finally {
       setSubmitting(false)
     }
   }
 
-  const isPolling =
-    Boolean(taskId) && Boolean(pollingTokenKey) && !isTerminalStatus(taskStatus)
-
-  useEffect(() => {
-    if (!taskId || !pollingTokenKey) return
-
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-
-    const pollOnce = async () => {
-      if (cancelled) return
-      if (pollAttemptRef.current >= POLL_MAX_ATTEMPTS) {
-        setPollError(t('Timed out waiting for video. Check Task Logs.'))
-        toast.message(t('Timed out waiting for video. Check Task Logs.'))
-        setPollingTokenKey('')
-        return
-      }
-      pollAttemptRef.current += 1
-      try {
-        const statusRes = await fetchVideoGeneration(pollingTokenKey, taskId)
-        if (cancelled) return
-        const st = statusRes.status || ''
-        if (st) {
-          setTaskStatus(st)
-        }
-        if (statusRes.progress != null && String(statusRes.progress).trim()) {
-          setTaskProgress(String(statusRes.progress))
-        }
-        if (isTerminalSuccess(st)) {
-          // Only this site's content endpoint — never upstream CDN.
-          const siteContent = `/v1/videos/${taskId}/content`
-          let playable = siteContent
-          try {
-            const blob = await fetchVideoContentBlob(pollingTokenKey, taskId)
-            if (cancelled) return
-            playable = URL.createObjectURL(blob)
-          } catch {
-            playable = siteContent
-          }
-          setPreviewUrl(playable)
-          if (seenTerminalToastRef.current !== taskId) {
-            seenTerminalToastRef.current = taskId
-            toast.success(t('Video generation completed'))
-          }
-          return
-        }
-        if (isTerminalFailure(st)) {
-          const msg =
-            statusRes.error?.message ||
-            statusRes.fail_reason ||
-            t('Video generation failed')
-          setPollError(msg)
-          if (seenTerminalToastRef.current !== taskId) {
-            seenTerminalToastRef.current = taskId
-            toast.error(msg)
-          }
-          return
-        }
-      } catch (err) {
-        if (cancelled) return
-        // Keep polling on transient fetch errors; surface the latest message.
-        setPollError(
-          err instanceof Error ? err.message : t('Failed to fetch video task')
-        )
-      }
-      if (!cancelled) {
-        timer = setTimeout(() => {
-          void pollOnce()
-        }, POLL_INTERVAL_MS)
-      }
-    }
-
-    // First poll shortly after submit so UI updates without waiting a full interval.
-    timer = setTimeout(() => {
-      void pollOnce()
-    }, 800)
-
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-    }
-  }, [taskId, pollingTokenKey, t])
-
-  if (configQuery.isLoading || keysQuery.isLoading) {
+  if (bootstrapLoading) {
     return (
       <SectionPageLayout>
         <SectionPageLayout.Title>
@@ -729,23 +697,40 @@ export function VideoToolPage() {
     )
   }
 
-  if (configQuery.isError || !configQuery.data?.enabled) {
+  if (bootstrapError) {
     return (
       <SectionPageLayout>
         <SectionPageLayout.Title>
           {t('Video Generation')}
         </SectionPageLayout.Title>
         <SectionPageLayout.Content>
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('Video generation unavailable')}</CardTitle>
-              <CardDescription>
-                {t(
-                  'Video generation is not configured or enabled. Ask an administrator to review Video Configuration.'
-                )}
-              </CardDescription>
-            </CardHeader>
-          </Card>
+          <VideoToolStateCard
+            title={bootstrapError.title}
+            description={
+              bootstrapError.cause instanceof Error
+                ? bootstrapError.cause.message
+                : bootstrapError.title
+            }
+            onRetry={retryBootstrap}
+          />
+        </SectionPageLayout.Content>
+      </SectionPageLayout>
+    )
+  }
+
+  if (!config?.enabled) {
+    return (
+      <SectionPageLayout>
+        <SectionPageLayout.Title>
+          {t('Video Generation')}
+        </SectionPageLayout.Title>
+        <SectionPageLayout.Content>
+          <VideoToolStateCard
+            title={t('Video generation unavailable')}
+            description={t(
+              'Video generation is not configured or enabled. Ask an administrator to review Video Configuration.'
+            )}
+          />
         </SectionPageLayout.Content>
       </SectionPageLayout>
     )
@@ -753,6 +738,13 @@ export function VideoToolPage() {
 
   const allowedGroupsLabel =
     videoToolGroups.length > 0 ? videoToolGroups.join(', ') : t('(none)')
+  let modelPlaceholder = t('Select an API key first')
+  if (tokenId) {
+    modelPlaceholder = t('Select a model')
+  }
+  if (loadingModels) {
+    modelPlaceholder = t('Loading models...')
+  }
 
   return (
     <SectionPageLayout>
@@ -792,13 +784,18 @@ export function VideoToolPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className='space-y-2'>
-                  <Label>{t('Your API key')}</Label>
+                  <Label htmlFor={`${controlId}-api-key`}>
+                    {t('Your API key')}
+                  </Label>
                   <Select
                     value={tokenId || null}
                     onValueChange={(v) => setTokenId(v ?? '')}
                     disabled={keys.length === 0}
                   >
-                    <SelectTrigger className='w-full'>
+                    <SelectTrigger
+                      id={`${controlId}-api-key`}
+                      className='w-full'
+                    >
                       <SelectValue
                         placeholder={
                           loadingModels
@@ -839,36 +836,80 @@ export function VideoToolPage() {
               <Card>
                 <CardHeader className='pb-3'>
                   <CardTitle className='text-base'>{t('Model')}</CardTitle>
-                  {selectedProfile && (
+                  {selectedProfile && activeProvider && (
                     <CardDescription>
-                      {t('Tier')}: {selectedProfile.label} ·{' '}
-                      {t('Duration field')}: {durationFieldKey}
+                      {t('Provider')}: {activeProvider.label} · {t('Profile')}:{' '}
+                      {selectedProfile.label} · {t('Duration field')}:{' '}
+                      {durationFieldKey}
                     </CardDescription>
                   )}
                 </CardHeader>
                 <CardContent>
+                  <Label htmlFor={`${controlId}-model`} className='sr-only'>
+                    {t('Model')}
+                  </Label>
                   <Select
                     value={safeModelId || null}
                     onValueChange={(v) => setModelId(v ?? '')}
                     disabled={filteredModels.length === 0 || loadingModels}
                   >
-                    <SelectTrigger className='w-full'>
-                      <SelectValue
-                        placeholder={
-                          loadingModels
-                            ? t('Loading models...')
-                            : t('Select an API key first')
-                        }
-                      />
+                    <SelectTrigger id={`${controlId}-model`} className='w-full'>
+                      <SelectValue placeholder={modelPlaceholder} />
                     </SelectTrigger>
                     <SelectContent>
-                      {filteredModels.map((id) => (
-                        <SelectItem key={id} value={id}>
-                          {id}
+                      {filteredModels.map((model) => (
+                        <SelectItem key={model.id} value={model.id}>
+                          {model.id}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {modelLoadError ? (
+                    <Alert variant='destructive' className='mt-3'>
+                      <AlertTitle>{t('Failed to load models')}</AlertTitle>
+                      <AlertDescription className='space-y-2'>
+                        <p>{modelLoadError}</p>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant='outline'
+                          onClick={() =>
+                            setModelLoadRevision((revision) => revision + 1)
+                          }
+                        >
+                          {t('Retry')}
+                        </Button>
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
+                  {!loadingModels &&
+                  !modelLoadError &&
+                  tokenId &&
+                  models.length === 0 ? (
+                    <p className='text-muted-foreground mt-2 text-sm'>
+                      {t(
+                        'No eligible video models are available for this key and provider.'
+                      )}
+                    </p>
+                  ) : null}
+                  {!loadingModels &&
+                  !modelLoadError &&
+                  models.length > 0 &&
+                  availableModels.length === 0 ? (
+                    <p className='text-muted-foreground mt-2 text-sm'>
+                      {t(
+                        'No video models with configured pricing are available. Set a model price in Model Pricing first.'
+                      )}
+                    </p>
+                  ) : null}
+                  {!loadingModels &&
+                  !modelLoadError &&
+                  availableModels.length > 0 &&
+                  filteredModels.length === 0 ? (
+                    <p className='text-muted-foreground mt-2 text-sm'>
+                      {t('No models match the selected filters')}
+                    </p>
+                  ) : null}
                 </CardContent>
               </Card>
 
@@ -879,7 +920,11 @@ export function VideoToolPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className='space-y-4'>
-                  <div className='flex flex-wrap gap-2'>
+                  <div
+                    className='flex flex-wrap gap-2'
+                    role='radiogroup'
+                    aria-label={t('Generation mode')}
+                  >
                     {generationTypes.map((gt) => (
                       <Button
                         key={gt.value}
@@ -893,25 +938,10 @@ export function VideoToolPage() {
                           generationType === gt.value &&
                             'bg-primary text-primary-foreground'
                         )}
-                        onClick={() => {
-                          setGenerationType(gt.value)
-                          // Keep model selection inside the filtered list for this mode
-                          // (e.g. image/reference requires *-ref) in the same click.
-                          if (selectedProfile) {
-                            const next = filterModelsForProfile(
-                              availableModels,
-                              selectedProfile,
-                              Boolean(gt.require_ref_model)
-                            )
-                            if (
-                              next.length > 0 &&
-                              (!modelId || !next.includes(modelId))
-                            ) {
-                              setModelId(next[0])
-                            }
-                          }
-                        }}
+                        onClick={() => setGenerationType(gt.value)}
                         disabled={!selectedProfile}
+                        role='radio'
+                        aria-checked={generationType === gt.value}
                       >
                         {generationTypeDisplayLabel(gt, t)}
                       </Button>
@@ -926,8 +956,9 @@ export function VideoToolPage() {
                   )}
 
                   <div className='space-y-2'>
-                    <Label>{t('Prompt')}</Label>
+                    <Label htmlFor={`${controlId}-prompt`}>{t('Prompt')}</Label>
                     <Textarea
+                      id={`${controlId}-prompt`}
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
                       rows={4}
@@ -935,9 +966,16 @@ export function VideoToolPage() {
                     />
                   </div>
 
-                  <div className='grid gap-4 sm:grid-cols-2'>
+                  <div
+                    className={cn(
+                      'grid gap-4',
+                      resolutionOptions.length > 0
+                        ? 'sm:grid-cols-3'
+                        : 'sm:grid-cols-2'
+                    )}
+                  >
                     <div className='space-y-2'>
-                      <Label>
+                      <Label htmlFor={`${controlId}-duration`}>
                         {durationFieldKey === 'duration'
                           ? t('Duration (seconds)')
                           : t('Seconds')}
@@ -946,7 +984,10 @@ export function VideoToolPage() {
                         value={durationValue || null}
                         onValueChange={(v) => setDurationValue(v ?? '')}
                       >
-                        <SelectTrigger className='w-full'>
+                        <SelectTrigger
+                          id={`${controlId}-duration`}
+                          className='w-full'
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -958,13 +999,46 @@ export function VideoToolPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    {resolutionOptions.length > 0 ? (
+                      <div className='space-y-2'>
+                        <Label htmlFor={`${controlId}-resolution`}>
+                          {t('Resolution')}
+                        </Label>
+                        <Select
+                          value={resolution || null}
+                          onValueChange={(value) => setResolution(value ?? '')}
+                        >
+                          <SelectTrigger
+                            id={`${controlId}-resolution`}
+                            className='w-full'
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {resolutionOptions.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : null}
                     <div className='space-y-2'>
-                      <Label>{t('Aspect ratio')}</Label>
+                      <Label htmlFor={`${controlId}-aspect-ratio`}>
+                        {t('Aspect ratio')}
+                      </Label>
                       <Select
                         value={aspectRatio || null}
                         onValueChange={(v) => setAspectRatio(v ?? '')}
                       >
-                        <SelectTrigger className='w-full'>
+                        <SelectTrigger
+                          id={`${controlId}-aspect-ratio`}
+                          className='w-full'
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -979,8 +1053,12 @@ export function VideoToolPage() {
                   </div>
 
                   {(selectedGenType?.images_max ?? 0) > 0 && (
-                    <div className='space-y-2'>
-                      <Label>
+                    <div
+                      className='space-y-2'
+                      role='group'
+                      aria-labelledby={`${controlId}-reference-images`}
+                    >
+                      <Label id={`${controlId}-reference-images`}>
                         {t('Reference images')} ({selectedGenType?.images_min}-
                         {selectedGenType?.images_max})
                       </Label>
@@ -989,6 +1067,7 @@ export function VideoToolPage() {
                         onChange={setReferenceImages}
                         min={selectedGenType?.images_min ?? 0}
                         max={selectedGenType?.images_max ?? 1}
+                        roles={selectedGenType?.image_roles ?? []}
                         disabled={submitting || isPolling}
                       />
                     </div>
@@ -996,21 +1075,18 @@ export function VideoToolPage() {
 
                   {selectedGenType?.allow_audio && (
                     <div className='space-y-2'>
-                      <Label>
+                      <Label htmlFor={`${controlId}-reference-audio`}>
                         {selectedGenType.require_audio
                           ? t('Reference audio (required, MP3)')
                           : t('Reference audio (optional, MP3)')}
                       </Label>
                       <Input
+                        id={`${controlId}-reference-audio`}
                         type='file'
                         accept='audio/mpeg,audio/mp3,.mp3'
                         disabled={submitting || isPolling}
                         onChange={(e) => {
                           const file = e.target.files?.[0] ?? null
-                          setAudioPreviewUrl((prev) => {
-                            if (prev) URL.revokeObjectURL(prev)
-                            return file ? URL.createObjectURL(file) : ''
-                          })
                           if (
                             file &&
                             !/audio\/(mpeg|mp3)/i.test(file.type) &&
@@ -1021,8 +1097,12 @@ export function VideoToolPage() {
                             )
                             e.target.value = ''
                             setAudioFile(null)
+                            setAudioPreviewUrl('')
                             return
                           }
+                          setAudioPreviewUrl(
+                            file ? URL.createObjectURL(file) : ''
+                          )
                           setAudioFile(file)
                         }}
                       />
@@ -1045,10 +1125,7 @@ export function VideoToolPage() {
                             disabled={submitting || isPolling}
                             onClick={() => {
                               setAudioFile(null)
-                              setAudioPreviewUrl((prev) => {
-                                if (prev) URL.revokeObjectURL(prev)
-                                return ''
-                              })
+                              setAudioPreviewUrl('')
                             }}
                           >
                             {t('Remove')}
@@ -1084,10 +1161,7 @@ export function VideoToolPage() {
                     </p>
                     {priceEstimate ? (
                       <p className='text-muted-foreground mt-1 text-sm'>
-                        {t(
-                          'Based on model unit price × {{seconds}}s × group ratio. Reference only — final charge follows actual billing.',
-                          { seconds: priceEstimate.seconds }
-                        )}
+                        {priceEstimateDescription}
                       </p>
                     ) : (
                       <p className='text-muted-foreground mt-1 text-sm'>
@@ -1122,80 +1196,17 @@ export function VideoToolPage() {
               </Card>
 
               {(taskId || pollError || previewUrl) && (
-                <Card>
-                  <CardHeader className='pb-3'>
-                    <CardTitle className='text-base'>{t('Result')}</CardTitle>
-                    <CardDescription>
-                      {taskId && (
-                        <>
-                          {t('Task ID')}:{' '}
-                          <span className='font-mono'>{taskId}</span>
-                          {taskStatus ? ` · ${taskStatus}` : ''}
-                        </>
-                      )}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className='space-y-3'>
-                    {isPolling && (
-                      <div className='space-y-1 text-sm'>
-                        <p className='text-muted-foreground'>
-                          {isVideoStoragePhase(taskProgress)
-                            ? t('Storing generated video locally...')
-                            : t('Refreshing task status automatically...')}
-                        </p>
-                        <p>
-                          {t('Progress')}:{' '}
-                          <span className='font-medium'>
-                            {taskProgress || t('Waiting for update')}
-                          </span>
-                        </p>
-                      </div>
-                    )}
-                    {!isPolling &&
-                      taskProgress &&
-                      !pollError &&
-                      !previewUrl && (
-                        <p className='text-sm'>
-                          {t('Progress')}:{' '}
-                          <span className='font-medium'>{taskProgress}</span>
-                        </p>
-                      )}
-                    {pollError && (
-                      <p className='text-destructive text-sm'>{pollError}</p>
-                    )}
-                    {previewUrl && (
-                      <div className='space-y-2'>
-                        <video
-                          className='bg-muted aspect-video w-full rounded-md'
-                          src={previewUrl}
-                          controls
-                          playsInline
-                        />
-                        <a
-                          href={previewUrl}
-                          target='_blank'
-                          rel='noopener noreferrer'
-                          className='text-muted-foreground text-sm hover:underline'
-                        >
-                          {t('Download link')}
-                        </a>
-                      </div>
-                    )}
-                    {taskId && (
-                      <Link
-                        to='/usage-logs/$section'
-                        params={{ section: 'task' }}
-                        search={{ filter: taskId }}
-                        className={cn(
-                          buttonVariants({ variant: 'link' }),
-                          'h-auto p-0'
-                        )}
-                      >
-                        {t('View this task in Task Logs')}
-                      </Link>
-                    )}
-                  </CardContent>
-                </Card>
+                <VideoTaskResultCard
+                  taskId={taskId}
+                  taskStatus={taskStatus}
+                  taskProgress={taskProgress}
+                  previewUrl={previewUrl}
+                  pollError={pollError}
+                  isPolling={isPolling}
+                  pollingPaused={pollingPaused}
+                  canResumePolling={Boolean(taskId && pollingTokenKey)}
+                  onResumePolling={resumeTaskPolling}
+                />
               )}
 
               <Card>

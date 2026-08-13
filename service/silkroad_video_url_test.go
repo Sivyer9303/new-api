@@ -70,19 +70,107 @@ func TestSanitizeTaskForClientHidesUpstream(t *testing.T) {
 	assert.NotContains(t, string(data), "cdn.upstream.example")
 }
 
-func TestSanitizeTaskForClientHidesHistoricalVideoWhenStorageIsDisabled(t *testing.T) {
+func TestSanitizeTaskForClientHidesMarkedFutureProviderVideoWhenStorageIsDisabled(t *testing.T) {
 	withSilkRoadStorage(t, t.TempDir(), "", "")
 	task := &model.Task{
-		TaskID:   "historical-kling-video",
-		Platform: constant.TaskPlatform("kling"),
+		TaskID:   "future-provider-video",
+		Platform: constant.TaskPlatform("future-provider"),
 		Status:   model.TaskStatusSuccess,
 		Data:     []byte(`{"video_url":"https://upstream.example/private.mp4"}`),
 		PrivateData: model.TaskPrivateData{
 			ResultURL: "https://upstream.example/private.mp4",
+			VideoTask: true,
 		},
 	}
 
 	resultURL, data := SanitizeTaskForClient(task)
 	assert.Empty(t, resultURL)
 	assert.NotContains(t, string(data), "upstream.example")
+}
+
+func TestIsVideoTaskUsesMarkerStorageMetadataAndLegacyFallbacks(t *testing.T) {
+	tests := []struct {
+		name string
+		task *model.Task
+		want bool
+	}{
+		{
+			name: "provider-neutral marker",
+			task: &model.Task{
+				Platform:    constant.TaskPlatform("future-provider"),
+				PrivateData: model.TaskPrivateData{VideoTask: true},
+			},
+			want: true,
+		},
+		{
+			name: "persisted storage metadata",
+			task: &model.Task{
+				Platform: constant.TaskPlatform("future-provider"),
+				PrivateData: model.TaskPrivateData{
+					StorageStatus: "pending",
+				},
+			},
+			want: true,
+		},
+		{
+			name: "legacy NewAPI platform",
+			task: &model.Task{
+				Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeNewAPI)),
+			},
+			want: true,
+		},
+		{
+			name: "legacy SilkRoad platform",
+			task: &model.Task{
+				Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeSilkRoad)),
+			},
+			want: true,
+		},
+		{
+			name: "legacy named provider",
+			task: &model.Task{
+				Platform: constant.TaskPlatform("kling"),
+			},
+			want: true,
+		},
+		{
+			name: "legacy video action",
+			task: &model.Task{
+				Platform: constant.TaskPlatform("legacy-provider"),
+				Action:   constant.TaskActionGenerate,
+			},
+			want: true,
+		},
+		{
+			name: "unmarked unrelated task",
+			task: &model.Task{
+				Platform: constant.TaskPlatform("future-provider"),
+				Action:   "unrelated",
+			},
+			want: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, IsVideoTask(test.task))
+		})
+	}
+}
+
+func TestVideoDataRedactionRemovesURLsAndInlineMediaFromNestedMessages(t *testing.T) {
+	body := []byte(`{
+		"id":"provider-id",
+		"error":{"message":"failed to fetch https://signed.example/input.png?signature=secret"},
+		"debug":["data:image/png;base64,c2VjcmV0"],
+		"status":"failed"
+	}`)
+
+	redacted, err := applyVideoDataRedaction(body, "task_public")
+
+	require.NoError(t, err)
+	assert.Contains(t, string(redacted), `"id":"task_public"`)
+	assert.NotContains(t, string(redacted), "signed.example")
+	assert.NotContains(t, string(redacted), "data:image")
+	assert.NotContains(t, string(redacted), "c2VjcmV0")
 }

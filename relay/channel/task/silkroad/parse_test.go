@@ -33,8 +33,8 @@ func TestParseTaskResultUnknownStatusFailsWithoutRefund(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, model.TaskStatusFailure, info.Status)
 	assert.True(t, info.NoRefund)
-	assert.Contains(t, info.Reason, "weird")
-	assert.Contains(t, info.Reason, "人工")
+	assert.NotContains(t, info.Reason, "weird")
+	assert.Contains(t, info.Reason, "administrator review")
 }
 
 // 空 status（如限流错误响应体）保持进行中，交给下一轮轮询处理，不判定终态。
@@ -64,9 +64,13 @@ func TestParseTaskResultCanceledSynonymRefundable(t *testing.T) {
 
 func TestParseTaskResultFailed(t *testing.T) {
 	a := &TaskAdaptor{}
-	info, err := a.ParseTaskResult([]byte(`{"status":"failed"}`))
+	info, err := a.ParseTaskResult([]byte(
+		`{"status":"failed","error":{"message":"could not fetch https://r2.example/input.png?X-Amz-Signature=secret"}}`,
+	))
 	require.NoError(t, err)
 	assert.Equal(t, model.TaskStatusFailure, info.Status)
+	assert.Equal(t, "SilkRoad task failed", info.Reason)
+	assert.NotContains(t, info.Reason, "X-Amz-Signature")
 }
 
 func TestParseTaskResultWrappedTaskDtoWithNestedVideoURL(t *testing.T) {
