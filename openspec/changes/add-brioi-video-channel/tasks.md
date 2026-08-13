@@ -113,7 +113,7 @@
 
 - [x] 12.1 Centralize generic Video Generation enablement across status/config endpoints, refresh frontend status caches after relevant saves, and test Brioi-only/SilkRoad-only/global-off matrices.
 - [x] 12.2 Refactor task adaptors to return parsed public responses without writing HTTP output; accept all successful 2xx responses, close all bodies, sanitize bounded errors, and test 201/202/non-success behavior.
-- [x] 12.3 Persist a recoverable pre-submission task before the upstream create call, durably record provider acceptance before settlement/client success, and add database-failure regression tests for every boundary.
+- [ ] 12.3 Persist a recoverable pre-submission task before the upstream create call, durably record provider acceptance before settlement/client success, and add database-failure regression tests for every boundary.
 - [x] 12.4 Enforce the usable-result-URL invariant in the provider-neutral polling layer and add SilkRoad/Brioi missing-result administrator-review tests.
 - [x] 12.5 Make `settling` watchdog-recoverable with idempotent billing/storage exposure and add forced CAS/database-failure plus concurrent-worker tests.
 - [x] 12.6 Replace bulk terminal failure on channel lookup errors with transient retry or definitive provider review and cover cache miss, database failure, and removed-channel cases.
@@ -123,3 +123,6 @@
 - [x] 12.10 Decompose `VideoToolPage` into focused bootstrap, form-state, polling, media-lifecycle, and presentation units without changing request or billing behavior.
 - [x] 12.11 Add lifecycle diagnostics for provider acceptance, task persistence, provider success, settlement, storage readiness, and content delivery; verify the stage-to-stage failure signals.
 - [ ] 12.12 Re-run full backend/frontend/relaykit verification and complete the Docker fault/same-model smoke matrix before release.
+
+Remaining acceptance-ordering, accepted-task polling recovery, refund re-audit,
+and release verification steps are documented in `remaining-work.md`.
