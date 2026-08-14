@@ -58,6 +58,10 @@ func ValidateBrioiSetting(setting *BrioiSetting) error {
 		); err != nil {
 			return err
 		}
+		profile.GenerationModes = softMergeGenerationModes(
+			profile.GenerationModes,
+			hardProfile.GenerationModes,
+		)
 		if err := validateGenerationModes(
 			profile.GenerationModes,
 			hardProfile.GenerationModes,
@@ -147,13 +151,37 @@ func validateStringSubset(values, allowed []string, path string, requireNonEmpty
 	return nil
 }
 
+// softMergeGenerationModes appends newly introduced hard modes (e.g. reference_videos)
+// so stored admin configs remain valid after capability upgrades. Empty slices stay
+// empty so explicit clearing still fails validation.
+func softMergeGenerationModes(
+	modes []GenerationModeSetting,
+	hardModes []GenerationModeSetting,
+) []GenerationModeSetting {
+	if len(modes) == 0 {
+		return modes
+	}
+	seen := make(map[string]struct{}, len(modes))
+	for _, mode := range modes {
+		seen[strings.TrimSpace(mode.Value)] = struct{}{}
+	}
+	merged := append([]GenerationModeSetting(nil), modes...)
+	for _, hard := range hardModes {
+		if _, ok := seen[hard.Value]; ok {
+			continue
+		}
+		merged = append(merged, hard)
+	}
+	return merged
+}
+
 func validateGenerationModes(
 	modes []GenerationModeSetting,
 	hardModes []GenerationModeSetting,
 	path string,
 	profileEnabled bool,
 ) error {
-	if len(modes) != len(hardModes) {
+	if len(modes) == 0 {
 		return fmt.Errorf("%s must contain every supported Brioi generation mode exactly once", path)
 	}
 	hardByValue := make(map[string]GenerationModeSetting, len(hardModes))
@@ -176,7 +204,8 @@ func validateGenerationModes(
 			enabledCount++
 		}
 
-		if mode.Value == GenerationMultiImage {
+		switch mode.Value {
+		case GenerationMultiImage:
 			if mode.ImagesMax < 2 || mode.ImagesMax > hardMode.ImagesMax {
 				return fmt.Errorf(
 					"%s[%d].images_max must be between 2 and %d",
@@ -185,16 +214,34 @@ func validateGenerationModes(
 					hardMode.ImagesMax,
 				)
 			}
-			continue
+		case GenerationReferenceVideos:
+			// Companion images are optional; 0 disables them.
+			if mode.ImagesMax < 0 || mode.ImagesMax > hardMode.ImagesMax {
+				return fmt.Errorf(
+					"%s[%d].images_max must be between 0 and %d",
+					path,
+					index,
+					hardMode.ImagesMax,
+				)
+			}
+		default:
+			if mode.ImagesMax != hardMode.ImagesMax {
+				return fmt.Errorf(
+					"%s[%d].images_max must equal the Brioi hard value %d",
+					path,
+					index,
+					hardMode.ImagesMax,
+				)
+			}
 		}
-		if mode.ImagesMax != hardMode.ImagesMax {
-			return fmt.Errorf(
-				"%s[%d].images_max must equal the Brioi hard value %d",
-				path,
-				index,
-				hardMode.ImagesMax,
-			)
+	}
+	for _, hard := range hardModes {
+		if _, ok := seen[hard.Value]; !ok {
+			return fmt.Errorf("%s must contain every supported Brioi generation mode exactly once", path)
 		}
+	}
+	if len(modes) != len(hardModes) {
+		return fmt.Errorf("%s must contain every supported Brioi generation mode exactly once", path)
 	}
 	if profileEnabled && enabledCount == 0 {
 		return fmt.Errorf("%s must contain at least one enabled mode", path)

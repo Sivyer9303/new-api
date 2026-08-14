@@ -60,6 +60,7 @@ func newBrioiContext(
 
 func TestBuildRequestBodyGoldenModesAndModels(t *testing.T) {
 	imageDataURL := brioiTestImageDataURL(t)
+	videoDataURL := "data:video/mp4;base64," + base64.StdEncoding.EncodeToString([]byte("fake-mp4"))
 	tests := []struct {
 		name string
 		body string
@@ -157,6 +158,32 @@ func TestBuildRequestBodyGoldenModesAndModels(t *testing.T) {
 				]
 			}`,
 		},
+		{
+			name: "Seedance 2.0 reference videos with companion image",
+			body: fmt.Sprintf(`{
+				"model":"seedance-2-0",
+				"prompt":"continue @Video1 with @Image1 style",
+				"generation_type":"reference_videos",
+				"duration":8,
+				"resolution":"720p",
+				"aspect_ratio":"16:9",
+				"media":[
+					{"type":"video","role":"reference","source":"%s"},
+					{"type":"image","role":"reference","source":"%s"}
+				]
+			}`, videoDataURL, imageDataURL),
+			want: `{
+				"model":"seedance-2-0",
+				"prompt":"continue @Video1 with @Image1 style",
+				"duration":8,
+				"resolution":"720p",
+				"aspect_ratio":"16:9",
+				"ref":[
+					{"url":"https://r2.example/0.mp4?signature=one","type":"video"},
+					{"url":"https://r2.example/1.png?signature=two","type":"image"}
+				]
+			}`,
+		},
 	}
 
 	for _, test := range tests {
@@ -176,12 +203,22 @@ func TestBuildRequestBodyGoldenModesAndModels(t *testing.T) {
 				source string,
 			) (string, error) {
 				assert.Equal(t, 42, channelID)
-				assert.True(t, strings.HasPrefix(source, "data:image/"))
-				urls := []string{
-					"https://r2.example/0.png?signature=one",
-					"https://r2.example/1.png?signature=two",
+				assert.True(
+					t,
+					strings.HasPrefix(source, "data:image/") ||
+						strings.HasPrefix(source, "data:video/mp4"),
+				)
+				ext := ".png"
+				if strings.HasPrefix(source, "data:video/") {
+					ext = ".mp4"
 				}
-				url := urls[staged]
+				signatures := []string{"one", "two"}
+				url := fmt.Sprintf(
+					"https://r2.example/%d%s?signature=%s",
+					staged,
+					ext,
+					signatures[staged],
+				)
 				staged++
 				return url, nil
 			}
@@ -195,6 +232,7 @@ func TestBuildRequestBodyGoldenModesAndModels(t *testing.T) {
 			assert.JSONEq(t, test.want, string(body))
 			assert.NotContains(t, string(body), "generation_type")
 			assert.NotContains(t, string(body), "data:image")
+			assert.NotContains(t, string(body), "data:video")
 			assert.NotContains(t, string(body), `"images"`)
 		})
 	}
@@ -217,6 +255,118 @@ func TestRequestValidationUsesMappedModelAndBoundedBillingSeconds(t *testing.T) 
 	require.True(t, ok)
 	assert.Equal(t, ModelSeedance20, stored.request.Model)
 	assert.Equal(t, map[string]float64{"seconds": 15}, adaptor.EstimateBilling(context, info))
+}
+
+func TestRequestDerivesResolutionFromMappedOriginModel(t *testing.T) {
+	tests := []struct {
+		name         string
+		originModel  string
+		body         string
+		wantRes      string
+		wantContains string
+	}{
+		{
+			name:        "derives 480p from local alias",
+			originModel: "seedance-2-0-480p",
+			body: `{
+				"model":"seedance-2-0-480p",
+				"prompt":"auto resolution",
+				"generation_type":"text2video",
+				"duration":4,
+				"aspect_ratio":"16:9"
+			}`,
+			wantRes: "480p",
+		},
+		{
+			name:        "derives 4K from alias and keeps upstream model",
+			originModel: "dreamina-seedance-2-0-4K",
+			body: `{
+				"model":"dreamina-seedance-2-0-4K",
+				"prompt":"auto resolution",
+				"generation_type":"text2video",
+				"duration":4,
+				"aspect_ratio":"16:9"
+			}`,
+			wantRes: "4K",
+		},
+		{
+			name:        "accepts matching explicit resolution",
+			originModel: "seedance-2-0-720p",
+			body: `{
+				"model":"seedance-2-0-720p",
+				"prompt":"auto resolution",
+				"generation_type":"text2video",
+				"duration":4,
+				"resolution":"720p",
+				"aspect_ratio":"16:9"
+			}`,
+			wantRes: "720p",
+		},
+		{
+			name:        "rejects conflicting explicit resolution",
+			originModel: "seedance-2-0-480p",
+			body: `{
+				"model":"seedance-2-0-480p",
+				"prompt":"auto resolution",
+				"generation_type":"text2video",
+				"duration":4,
+				"resolution":"720p",
+				"aspect_ratio":"16:9"
+			}`,
+			wantContains: "conflicts",
+		},
+		{
+			name:        "still requires resolution when model has no suffix",
+			originModel: "seedance-2-0",
+			body: `{
+				"model":"seedance-2-0",
+				"prompt":"missing resolution",
+				"generation_type":"text2video",
+				"duration":4,
+				"aspect_ratio":"16:9"
+			}`,
+			wantContains: "resolution is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			context, info := newBrioiContext(
+				t,
+				"/v1/video/generations",
+				test.body,
+				test.originModel,
+				ModelSeedance20,
+			)
+			adaptor := &TaskAdaptor{}
+			taskErr := adaptor.ValidateRequestAndSetAction(context, info)
+			if test.wantContains != "" {
+				require.NotNil(t, taskErr)
+				assert.Contains(t, taskErr.Message, test.wantContains)
+				return
+			}
+			require.Nil(t, taskErr)
+			stored, ok := getNormalizedRequest(context)
+			require.True(t, ok)
+			assert.Equal(t, ModelSeedance20, stored.request.Model)
+			assert.Equal(t, test.wantRes, stored.request.Resolution)
+
+			reader, err := adaptor.BuildRequestBody(context, info)
+			require.NoError(t, err)
+			upstreamBody, err := io.ReadAll(reader)
+			require.NoError(t, err)
+			assert.Contains(t, string(upstreamBody), `"resolution":"`+test.wantRes+`"`)
+			assert.Contains(t, string(upstreamBody), `"model":"`+ModelSeedance20+`"`)
+		})
+	}
+}
+
+func TestResolutionFromModelName(t *testing.T) {
+	assert.Equal(t, "480p", resolutionFromModelName("seedance-2-0-480p"))
+	assert.Equal(t, "720p", resolutionFromModelName("dreamina-seedance-2-0-720p-ref"))
+	assert.Equal(t, "1080p", resolutionFromModelName("seedance-2-0-1080p"))
+	assert.Equal(t, "4K", resolutionFromModelName("seedance-2-0-4k"))
+	assert.Equal(t, "", resolutionFromModelName("seedance-2-0"))
 }
 
 func TestRequestValidationRejectsProtocolBoundaries(t *testing.T) {
@@ -278,11 +428,11 @@ func TestRequestValidationRejectsProtocolBoundaries(t *testing.T) {
 			contains: "audio references",
 		},
 		{
-			name: "video reference",
+			name: "video_url singular rejected",
 			mutate: func(body map[string]any) {
 				body["video_url"] = "data:video/mp4;base64,dmlkZW8="
 			},
-			contains: "video references",
+			contains: "video_url is not supported",
 		},
 		{
 			name:     "unknown top-level field",
@@ -510,7 +660,7 @@ func TestRequestValidationRejectsInvalidRoleCombinations(t *testing.T) {
 			media: []map[string]string{{
 				"type": "audio", "role": "reference", "source": "data:audio/mpeg;base64,YQ==",
 			}},
-			contains: "only images",
+			contains: "not supported",
 		},
 	}
 

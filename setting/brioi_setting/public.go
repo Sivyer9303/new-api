@@ -9,8 +9,12 @@ type PublicGenerationMode struct {
 	RequireRefModel bool     `json:"require_ref_model"`
 	RequireAudio    bool     `json:"require_audio"`
 	AllowAudio      bool     `json:"allow_audio"`
+	RequireVideo    bool     `json:"require_video"`
+	AllowVideo      bool     `json:"allow_video"`
 	ImagesMin       int      `json:"images_min"`
 	ImagesMax       int      `json:"images_max"`
+	VideosMin       int      `json:"videos_min"`
+	VideosMax       int      `json:"videos_max"`
 	ImageRoles      []string `json:"image_roles"`
 }
 
@@ -20,6 +24,7 @@ type PublicMediaLimits struct {
 	AcceptedTypes []string `json:"accepted_types"`
 	AllowedRoles  []string `json:"allowed_roles"`
 	AllowAudio    bool     `json:"allow_audio"`
+	AllowVideo    bool     `json:"allow_video"`
 }
 
 type PublicProfile struct {
@@ -72,11 +77,14 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 		if !profile.Enabled {
 			continue
 		}
-		modes := make([]PublicGenerationMode, 0, len(profile.GenerationModes))
-		generationTypes := make([]string, 0, len(profile.GenerationModes))
+		hard, _ := hardProfile(profile.Model)
+		generationModes := softMergeGenerationModes(profile.GenerationModes, hard.GenerationModes)
+		modes := make([]PublicGenerationMode, 0, len(generationModes))
+		generationTypes := make([]string, 0, len(generationModes))
 		mediaLimits := make(map[string]PublicMediaLimits)
 		maxItems := 0
-		for _, mode := range profile.GenerationModes {
+		allowVideo := false
+		for _, mode := range generationModes {
 			if !mode.Enabled {
 				continue
 			}
@@ -84,11 +92,15 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 			modes = append(modes, publicMode)
 			generationTypes = append(generationTypes, publicMode.Value)
 			mediaLimits[publicMode.Value] = publicModeMediaLimits(publicMode)
-			if publicMode.ImagesMax > maxItems {
-				maxItems = publicMode.ImagesMax
+			itemCap := publicMode.ImagesMax + publicMode.VideosMax
+			if itemCap > maxItems {
+				maxItems = itemCap
+			}
+			if publicMode.AllowVideo {
+				allowVideo = true
 			}
 			current, exists := providerModes[publicMode.Value]
-			if !exists || publicMode.ImagesMax > current.ImagesMax {
+			if !exists || publicMode.ImagesMax > current.ImagesMax || publicMode.VideosMax > current.VideosMax {
 				providerModes[publicMode.Value] = publicMode
 			}
 		}
@@ -105,6 +117,10 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 			len(modes) == 0 {
 			continue
 		}
+		acceptedTypes := []string{"image"}
+		if allowVideo {
+			acceptedTypes = []string{"image", "video"}
+		}
 		public.Profiles = append(public.Profiles, PublicProfile{
 			ID:              profile.Model,
 			Model:           profile.Model,
@@ -119,13 +135,14 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 			Media: PublicMediaLimits{
 				MinItems:      0,
 				MaxItems:      maxItems,
-				AcceptedTypes: []string{"image"},
+				AcceptedTypes: acceptedTypes,
 				AllowedRoles: []string{
 					ImageRoleReference,
 					ImageRoleFirstFrame,
 					ImageRoleLastFrame,
 				},
 				AllowAudio: false,
+				AllowVideo: allowVideo,
 			},
 			MediaLimits: mediaLimits,
 		})
@@ -155,17 +172,31 @@ func publicGenerationMode(mode GenerationModeSetting) PublicGenerationMode {
 	}
 	switch mode.Value {
 	case GenerationImage2Video:
+		public.Label = "Image reference"
 		public.ImagesMin = 1
 		public.ImageRoles = []string{ImageRoleReference}
 	case GenerationMultiImage:
+		public.Label = "Multi-image reference"
 		public.ImagesMin = 2
 		public.ImageRoles = []string{ImageRoleReference}
 	case GenerationFirstFrame:
+		public.Label = "First frame"
 		public.ImagesMin = 1
 		public.ImageRoles = []string{ImageRoleFirstFrame}
 	case GenerationStartEnd:
+		public.Label = "First & last frame"
 		public.ImagesMin = 2
 		public.ImageRoles = []string{ImageRoleFirstFrame, ImageRoleLastFrame}
+	case GenerationReferenceVideos:
+		public.Label = "Reference video"
+		public.RequireVideo = true
+		public.AllowVideo = true
+		public.ImagesMin = 0
+		public.VideosMin = ReferenceVideosMin
+		public.VideosMax = ReferenceVideosMax
+		public.ImageRoles = []string{ImageRoleReference}
+	case GenerationText2Video:
+		public.Label = "Text to video"
 	}
 	return public
 }
@@ -173,13 +204,22 @@ func publicGenerationMode(mode GenerationModeSetting) PublicGenerationMode {
 func publicModeMediaLimits(mode PublicGenerationMode) PublicMediaLimits {
 	acceptedTypes := []string{}
 	if mode.ImagesMax > 0 {
-		acceptedTypes = []string{"image"}
+		acceptedTypes = append(acceptedTypes, "image")
 	}
+	if mode.AllowVideo || mode.VideosMax > 0 {
+		acceptedTypes = append(acceptedTypes, "video")
+	}
+	minItems := mode.ImagesMin
+	if mode.VideosMin > minItems {
+		minItems = mode.VideosMin
+	}
+	maxItems := mode.ImagesMax + mode.VideosMax
 	return PublicMediaLimits{
-		MinItems:      mode.ImagesMin,
-		MaxItems:      mode.ImagesMax,
+		MinItems:      minItems,
+		MaxItems:      maxItems,
 		AcceptedTypes: acceptedTypes,
 		AllowedRoles:  append([]string(nil), mode.ImageRoles...),
 		AllowAudio:    false,
+		AllowVideo:    mode.AllowVideo || mode.VideosMax > 0,
 	}
 }

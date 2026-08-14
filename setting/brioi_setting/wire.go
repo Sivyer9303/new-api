@@ -148,6 +148,9 @@ func (profile *Profile) UnmarshalJSON(data []byte) error {
 			[]GenerationModeSetting(nil),
 			(*wire.GenerationModes)...,
 		)
+		if supported {
+			generationModes = softMergeGenerationModes(generationModes, hard.GenerationModes)
+		}
 	} else {
 		if supported {
 			generationModes = append([]GenerationModeSetting(nil), hard.GenerationModes...)
@@ -165,7 +168,8 @@ func (profile *Profile) UnmarshalJSON(data []byte) error {
 		}
 		if maxImages > 0 {
 			for index := range generationModes {
-				if generationModes[index].Value == GenerationMultiImage {
+				switch generationModes[index].Value {
+				case GenerationMultiImage, GenerationReferenceVideos:
 					generationModes[index].ImagesMax = maxImages
 				}
 			}

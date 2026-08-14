@@ -15,7 +15,14 @@ func ResolveProfile(upstreamModel string) (Profile, bool) {
 	}
 	for _, profile := range setting.Profiles {
 		if profile.Enabled && strings.TrimSpace(profile.Model) == upstreamModel {
-			return cloneProfile(profile), true
+			cloned := cloneProfile(profile)
+			if hard, ok := hardProfile(cloned.Model); ok {
+				cloned.GenerationModes = softMergeGenerationModes(
+					cloned.GenerationModes,
+					hard.GenerationModes,
+				)
+			}
+			return cloned, true
 		}
 	}
 	return Profile{}, false

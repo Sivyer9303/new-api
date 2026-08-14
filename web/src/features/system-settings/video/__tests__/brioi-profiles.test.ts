@@ -57,7 +57,7 @@ describe('Brioi provider profiles', () => {
 
     assert.equal(payload[0].model, 'seedance-2-0-fast')
     assert.equal(payload[0].durations[0], 4)
-    assert.equal(payload[0].generation_modes.length, 5)
+    assert.equal(payload[0].generation_modes.length, 6)
     assert.deepEqual(parsed[0].resolutions, ['720p'])
     assert.deepEqual(parsed[0].generation_types, ['text2video', 'first_frame'])
     assert.equal(parsed[0].max_images, 1)

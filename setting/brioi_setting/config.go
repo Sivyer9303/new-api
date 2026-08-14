@@ -13,11 +13,18 @@ const (
 )
 
 const (
-	GenerationText2Video  = "text2video"
-	GenerationImage2Video = "image2video"
-	GenerationMultiImage  = "multi_image"
-	GenerationFirstFrame  = "first_frame"
-	GenerationStartEnd    = "start_end"
+	GenerationText2Video      = "text2video"
+	GenerationImage2Video     = "image2video"
+	GenerationMultiImage      = "multi_image"
+	GenerationFirstFrame      = "first_frame"
+	GenerationStartEnd        = "start_end"
+	GenerationReferenceVideos = "reference_videos"
+)
+
+// Reference video bounds for Seedance-style @VideoN prompts (companion images optional).
+const (
+	ReferenceVideosMin = 1
+	ReferenceVideosMax = 3
 )
 
 const (
@@ -114,6 +121,8 @@ func defaultGenerationModes(model string) []GenerationModeSetting {
 		{Value: GenerationMultiImage, Enabled: true, ImagesMax: multiImageMax, Sort: 3},
 		{Value: GenerationFirstFrame, Enabled: true, ImagesMax: 1, Sort: 4},
 		{Value: GenerationStartEnd, Enabled: true, ImagesMax: 2, Sort: 5},
+		// Companion images share the same hard ceiling as multi_image.
+		{Value: GenerationReferenceVideos, Enabled: true, ImagesMax: multiImageMax, Sort: 6},
 	}
 }
 

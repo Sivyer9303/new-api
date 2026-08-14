@@ -115,6 +115,27 @@ func ValidateVideoInputImageDataURL(media string) error {
 	return nil
 }
 
+// ValidateVideoInputVideoDataURL verifies size and declared type for an MP4
+// data URL before any upstream channel is attempted.
+func ValidateVideoInputVideoDataURL(media string) error {
+	payload, declaredType, err := readVideoInputDataURL(context.Background(), media)
+	if err != nil {
+		return err
+	}
+	declaredType, _, err = mime.ParseMediaType(strings.TrimSpace(declaredType))
+	if err != nil {
+		return fmt.Errorf("reference video type is invalid")
+	}
+	declaredType = strings.ToLower(declaredType)
+	if declaredType != "video/mp4" {
+		return fmt.Errorf("reference video type %q is not supported", declaredType)
+	}
+	if len(payload) == 0 {
+		return errors.New("reference video payload is empty")
+	}
+	return nil
+}
+
 func readVideoInputDataURL(ctx context.Context, media string) ([]byte, string, error) {
 	body, contentType, err := openVideoDataURL(media)
 	if err != nil {
@@ -196,6 +217,8 @@ func stagedVideoInputExtension(contentType string) string {
 		return ".mp3"
 	case "audio/wav", "audio/x-wav":
 		return ".wav"
+	case "video/mp4":
+		return ".mp4"
 	default:
 		return ".bin"
 	}

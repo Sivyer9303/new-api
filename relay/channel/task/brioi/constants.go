@@ -7,11 +7,12 @@ const (
 	ModelSeedance20     = brioi_setting.ModelSeedance20
 	ModelSeedance25     = brioi_setting.ModelSeedance25
 
-	GenerationTextToVideo  = brioi_setting.GenerationText2Video
-	GenerationImageToVideo = brioi_setting.GenerationImage2Video
-	GenerationMultiImage   = brioi_setting.GenerationMultiImage
-	GenerationFirstFrame   = brioi_setting.GenerationFirstFrame
-	GenerationStartEnd     = brioi_setting.GenerationStartEnd
+	GenerationTextToVideo     = brioi_setting.GenerationText2Video
+	GenerationImageToVideo    = brioi_setting.GenerationImage2Video
+	GenerationMultiImage      = brioi_setting.GenerationMultiImage
+	GenerationFirstFrame      = brioi_setting.GenerationFirstFrame
+	GenerationStartEnd        = brioi_setting.GenerationStartEnd
+	GenerationReferenceVideos = brioi_setting.GenerationReferenceVideos
 )
 
 var modelList = []string{

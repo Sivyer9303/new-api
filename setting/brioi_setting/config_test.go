@@ -22,8 +22,10 @@ func TestDefaultBrioiProfilesMatchDocumentedHardCapabilities(t *testing.T) {
 	assert.Equal(t, integerRange(4, 15), fast.Durations)
 	assert.Equal(t, []string{"480p", "720p"}, fast.Resolutions)
 	assert.Equal(t, []string{"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"}, fast.AspectRatios)
-	require.Len(t, fast.GenerationModes, 5)
+	require.Len(t, fast.GenerationModes, 6)
 	assert.Equal(t, 9, fast.GenerationModes[2].ImagesMax)
+	assert.Equal(t, GenerationReferenceVideos, fast.GenerationModes[5].Value)
+	assert.Equal(t, 9, fast.GenerationModes[5].ImagesMax)
 
 	standard := byModel[ModelSeedance20]
 	assert.Equal(t, integerRange(4, 15), standard.Durations)
@@ -36,6 +38,7 @@ func TestDefaultBrioiProfilesMatchDocumentedHardCapabilities(t *testing.T) {
 	assert.Equal(t, []string{"480p", "720p"}, latest.Resolutions)
 	assert.Equal(t, []string{"16:9", "9:16"}, latest.AspectRatios)
 	assert.Equal(t, 30, latest.GenerationModes[2].ImagesMax)
+	assert.Equal(t, 30, latest.GenerationModes[5].ImagesMax)
 }
 
 func TestResolveProfileUsesExactMappedUpstreamNameWithoutFallback(t *testing.T) {
@@ -55,16 +58,26 @@ func TestResolveProfileUsesExactMappedUpstreamNameWithoutFallback(t *testing.T) 
 	assert.False(t, ok)
 }
 
-func TestValidateBrioiSettingAllowsSparseOptionsAndDisabledModes(t *testing.T) {
+func TestSoftMergeAddsReferenceVideosMode(t *testing.T) {
 	setting := defaultBrioiSetting()
-	setting.VideoToolGroups = []string{" brioi ", "", "vip", "brioi"}
-	setting.Profiles[0].Durations = []int{4, 15}
-	setting.Profiles[0].Resolutions = []string{"720p"}
-	setting.Profiles[0].AspectRatios = []string{"16:9"}
-	setting.Profiles[0].GenerationModes[2].Enabled = false
-
+	for index := range setting.Profiles {
+		modes := setting.Profiles[index].GenerationModes
+		filtered := modes[:0]
+		for _, mode := range modes {
+			if mode.Value == GenerationReferenceVideos {
+				continue
+			}
+			filtered = append(filtered, mode)
+		}
+		setting.Profiles[index].GenerationModes = filtered
+	}
 	require.NoError(t, ValidateBrioiSetting(&setting))
-	assert.Equal(t, []string{"brioi", "vip"}, setting.VideoToolGroups)
+	for _, profile := range setting.Profiles {
+		mode, ok := FindGenerationMode(profile, GenerationReferenceVideos)
+		require.True(t, ok)
+		assert.True(t, mode.Enabled)
+		assert.Greater(t, mode.ImagesMax, 0)
+	}
 }
 
 func TestValidateBrioiSettingRejectsValuesOutsideEveryHardBoundary(t *testing.T) {
@@ -236,6 +249,20 @@ func TestPublicBrioiConfigOmitsDisabledAndAdministrativeFields(t *testing.T) {
 		assert.NotEqual(t, GenerationMultiImage, mode.Value)
 		assert.False(t, mode.RequireRefModel)
 	}
+	var referenceVideos *PublicGenerationMode
+	for index := range public.GenerationTypes {
+		if public.GenerationTypes[index].Value == GenerationReferenceVideos {
+			referenceVideos = &public.GenerationTypes[index]
+			break
+		}
+	}
+	require.NotNil(t, referenceVideos)
+	assert.True(t, referenceVideos.AllowVideo)
+	assert.True(t, referenceVideos.RequireVideo)
+	assert.Equal(t, ReferenceVideosMin, referenceVideos.VideosMin)
+	assert.Equal(t, ReferenceVideosMax, referenceVideos.VideosMax)
+	assert.True(t, public.Profiles[0].Media.AllowVideo)
+	assert.Contains(t, public.Profiles[0].Media.AcceptedTypes, "video")
 
 	encoded, err := common.Marshal(public)
 	require.NoError(t, err)

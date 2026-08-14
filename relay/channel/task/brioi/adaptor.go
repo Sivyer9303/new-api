@@ -110,7 +110,10 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		}
 		ref := upstreamRef{
 			URL:  stagedURL,
-			Type: string(videocommon.VideoMediaImage),
+			Type: string(media.Type),
+		}
+		if ref.Type == "" {
+			ref.Type = string(videocommon.VideoMediaImage)
 		}
 		if media.Role != "" && media.Role != videocommon.VideoMediaRoleReference {
 			ref.Role = string(media.Role)

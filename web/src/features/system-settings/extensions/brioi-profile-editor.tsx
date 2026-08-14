@@ -92,6 +92,8 @@ function generationTypeLabel(
       return translate('First frame')
     case 'start_end':
       return translate('First & last frame')
+    case 'reference_videos':
+      return translate('Reference video')
   }
 }
 

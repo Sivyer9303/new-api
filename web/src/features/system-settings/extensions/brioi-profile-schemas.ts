@@ -14,6 +14,7 @@ export const BRIOI_GENERATION_TYPES = [
   'multi_image',
   'first_frame',
   'start_end',
+  'reference_videos',
 ] as const
 
 export type BrioiGenerationType = (typeof BRIOI_GENERATION_TYPES)[number]
@@ -103,6 +104,37 @@ function stringArray(raw: unknown): string[] {
     }
   }
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+}
+
+// Newly introduced hard modes (e.g. reference_videos) stay enabled when older
+// saved configs omit them entirely. Explicitly disabled entries stay off.
+function softMergeGenerationTypes(
+  enabled: string[],
+  generationModes: unknown
+): string[] {
+  if (!Array.isArray(generationModes)) return enabled
+  const present = new Set<string>()
+  for (const item of generationModes) {
+    if (typeof item === 'string' || typeof item === 'number') {
+      present.add(String(item).trim())
+      continue
+    }
+    if (!item || typeof item !== 'object') continue
+    const value =
+      (item as Record<string, unknown>).value ??
+      (item as Record<string, unknown>).id ??
+      (item as Record<string, unknown>).name
+    if (typeof value === 'string' || typeof value === 'number') {
+      present.add(String(value).trim())
+    }
+  }
+  const merged = [...enabled]
+  for (const value of BRIOI_GENERATION_TYPES) {
+    if (!present.has(value) && !merged.includes(value)) {
+      merged.push(value)
+    }
+  }
+  return merged
 }
 
 function recordValue(raw: unknown, key: string): unknown {
@@ -200,7 +232,7 @@ export function parseBrioiProfiles(
             'generation_types',
             BRIOI_GENERATION_TYPES
           )
-        : stringArray(generationModes)
+        : softMergeGenerationTypes(stringArray(generationModes), generationModes)
     ).filter((value): value is BrioiGenerationType =>
       BRIOI_GENERATION_TYPES.includes(value as BrioiGenerationType)
     )
@@ -238,7 +270,9 @@ export function serializeBrioiProfiles(profiles: BrioiProfileForm[]): string {
       let imagesMax = 0
       if (value === 'image2video' || value === 'first_frame') imagesMax = 1
       if (value === 'start_end') imagesMax = 2
-      if (value === 'multi_image') imagesMax = profile.max_images
+      if (value === 'multi_image' || value === 'reference_videos') {
+        imagesMax = profile.max_images
+      }
       return {
         value,
         enabled: profile.generation_types.includes(value),

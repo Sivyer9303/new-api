@@ -128,8 +128,9 @@ func parseRequest(body []byte, info *relaycommon.RelayInfo) (videocommon.VideoGe
 	if _, exists := raw["audio_url"]; exists {
 		return videocommon.VideoGenerateRequest{}, resolvedProfile{}, fmt.Errorf("audio references are not supported by Brioi")
 	}
+	// Singular video_url is reserved/rejected; use media type=video or reference_videos.
 	if _, exists := raw["video_url"]; exists {
-		return videocommon.VideoGenerateRequest{}, resolvedProfile{}, fmt.Errorf("video references are not supported by Brioi")
+		return videocommon.VideoGenerateRequest{}, resolvedProfile{}, fmt.Errorf("video_url is not supported; use media with type \"video\" or reference_videos")
 	}
 
 	publicModel, err := requestString(raw, "model")
@@ -166,7 +167,13 @@ func parseRequest(body []byte, info *relaycommon.RelayInfo) (videocommon.VideoGe
 	if err != nil {
 		return videocommon.VideoGenerateRequest{}, resolvedProfile{}, err
 	}
-	resolution, err := requestString(raw, "resolution")
+	originModel := publicModel
+	if info != nil {
+		if name := strings.TrimSpace(info.OriginModelName); name != "" {
+			originModel = name
+		}
+	}
+	resolution, err := resolveResolution(raw, originModel, publicModel)
 	if err != nil {
 		return videocommon.VideoGenerateRequest{}, resolvedProfile{}, err
 	}
@@ -214,17 +221,18 @@ func parseRequest(body []byte, info *relaycommon.RelayInfo) (videocommon.VideoGe
 
 func rejectUnknownFields(raw map[string]json.RawMessage) error {
 	allowed := map[string]struct{}{
-		"model":           {},
-		"prompt":          {},
-		"generation_type": {},
-		"duration":        {},
-		"seconds":         {},
-		"resolution":      {},
-		"aspect_ratio":    {},
-		"images":          {},
-		"media":           {},
-		"audio_url":       {},
-		"video_url":       {},
+		"model":            {},
+		"prompt":           {},
+		"generation_type":  {},
+		"duration":         {},
+		"seconds":          {},
+		"resolution":       {},
+		"aspect_ratio":     {},
+		"images":           {},
+		"media":            {},
+		"audio_url":        {},
+		"video_url":        {},
+		"reference_videos": {},
 	}
 	unknown := make([]string, 0)
 	for key := range raw {
@@ -253,6 +261,82 @@ func requestString(raw map[string]json.RawMessage, field string) (string, error)
 		return "", fmt.Errorf("%s is required", field)
 	}
 	return text, nil
+}
+
+// resolveResolution prefers an explicit request field, otherwise derives it from
+// the public/origin model name (e.g. seedance-2-0-480p → 480p) so channel
+// mappings can keep the upstream model as seedance-2-0 while encoding price tiers
+// in local aliases.
+func resolveResolution(
+	raw map[string]json.RawMessage,
+	originModel string,
+	publicModel string,
+) (string, error) {
+	derived := resolutionFromModelName(originModel)
+	if derived == "" {
+		derived = resolutionFromModelName(publicModel)
+	}
+
+	value, exists := raw["resolution"]
+	if !exists {
+		if derived == "" {
+			return "", fmt.Errorf("resolution is required")
+		}
+		return derived, nil
+	}
+	var text string
+	if err := common.Unmarshal(value, &text); err != nil {
+		return "", fmt.Errorf("resolution must be a string")
+	}
+	text = canonicalizeResolution(text)
+	if text == "" {
+		if derived == "" {
+			return "", fmt.Errorf("resolution is required")
+		}
+		return derived, nil
+	}
+	if derived != "" && text != derived {
+		source := strings.TrimSpace(originModel)
+		if source == "" {
+			source = strings.TrimSpace(publicModel)
+		}
+		return "", fmt.Errorf("resolution %q conflicts with model name %q", text, source)
+	}
+	return text, nil
+}
+
+func resolutionFromModelName(modelName string) string {
+	name := strings.ToLower(strings.TrimSpace(modelName))
+	if name == "" {
+		return ""
+	}
+	name = strings.TrimSuffix(name, "-ref")
+	for _, candidate := range []struct {
+		suffix string
+		value  string
+	}{
+		{suffix: "-1080p", value: "1080p"},
+		{suffix: "-720p", value: "720p"},
+		{suffix: "-480p", value: "480p"},
+		{suffix: "-4k", value: "4K"},
+	} {
+		if strings.HasSuffix(name, candidate.suffix) {
+			return candidate.value
+		}
+	}
+	return ""
+}
+
+func canonicalizeResolution(value string) string {
+	trimmed := strings.TrimSpace(value)
+	switch strings.ToLower(trimmed) {
+	case "480p", "720p", "1080p":
+		return strings.ToLower(trimmed)
+	case "4k":
+		return "4K"
+	default:
+		return trimmed
+	}
 }
 
 func requestDuration(raw json.RawMessage) (*int, bool, error) {
@@ -290,40 +374,80 @@ func requestMedia(
 ) ([]videocommon.VideoMedia, error) {
 	imagesRaw, hasImages := raw["images"]
 	mediaRaw, hasMedia := raw["media"]
+	videosRaw, hasVideos := raw["reference_videos"]
 	if hasImages && hasMedia {
 		return nil, fmt.Errorf("images and media cannot be used together")
 	}
-	if hasMedia {
-		return parseExplicitMedia(mediaRaw)
-	}
-	if !hasImages {
-		return nil, nil
+	if hasVideos && hasMedia {
+		return nil, fmt.Errorf("reference_videos and media cannot be used together")
 	}
 
-	var images []string
-	if err := common.Unmarshal(imagesRaw, &images); err != nil {
-		return nil, fmt.Errorf("images must be an array of strings")
-	}
-	media := make([]videocommon.VideoMedia, 0, len(images))
-	for index, image := range images {
-		role := videocommon.VideoMediaRoleReference
-		switch generationType {
-		case GenerationFirstFrame:
-			role = videocommon.VideoMediaRoleFirstFrame
-		case GenerationStartEnd:
-			if index == 0 {
-				role = videocommon.VideoMediaRoleFirstFrame
-			} else if index == 1 {
-				role = videocommon.VideoMediaRoleLastFrame
-			}
+	var media []videocommon.VideoMedia
+	var err error
+	if hasMedia {
+		media, err = parseExplicitMedia(mediaRaw)
+		if err != nil {
+			return nil, err
 		}
-		media = append(media, videocommon.VideoMedia{
-			Type:   videocommon.VideoMediaImage,
-			Role:   role,
-			Source: strings.TrimSpace(image),
-		})
+		return media, nil
+	}
+
+	if hasImages {
+		var images []string
+		if err := common.Unmarshal(imagesRaw, &images); err != nil {
+			return nil, fmt.Errorf("images must be an array of strings")
+		}
+		media = make([]videocommon.VideoMedia, 0, len(images))
+		for index, image := range images {
+			role := videocommon.VideoMediaRoleReference
+			switch generationType {
+			case GenerationFirstFrame:
+				role = videocommon.VideoMediaRoleFirstFrame
+			case GenerationStartEnd:
+				if index == 0 {
+					role = videocommon.VideoMediaRoleFirstFrame
+				} else if index == 1 {
+					role = videocommon.VideoMediaRoleLastFrame
+				}
+			}
+			media = append(media, videocommon.VideoMedia{
+				Type:   videocommon.VideoMediaImage,
+				Role:   role,
+				Source: strings.TrimSpace(image),
+			})
+		}
+	}
+
+	if hasVideos {
+		videos, err := parseReferenceVideos(videosRaw)
+		if err != nil {
+			return nil, err
+		}
+		for _, video := range videos {
+			media = append(media, videocommon.VideoMedia{
+				Type:   videocommon.VideoMediaVideo,
+				Role:   videocommon.VideoMediaRoleReference,
+				Source: video,
+			})
+		}
 	}
 	return media, nil
+}
+
+func parseReferenceVideos(raw json.RawMessage) ([]string, error) {
+	var videos []string
+	if err := common.Unmarshal(raw, &videos); err != nil {
+		return nil, fmt.Errorf("reference_videos must be an array of strings")
+	}
+	out := make([]string, 0, len(videos))
+	for index, video := range videos {
+		video = strings.TrimSpace(video)
+		if video == "" {
+			return nil, fmt.Errorf("reference_videos[%d] is empty", index)
+		}
+		out = append(out, video)
+	}
+	return out, nil
 }
 
 func parseExplicitMedia(raw json.RawMessage) ([]videocommon.VideoMedia, error) {
@@ -404,24 +528,47 @@ func validateRequest(request videocommon.VideoGenerateRequest, profile resolvedP
 	}
 
 	references := 0
+	videos := 0
 	firstFrames := 0
 	lastFrames := 0
 	for index, media := range request.Media {
-		if media.Type != videocommon.VideoMediaImage {
-			return fmt.Errorf("media[%d] type %q is not supported; only images are allowed", index, media.Type)
-		}
-		if !isInlineImageDataURL(media.Source) {
-			return fmt.Errorf("media[%d] must be an inline image data URL", index)
-		}
-		if err := service.ValidateVideoInputImageDataURL(media.Source); err != nil {
-			return fmt.Errorf("media[%d] is invalid: %w", index, err)
+		switch media.Type {
+		case videocommon.VideoMediaImage:
+			if !isInlineImageDataURL(media.Source) {
+				return fmt.Errorf("media[%d] must be an inline image data URL", index)
+			}
+			if err := service.ValidateVideoInputImageDataURL(media.Source); err != nil {
+				return fmt.Errorf("media[%d] is invalid: %w", index, err)
+			}
+		case videocommon.VideoMediaVideo:
+			if request.GenerationType != GenerationReferenceVideos {
+				return fmt.Errorf("media[%d] type %q is only supported for generation_type %q", index, media.Type, GenerationReferenceVideos)
+			}
+			if !isInlineVideoDataURL(media.Source) {
+				return fmt.Errorf("media[%d] must be an inline MP4 video data URL", index)
+			}
+			if err := service.ValidateVideoInputVideoDataURL(media.Source); err != nil {
+				return fmt.Errorf("media[%d] is invalid: %w", index, err)
+			}
+		default:
+			return fmt.Errorf("media[%d] type %q is not supported", index, media.Type)
 		}
 		switch media.Role {
 		case "", videocommon.VideoMediaRoleReference:
-			references++
+			if media.Type == videocommon.VideoMediaVideo {
+				videos++
+			} else {
+				references++
+			}
 		case videocommon.VideoMediaRoleFirstFrame:
+			if media.Type != videocommon.VideoMediaImage {
+				return fmt.Errorf("media[%d] first_frame must be an image", index)
+			}
 			firstFrames++
 		case videocommon.VideoMediaRoleLastFrame:
+			if media.Type != videocommon.VideoMediaImage {
+				return fmt.Errorf("media[%d] last_frame must be an image", index)
+			}
 			lastFrames++
 		default:
 			return fmt.Errorf("media[%d] role %q is not supported", index, media.Role)
@@ -436,7 +583,7 @@ func validateRequest(request videocommon.VideoGenerateRequest, profile resolvedP
 	if lastFrames > 0 && firstFrames == 0 {
 		return fmt.Errorf("last_frame requires first_frame")
 	}
-	if references > 0 && firstFrames+lastFrames > 0 {
+	if (references > 0 || videos > 0) && firstFrames+lastFrames > 0 {
 		return fmt.Errorf("ordinary references cannot be mixed with strict frame media")
 	}
 
@@ -466,6 +613,28 @@ func validateRequest(request videocommon.VideoGenerateRequest, profile resolvedP
 		if firstFrames != 1 || lastFrames != 1 || len(request.Media) != 2 {
 			return fmt.Errorf("first/last-frame generation requires one first_frame and one last_frame")
 		}
+	case GenerationReferenceVideos:
+		maxVideos := min(brioi_setting.ReferenceVideosMax, profile.hard.maxReferenceItems)
+		if videos < brioi_setting.ReferenceVideosMin || videos > maxVideos {
+			return fmt.Errorf(
+				"reference_videos requires between %d and %d reference videos",
+				brioi_setting.ReferenceVideosMin,
+				maxVideos,
+			)
+		}
+		maxCompanion := min(mode.ImagesMax, profile.hard.maxReferenceItems-videos)
+		if maxCompanion < 0 {
+			maxCompanion = 0
+		}
+		if references < 0 || references > maxCompanion || firstFrames+lastFrames != 0 {
+			return fmt.Errorf(
+				"reference_videos allows up to %d companion reference images",
+				maxCompanion,
+			)
+		}
+		if videos+references != len(request.Media) {
+			return fmt.Errorf("reference_videos only accepts ordinary reference media")
+		}
 	default:
 		return fmt.Errorf("generation_type %q is not supported by Brioi", request.GenerationType)
 	}
@@ -480,4 +649,14 @@ func isInlineImageDataURL(source string) bool {
 	}
 	metadata := strings.ToLower(source[:comma])
 	return strings.HasPrefix(metadata, "data:image/") && strings.HasSuffix(metadata, ";base64")
+}
+
+func isInlineVideoDataURL(source string) bool {
+	source = strings.TrimSpace(source)
+	comma := strings.IndexByte(source, ',')
+	if comma <= 0 || comma == len(source)-1 {
+		return false
+	}
+	metadata := strings.ToLower(source[:comma])
+	return strings.HasPrefix(metadata, "data:video/mp4") && strings.Contains(metadata, ";base64")
 }
