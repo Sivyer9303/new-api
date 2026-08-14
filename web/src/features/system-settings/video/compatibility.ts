@@ -13,9 +13,17 @@ import {
   serializeVideoStorage,
   type VideoStorageValues,
 } from './storage-config'
+import {
+  defaultVideoUploadLimitsValues,
+  serializeVideoUploadLimits,
+} from './upload-limits'
 
 export const DEFAULT_VIDEO_STORAGE = serializeVideoStorage(
   defaultVideoStorageValues()
+)
+
+export const DEFAULT_VIDEO_UPLOAD_LIMITS = serializeVideoUploadLimits(
+  defaultVideoUploadLimitsValues()
 )
 
 function hasOption(options: SystemOption[] | undefined, key: string) {
@@ -78,6 +86,9 @@ export function resolveVideoSettings(
     resolved['video_setting.storage'] = resolveLegacyStorage(
       settings['silkroad_setting.storage']
     )
+  }
+  if (!hasOption(raw, 'video_setting.upload_limits')) {
+    resolved['video_setting.upload_limits'] = DEFAULT_VIDEO_UPLOAD_LIMITS
   }
   if (!hasOption(raw, 'video_setting.enabled')) {
     try {

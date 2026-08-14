@@ -215,6 +215,7 @@ export type VideoSettings = {
   'video_setting.enabled': boolean
   'video_setting.video_tool_groups': string
   'video_setting.storage': string
+  'video_setting.upload_limits': string
   'silkroad_setting.common': string
   'silkroad_setting.profiles': string
   'silkroad_setting.default_profile_id': string

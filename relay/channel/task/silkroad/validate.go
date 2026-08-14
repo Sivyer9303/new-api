@@ -28,7 +28,8 @@ type FriendlyRequest struct {
 	DurationSeconds int    // billing multiplier (always seconds count)
 	AspectRatio     string
 	Images          []string
-	AudioURL        string // reference audio data URL (data:audio/mpeg;base64,...)
+	AudioURL        string   // reference audio data URL (data:audio/mpeg;base64,...)
+	ReferenceVideos []string // reference video data URLs or http(s) URLs
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *taskdto.TaskError {
@@ -81,7 +82,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 			http.StatusBadRequest,
 		)
 	}
-	if err := checkRequireRefModel(mode, info.GetUpstreamModelName()); err != nil {
+	if err := checkRequireRefModel(mode, info.GetUpstreamModelName(), profile); err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_model", http.StatusBadRequest)
 	}
 
@@ -221,7 +222,7 @@ func silkRoadProfileModelName(info *relaycommon.RelayInfo, fallback string) stri
 }
 
 func storeFriendlyRequest(c *gin.Context, info *relaycommon.RelayInfo, req FriendlyRequest) {
-	info.Action = constant.TaskActionGenerate
+	info.Action = constant.TaskActionFromGenerationType(req.GenerationType)
 	c.Set(friendlyRequestKey, req)
 	c.Set("task_request", relaycommon.TaskSubmitReq{
 		Prompt:   req.Prompt,
@@ -229,6 +230,25 @@ func storeFriendlyRequest(c *gin.Context, info *relaycommon.RelayInfo, req Frien
 		Images:   req.Images,
 		Seconds:  strconv.Itoa(req.DurationSeconds),
 		Duration: req.DurationSeconds,
+	})
+	media := make([]relaycommon.TaskMediaSnapshot, 0, len(req.Images)+len(req.ReferenceVideos)+1)
+	for range req.Images {
+		media = append(media, relaycommon.TaskMediaSnapshot{Type: "image", Role: "reference"})
+	}
+	if strings.TrimSpace(req.AudioURL) != "" {
+		media = append(media, relaycommon.TaskMediaSnapshot{Type: "audio", Role: "reference"})
+	}
+	for range req.ReferenceVideos {
+		media = append(media, relaycommon.TaskMediaSnapshot{Type: "video", Role: "reference"})
+	}
+	info.SetTaskRequestSnapshot(relaycommon.TaskRequestSnapshot{
+		Model:          req.Model,
+		Prompt:         req.Prompt,
+		GenerationType: req.GenerationType,
+		Duration:       req.DurationSeconds,
+		Seconds:        req.DurationValue,
+		AspectRatio:    req.AspectRatio,
+		Media:          media,
 	})
 }
 
@@ -303,6 +323,27 @@ func parseFriendlyRequest(raw map[string]any) (FriendlyRequest, error) {
 		req.AudioURL = s
 	}
 
+	if videos, ok := raw["reference_videos"]; ok && videos != nil {
+		switch v := videos.(type) {
+		case []any:
+			req.ReferenceVideos = make([]string, 0, len(v))
+			for i, item := range v {
+				s, ok := item.(string)
+				if !ok {
+					return req, fmt.Errorf("reference_videos[%d] must be a string", i)
+				}
+				s = strings.TrimSpace(s)
+				if s != "" {
+					req.ReferenceVideos = append(req.ReferenceVideos, s)
+				}
+			}
+		case []string:
+			req.ReferenceVideos = append([]string(nil), v...)
+		default:
+			return req, fmt.Errorf("reference_videos must be an array of strings")
+		}
+	}
+
 	return req, nil
 }
 
@@ -371,11 +412,17 @@ func validateFriendlyRequest(req *FriendlyRequest, profile *silkroad_setting.Pro
 	if err := validateAudioURL(req.AudioURL, mode); err != nil {
 		return err
 	}
+	if err := validateReferenceVideos(req.ReferenceVideos, mode); err != nil {
+		return err
+	}
 	return nil
 }
 
 // maxAudioDataURLBytes caps reference audio payload size (~8MiB decoded MP3).
 const maxAudioDataURLBytes = 12 << 20
+
+// maxVideoDataURLBytes caps one reference video data URL (~50MiB encoded).
+const maxVideoDataURLBytes = 70 << 20
 
 func validateAudioURL(audioURL string, mode *silkroad_setting.GenerationMode) error {
 	audioURL = strings.TrimSpace(audioURL)
@@ -399,16 +446,65 @@ func validateAudioURL(audioURL string, mode *silkroad_setting.GenerationMode) er
 	return nil
 }
 
+func validateReferenceVideos(videos []string, mode *silkroad_setting.GenerationMode) error {
+	if mode == nil {
+		if len(videos) > 0 {
+			return fmt.Errorf("reference_videos is not supported for this generation_type")
+		}
+		return nil
+	}
+	count := len(videos)
+	if count == 0 {
+		if mode.RequireVideo {
+			return fmt.Errorf("reference_videos is required for generation_type %q", mode.Value)
+		}
+		return nil
+	}
+	if !mode.AllowVideo {
+		return fmt.Errorf("reference_videos is not supported for this generation_type")
+	}
+	if count < mode.VideosMin || count > mode.VideosMax {
+		return fmt.Errorf(
+			"generation_type %q requires between %d and %d reference videos, got %d",
+			mode.Value,
+			mode.VideosMin,
+			mode.VideosMax,
+			count,
+		)
+	}
+	for i, video := range videos {
+		video = strings.TrimSpace(video)
+		if video == "" {
+			return fmt.Errorf("reference_videos[%d] is empty", i)
+		}
+		lower := strings.ToLower(video)
+		if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+			continue
+		}
+		if !strings.HasPrefix(lower, "data:video/mp4;base64,") {
+			return fmt.Errorf(
+				"reference_videos[%d] must be an MP4 data URL or an http(s) URL",
+				i,
+			)
+		}
+		if len(video) > maxVideoDataURLBytes {
+			return fmt.Errorf("reference_videos[%d] exceeds maximum size", i)
+		}
+	}
+	return nil
+}
+
 func rejectUnknownTopLevelKeys(raw map[string]any) error {
 	allowed := map[string]struct{}{
-		"model":           {},
-		"prompt":          {},
-		"generation_type": {},
-		"seconds":         {},
-		"duration":        {},
-		"aspect_ratio":    {},
-		"images":          {},
-		"audio_url":       {},
+		"model":            {},
+		"prompt":           {},
+		"generation_type":  {},
+		"seconds":          {},
+		"duration":         {},
+		"aspect_ratio":     {},
+		"images":           {},
+		"audio_url":        {},
+		"reference_videos": {},
 	}
 	for k := range raw {
 		if _, ok := allowed[k]; !ok {
@@ -418,8 +514,15 @@ func rejectUnknownTopLevelKeys(raw map[string]any) error {
 	return nil
 }
 
-func checkRequireRefModel(mode *silkroad_setting.GenerationMode, upstreamModel string) error {
+func checkRequireRefModel(
+	mode *silkroad_setting.GenerationMode,
+	upstreamModel string,
+	profile *silkroad_setting.Profile,
+) error {
 	if mode == nil || !mode.RequireRefModel {
+		return nil
+	}
+	if profile != nil && !profile.EnforcesRefModelSuffix() {
 		return nil
 	}
 	if !strings.Contains(upstreamModel, "-ref") {

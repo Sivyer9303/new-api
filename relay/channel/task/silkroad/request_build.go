@@ -71,8 +71,13 @@ func stageChannelInputMedia(c *gin.Context, info *relaycommon.RelayInfo, req *Fr
 	if err != nil {
 		return err
 	}
+	videos, err := service.StageVideoInputMediaList(ctx, info.ChannelId, req.ReferenceVideos)
+	if err != nil {
+		return err
+	}
 	req.Images = images
 	req.AudioURL = audioURL
+	req.ReferenceVideos = videos
 	return nil
 }
 
@@ -103,7 +108,13 @@ func buildUpstreamBody(req FriendlyRequest, profile *silkroad_setting.Profile, u
 	}
 	setNestedValue(body, aspectOpt.UpstreamKey, aspectOpt.Value)
 
-	if err := silkroad_setting.ApplyGenerationMedia(body, mode, req.Images, req.AudioURL); err != nil {
+	if err := silkroad_setting.ApplyGenerationMedia(
+		body,
+		mode,
+		req.Images,
+		req.AudioURL,
+		req.ReferenceVideos,
+	); err != nil {
 		return nil, err
 	}
 

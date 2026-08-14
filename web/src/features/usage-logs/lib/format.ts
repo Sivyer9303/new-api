@@ -437,6 +437,17 @@ const AUDIT_TEMPLATES: Record<string, string> = {
     'Applied upstream model changes to channel (ID: {{id}})',
   'channel.upstream_apply_all':
     'Applied upstream model changes to {{count}} channels',
+  // Video recovery / delivery audits
+  'video.preview':
+    'Viewed video {{task_id}} owned by user {{target_user_id}}',
+  'video.diagnostics':
+    'Viewed diagnostics for video {{task_id}} owned by user {{target_user_id}}',
+  'video.storage_retry':
+    'Retried local storage for video {{task_id}} owned by user {{target_user_id}}',
+  'video.provider_confirm':
+    'Confirmed upstream result for video {{task_id}} owned by user {{target_user_id}}',
+  'video.refund':
+    'Refunded {{quota}} quota for video {{task_id}} owned by user {{target_user_id}}',
   // Redemption codes
   'redemption.create':
     'Created {{count}} redemption codes named {{name}} ({{quota}} each)',
@@ -464,6 +475,12 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'subscription.plan_create': 'Created a subscription plan',
   'subscription.plan_update': 'Updated a subscription plan',
   'subscription.bind': 'Bound a subscription',
+  'subscription.plan_reset': 'Reset active subscriptions for plan {{plan_id}}',
+  'subscription.user_plan_reset':
+    'Reset active plan {{plan_id}} subscriptions for user {{target_user_id}}',
+  // System settings extras
+  'option.video_provider.update':
+    'Updated video provider settings for {{provider}}',
   // Logs
   'log.clear': 'Cleared historical logs',
   'log.cleanup_start': 'Log cleanup task started.',

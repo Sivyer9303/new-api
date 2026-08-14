@@ -428,6 +428,30 @@ function ProfileCard<T extends FieldValues & ProfilesFormValues>({
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={control}
+              name={`profiles.${index}.require_ref_model_suffix` as Path<T>}
+              render={({ field: f }) => (
+                <FormItem className='flex flex-row items-center justify-between gap-4 rounded-lg border p-3'>
+                  <div className='space-y-1'>
+                    <FormLabel>{t('Require -ref model suffix')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Seedance image/audio/video modes need model names containing -ref. Turn this off for Grok and other families that do not use that naming.'
+                      )}
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={Boolean(f.value)}
+                      onCheckedChange={f.onChange}
+                      disabled={disabled}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
           </FoldSection>
 
           <OptionRowsEditor

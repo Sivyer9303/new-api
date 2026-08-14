@@ -12,6 +12,7 @@ const (
 	GenerationMultiImage      = "multi_image"
 	GenerationStartEnd        = "start_end"
 	GenerationReferenceAudio  = "reference_audio"
+	GenerationReferenceVideos = "reference_videos"
 )
 
 // GenerationMode is a fixed generation recipe for the video tool / NewAPI adaptor.
@@ -22,8 +23,12 @@ type GenerationMode struct {
 	RequireRefModel bool
 	RequireAudio    bool // reference_audio must provide audio_url
 	AllowAudio      bool // only reference_audio may send audio_url
+	RequireVideo    bool // reference_videos must provide reference_videos
+	AllowVideo      bool // only reference_videos may send reference_videos
 	ImagesMin       int
 	ImagesMax       int
+	VideosMin       int
+	VideosMax       int
 }
 
 var hardcodedGenerationModes = []GenerationMode{
@@ -66,12 +71,24 @@ var hardcodedGenerationModes = []GenerationMode{
 		RequireRefModel: true,
 		RequireAudio:    true,
 		AllowAudio:      true,
-		ImagesMin:       0,
-		ImagesMax:       9, // optional companion images
+		ImagesMin:       1, // upstream rejects audio without at least one image
+		ImagesMax:       9,
+	},
+	{
+		Label:           "参考视频",
+		Value:           GenerationReferenceVideos,
+		Sort:            6,
+		RequireRefModel: true,
+		RequireVideo:    true,
+		AllowVideo:      true,
+		ImagesMin:       0, // companion images optional; prompt uses @ImageN / @VideoN
+		ImagesMax:       9,
+		VideosMin:       1,
+		VideosMax:       3, // upstream ≤3 videos, each ideally ≤15s
 	},
 }
 
-// HardcodedGenerationModes returns the fixed five generation modes.
+// HardcodedGenerationModes returns the fixed generation modes.
 func HardcodedGenerationModes() []GenerationMode {
 	out := make([]GenerationMode, len(hardcodedGenerationModes))
 	copy(out, hardcodedGenerationModes)
@@ -95,9 +112,16 @@ func FindGenerationMode(value string) (*GenerationMode, bool) {
 }
 
 // ApplyGenerationMedia writes upstream media fields for the given mode.
-// Friendly client fields (images / audio_url) are never passed through as-is
-// except when the recipe intentionally uses the same upstream key name.
-func ApplyGenerationMedia(body map[string]any, mode *GenerationMode, images []string, audioURL string) error {
+// Friendly client fields (images / audio_url / reference_videos) are never
+// passed through as-is except when the recipe intentionally uses the same
+// upstream key name.
+func ApplyGenerationMedia(
+	body map[string]any,
+	mode *GenerationMode,
+	images []string,
+	audioURL string,
+	videos []string,
+) error {
 	if body == nil {
 		return fmt.Errorf("body is required")
 	}
@@ -131,16 +155,34 @@ func ApplyGenerationMedia(body map[string]any, mode *GenerationMode, images []st
 		if audioURL == "" {
 			return fmt.Errorf("reference_audio requires audio_url")
 		}
+		if len(images) < 1 {
+			return fmt.Errorf("reference_audio requires at least 1 image")
+		}
 		body["audio_url"] = audioURL
-		switch len(images) {
-		case 0:
-			// audio only
-		case 1:
+		if len(images) == 1 {
 			body["image"] = images[0]
-		default:
+		} else {
 			out := make([]string, len(images))
 			copy(out, images)
 			body["images"] = out
+		}
+	case GenerationReferenceVideos:
+		if len(videos) < mode.VideosMin || len(videos) > mode.VideosMax {
+			return fmt.Errorf(
+				"reference_videos requires between %d and %d videos",
+				mode.VideosMin,
+				mode.VideosMax,
+			)
+		}
+		outVideos := make([]string, len(videos))
+		copy(outVideos, videos)
+		body["reference_videos"] = outVideos
+		if len(images) == 1 {
+			body["image"] = images[0]
+		} else if len(images) > 1 {
+			outImages := make([]string, len(images))
+			copy(outImages, images)
+			body["images"] = outImages
 		}
 	default:
 		return fmt.Errorf("unsupported generation_type %q", mode.Value)

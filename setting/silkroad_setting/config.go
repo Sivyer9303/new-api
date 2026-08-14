@@ -22,6 +22,19 @@ type Profile struct {
 	ModelPrefixes []string     `json:"model_prefixes"`
 	Durations     []OptionItem `json:"durations,omitempty"`
 	AspectRatios  []OptionItem `json:"aspect_ratios,omitempty"`
+	// RequireRefModelSuffix controls Seedance-style "-ref" model naming.
+	// nil/omitted defaults to true. Set false for families like Grok that do
+	// not use a -ref suffix for image/audio/video modes.
+	RequireRefModelSuffix *bool `json:"require_ref_model_suffix,omitempty"`
+}
+
+// EnforcesRefModelSuffix reports whether image/audio/video modes require a
+// model name containing "-ref". Omitted config defaults to true.
+func (p *Profile) EnforcesRefModelSuffix() bool {
+	if p == nil || p.RequireRefModelSuffix == nil {
+		return true
+	}
+	return *p.RequireRefModelSuffix
 }
 
 type CommonSetting struct {

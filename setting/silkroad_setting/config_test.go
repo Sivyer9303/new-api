@@ -35,12 +35,13 @@ func TestDefaultSilkRoadSettingProfiles(t *testing.T) {
 
 func TestHardcodedGenerationModes(t *testing.T) {
 	modes := HardcodedGenerationModes()
-	require.Len(t, modes, 5)
+	require.Len(t, modes, 6)
 	assert.Equal(t, GenerationText2Video, modes[0].Value)
 	assert.Equal(t, GenerationImage2Video, modes[1].Value)
 	assert.Equal(t, GenerationMultiImage, modes[2].Value)
 	assert.Equal(t, GenerationStartEnd, modes[3].Value)
 	assert.Equal(t, GenerationReferenceAudio, modes[4].Value)
+	assert.Equal(t, GenerationReferenceVideos, modes[5].Value)
 
 	assert.Equal(t, 0, modes[0].ImagesMax)
 	assert.Equal(t, 1, modes[1].ImagesMax)
@@ -50,6 +51,11 @@ func TestHardcodedGenerationModes(t *testing.T) {
 	assert.True(t, modes[4].RequireAudio)
 	assert.False(t, modes[1].AllowAudio)
 	assert.True(t, modes[1].RequireRefModel)
+	assert.True(t, modes[5].AllowVideo)
+	assert.True(t, modes[5].RequireVideo)
+	assert.Equal(t, 1, modes[5].VideosMin)
+	assert.Equal(t, 3, modes[5].VideosMax)
+	assert.Equal(t, 9, modes[5].ImagesMax)
 }
 
 func TestDefaultSilkRoadSettingStorage(t *testing.T) {

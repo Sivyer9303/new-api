@@ -18,8 +18,11 @@ import {
   FormControl,
   FormDescription,
   FormField,
+  FormItem,
   FormLabel,
+  FormMessage,
 } from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 
 import {
@@ -30,9 +33,17 @@ import {
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import {
+  MAX_UPLOAD_LIMIT_MB,
+  MIN_UPLOAD_LIMIT_MB,
+  parseVideoUploadLimitsJson,
+  serializeVideoUploadLimits,
+  videoUploadLimitsSchema,
+} from './upload-limits'
 
 const schema = z.object({
   enabled: z.boolean(),
+  upload_limits: videoUploadLimitsSchema,
 })
 
 type Values = z.infer<typeof schema>
@@ -40,6 +51,7 @@ type Values = z.infer<typeof schema>
 export function VideoGeneralSettingsSection(props: {
   defaultValues: {
     enabled: boolean
+    uploadLimitsJson?: string
   }
 }) {
   const { t } = useTranslation()
@@ -48,12 +60,18 @@ export function VideoGeneralSettingsSection(props: {
     resolver: zodResolver(schema),
     defaultValues: {
       enabled: props.defaultValues.enabled,
+      upload_limits: parseVideoUploadLimitsJson(
+        props.defaultValues.uploadLimitsJson
+      ),
     },
   })
 
   useEffect(() => {
     form.reset({
       enabled: props.defaultValues.enabled,
+      upload_limits: parseVideoUploadLimitsJson(
+        props.defaultValues.uploadLimitsJson
+      ),
     })
   }, [form, props.defaultValues])
 
@@ -64,8 +82,13 @@ export function VideoGeneralSettingsSection(props: {
         value: values.enabled,
       })
       if (!enabledResult.success) return
+      const limitsResult = await updateOption.mutateAsync({
+        key: 'video_setting.upload_limits',
+        value: serializeVideoUploadLimits(values.upload_limits),
+      })
+      if (!limitsResult.success) return
       toast.success(t('Settings saved'))
-      form.reset({ enabled: values.enabled })
+      form.reset(values)
     } catch {
       toast.error(t('Failed to save settings'))
     }
@@ -105,6 +128,80 @@ export function VideoGeneralSettingsSection(props: {
               </SettingsSwitchItem>
             )}
           />
+          <div className='grid gap-4 sm:grid-cols-3'>
+            <FormField
+              control={form.control}
+              name='upload_limits.max_image_mb'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Max image upload size (MB)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={MIN_UPLOAD_LIMIT_MB}
+                      max={MAX_UPLOAD_LIMIT_MB}
+                      disabled={busy}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Maximum size for each reference image uploaded in the video tool.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='upload_limits.max_audio_mb'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Max audio upload size (MB)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={MIN_UPLOAD_LIMIT_MB}
+                      max={MAX_UPLOAD_LIMIT_MB}
+                      disabled={busy}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Maximum size for each reference audio file uploaded in the video tool.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='upload_limits.max_video_mb'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Max video upload size (MB)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={MIN_UPLOAD_LIMIT_MB}
+                      max={MAX_UPLOAD_LIMIT_MB}
+                      disabled={busy}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Maximum size for each reference video file uploaded in the video tool.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
         </SettingsForm>
       </Form>
     </SettingsSection>

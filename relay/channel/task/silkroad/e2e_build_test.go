@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -42,6 +43,10 @@ func TestE2EBuildSeedanceText2VideoGolden(t *testing.T) {
 	}`, "seedance-2.0-720", "seedance-2.0-720")
 
 	require.Nil(t, a.ValidateRequestAndSetAction(c, info))
+	assert.Equal(t, constant.TaskActionTextGenerate, info.Action)
+	require.NotNil(t, info.RequestSnapshot)
+	assert.Equal(t, "text2video", info.RequestSnapshot.GenerationType)
+	assert.Empty(t, info.RequestSnapshot.Media)
 
 	reader, err := a.BuildRequestBody(c, info)
 	require.NoError(t, err)
@@ -164,6 +169,43 @@ func TestE2EBuildDreaminaReferenceAudioGolden(t *testing.T) {
 		"image":"data:image/jpeg;base64,aaa",
 		"model":"dreamina-seedance-2-0-1080p-ref",
 		"prompt":"一只橘猫在窗台上伸懒腰",
+		"seconds":"5"
+	}`
+	assert.JSONEq(t, want, string(got))
+}
+
+func TestE2EBuildDreaminaReferenceVideosGolden(t *testing.T) {
+	a := &TaskAdaptor{}
+	c, info := newE2EContext(t, `{
+		"model":"dreamina-seedance-2-0-1080p-ref",
+		"prompt":"跟随 @Video1 的运镜",
+		"generation_type":"reference_videos",
+		"seconds":"5",
+		"aspect_ratio":"16:9",
+		"images":["data:image/jpeg;base64,aaa"],
+		"reference_videos":["data:video/mp4;base64,vid"]
+	}`, "dreamina-seedance-2-0-1080p-ref", "dreamina-seedance-2-0-1080p-ref")
+
+	require.Nil(t, a.ValidateRequestAndSetAction(c, info))
+	assert.Equal(t, constant.TaskActionReferenceGenerate, info.Action)
+	require.NotNil(t, info.RequestSnapshot)
+	assert.Equal(t, "reference_videos", info.RequestSnapshot.GenerationType)
+	assert.Equal(t, []relaycommon.TaskMediaSnapshot{
+		{Type: "image", Role: "reference"},
+		{Type: "video", Role: "reference"},
+	}, info.RequestSnapshot.Media)
+
+	reader, err := a.BuildRequestBody(c, info)
+	require.NoError(t, err)
+	got, err := io.ReadAll(reader)
+	require.NoError(t, err)
+
+	const want = `{
+		"aspect_ratio":"16:9",
+		"image":"data:image/jpeg;base64,aaa",
+		"model":"dreamina-seedance-2-0-1080p-ref",
+		"prompt":"跟随 @Video1 的运镜",
+		"reference_videos":["data:video/mp4;base64,vid"],
 		"seconds":"5"
 	}`
 	assert.JSONEq(t, want, string(got))

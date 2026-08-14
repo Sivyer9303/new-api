@@ -25,6 +25,7 @@ const EMPTY_MEDIA_LIMITS: PublicMediaLimits = {
   accepted_types: [],
   allowed_roles: [],
   allow_audio: false,
+  allow_video: false,
 }
 
 function asRecord(value: unknown): UnknownRecord | null {
@@ -160,6 +161,7 @@ function normalizeMediaLimits(value: unknown): PublicMediaLimits {
       firstDefined(record, ['allowed_roles', 'roles', 'image_roles'])
     ),
     allow_audio: record.allow_audio === true,
+    allow_video: record.allow_video === true,
   }
 }
 
@@ -175,6 +177,8 @@ function inferredImageRoles(value: string): VideoMediaRole[] {
     case 'image2video':
     case 'multi_image':
     case 'image_reference':
+    case 'reference_audio':
+    case 'reference_videos':
       return ['reference']
     default:
       return []
@@ -197,9 +201,23 @@ function defaultImageBounds(value: string): {
       return { min: 2, max: 2 }
     case 'multi_image':
       return { min: 2, max: 30 }
+    case 'reference_audio':
+      // Upstream requires at least one companion image with reference audio.
+      return { min: 1, max: 9 }
+    case 'reference_videos':
+      // Companion images are optional; videos carry the required media.
+      return { min: 0, max: 9 }
     default:
       return { min: 0, max: 0 }
   }
+}
+
+function defaultVideoBounds(value: string): {
+  min: number
+  max: number
+} {
+  if (value === 'reference_videos') return { min: 1, max: 3 }
+  return { min: 0, max: 0 }
 }
 
 function normalizeGenerationType(
@@ -217,6 +235,7 @@ function normalizeGenerationType(
     record && firstDefined(record, ['media', 'media_limits'])
   )
   const bounds = defaultImageBounds(modeValue)
+  const videoBounds = defaultVideoBounds(modeValue)
   const imagesMin = record
     ? integerValue(
         firstDefined(record, ['images_min', 'min_images']),
@@ -229,24 +248,42 @@ function normalizeGenerationType(
         media.max_items || bounds.max
       )
     : bounds.max
+  const videosMin = record
+    ? integerValue(firstDefined(record, ['videos_min', 'min_videos']), videoBounds.min)
+    : videoBounds.min
+  const videosMax = record
+    ? integerValue(firstDefined(record, ['videos_max', 'max_videos']), videoBounds.max)
+    : videoBounds.max
   const explicitRoles = mediaRoleList(
     record &&
       firstDefined(record, ['image_roles', 'media_roles', 'allowed_roles'])
   )
   const imageRoles =
     explicitRoles.length > 0 ? explicitRoles : inferredImageRoles(modeValue)
+  const allowVideo =
+    record?.allow_video === true ||
+    media.allow_video ||
+    videosMax > 0 ||
+    modeValue === 'reference_videos'
+  const requireVideo =
+    record?.require_video === true || modeValue === 'reference_videos'
   const imageMode = imagesMax > 0
+  const videoMode = allowVideo || requireVideo || videosMax > 0
   return {
     label: (record && asString(record.label)) || modeValue,
     value: modeValue,
     sort: record ? integerValue(record.sort, index + 1) : index + 1,
     require_ref_model:
       record?.require_ref_model === true ||
-      (providerID === 'silkroad' && imageMode),
+      (providerID === 'silkroad' && (imageMode || videoMode)),
     require_audio: record?.require_audio === true,
     allow_audio: record?.allow_audio === true || media.allow_audio,
+    require_video: requireVideo,
+    allow_video: allowVideo,
     images_min: Math.max(0, imagesMin),
     images_max: Math.max(0, imagesMax),
+    videos_min: Math.max(0, videosMin),
+    videos_max: Math.max(0, videosMax),
     image_roles: imageRoles,
   }
 }
@@ -284,11 +321,15 @@ function generationTypesFromProfiles(
         ...current,
         images_min: Math.min(current.images_min, mode.images_min),
         images_max: Math.max(current.images_max, mode.images_max),
+        videos_min: Math.min(current.videos_min, mode.videos_min),
+        videos_max: Math.max(current.videos_max, mode.videos_max),
         image_roles: [
           ...new Set([...current.image_roles, ...mode.image_roles]),
         ],
         allow_audio: current.allow_audio || mode.allow_audio,
         require_audio: current.require_audio || mode.require_audio,
+        allow_video: current.allow_video || mode.allow_video,
+        require_video: current.require_video || mode.require_video,
       })
     }
   }
@@ -306,6 +347,7 @@ function normalizeMediaLimitMap(
     'accepted_types',
     'allowed_roles',
     'allow_audio',
+    'allow_video',
   ]
   if (directKeys.some((key) => record[key] !== undefined)) return {}
   return Object.fromEntries(
@@ -351,9 +393,16 @@ function normalizeProfile(value: unknown, index: number): PublicProfile | null {
       mediaLimits[mode.value] = {
         min_items: mode.images_min,
         max_items: mode.images_max,
-        accepted_types: mode.images_max > 0 ? ['image'] : [],
+        accepted_types: [
+          ...(mode.images_max > 0 ? (['image'] as const) : []),
+          ...(mode.allow_video || mode.videos_max > 0
+            ? (['video'] as const)
+            : []),
+          ...(mode.allow_audio ? (['audio'] as const) : []),
+        ],
         allowed_roles: mode.image_roles,
         allow_audio: mode.allow_audio,
+        allow_video: mode.allow_video || mode.videos_max > 0,
       }
     })
   }
@@ -366,6 +415,7 @@ function normalizeProfile(value: unknown, index: number): PublicProfile | null {
     resolutions: normalizeOptions(capabilities.resolutions, 'resolution'),
     aspect_ratios: normalizeOptions(capabilities.aspect_ratios, 'aspect_ratio'),
     generation_types: stringList(generationModes),
+    require_ref_model_suffix: profile.require_ref_model_suffix !== false,
     media: normalizeMediaLimits(mediaValue),
     media_limits: mediaLimits,
   }
@@ -532,6 +582,9 @@ export function normalizeVideoToolConfig(value: unknown): VideoToolConfig {
       ? explicitOwnership
       : deriveOwnership(providers)
   const rawVersion = integerValue(root.version, providers.length > 1 ? 2 : 1)
+  const uploadLimitsRecord = asRecord(
+    firstDefined(root, ['upload_limits', 'uploadLimits'])
+  )
 
   return {
     version: rawVersion,
@@ -539,6 +592,20 @@ export function normalizeVideoToolConfig(value: unknown): VideoToolConfig {
     providers,
     provider_by_group: providerByGroup,
     video_tool_groups: Object.keys(providerByGroup),
+    upload_limits: {
+      max_image_mb: Math.max(
+        1,
+        integerValue(uploadLimitsRecord?.max_image_mb, 10)
+      ),
+      max_audio_mb: Math.max(
+        1,
+        integerValue(uploadLimitsRecord?.max_audio_mb, 24)
+      ),
+      max_video_mb: Math.max(
+        1,
+        integerValue(uploadLimitsRecord?.max_video_mb, 50)
+      ),
+    },
   }
 }
 

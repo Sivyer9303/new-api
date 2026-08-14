@@ -116,4 +116,72 @@ describe('video generation request construction', () => {
       }
     )
   })
+
+  test('preserves SilkRoad legacy reference_videos field', () => {
+    assert.deepEqual(
+      buildVideoGenerationRequest({
+        model: 'seedance-ref',
+        prompt: 'Follow @Video1',
+        generationType: 'reference_videos',
+        aspectRatio: '16:9',
+        durationValue: '5',
+        durationFieldKey: 'seconds',
+        images: ['image-data-url'],
+        videos: ['video-data-url'],
+        mediaFormat: 'legacy',
+      }),
+      {
+        model: 'seedance-ref',
+        prompt: 'Follow @Video1',
+        generation_type: 'reference_videos',
+        aspect_ratio: '16:9',
+        seconds: '5',
+        images: ['image-data-url'],
+        reference_videos: ['video-data-url'],
+      }
+    )
+  })
+
+  test('builds Brioi mixed image, video, and audio media refs', () => {
+    assert.deepEqual(
+      buildVideoGenerationRequest({
+        model: 'seedance-2-0',
+        prompt: '保持 @图片1，衔接 @视频1，声音参考 @音频1',
+        generationType: 'reference_videos',
+        aspectRatio: '16:9',
+        durationValue: '10',
+        durationFieldKey: 'duration',
+        resolution: '720p',
+        images: ['image-data-url'],
+        imageRoles: ['reference'],
+        audioURL: 'audio-data-url',
+        videos: ['video-data-url'],
+        mediaFormat: 'normalized',
+      }),
+      {
+        model: 'seedance-2-0',
+        prompt: '保持 @图片1，衔接 @视频1，声音参考 @音频1',
+        generation_type: 'reference_videos',
+        aspect_ratio: '16:9',
+        resolution: '720p',
+        duration: 10,
+        media: [
+          {
+            type: 'image',
+            role: 'reference',
+            source: 'image-data-url',
+          },
+          {
+            type: 'audio',
+            source: 'audio-data-url',
+          },
+          {
+            type: 'video',
+            role: 'reference',
+            source: 'video-data-url',
+          },
+        ],
+      }
+    )
+  })
 })

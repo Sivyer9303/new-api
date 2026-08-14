@@ -37,6 +37,7 @@ type ReferenceImageGridProps = {
   max: number
   roles: VideoMediaRole[]
   disabled?: boolean
+  maxBytes?: number
 }
 
 /**
@@ -89,6 +90,17 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
     if (picked.length === 0) {
       toast.error(t('Please select image files'))
       return
+    }
+    if (props.maxBytes && props.maxBytes > 0) {
+      const oversized = picked.filter((file) => file.size > props.maxBytes!)
+      if (oversized.length > 0) {
+        toast.error(
+          t('Each image must be at most {{max}} MB', {
+            max: Math.max(1, Math.floor(props.maxBytes / (1024 * 1024))),
+          })
+        )
+        return
+      }
     }
 
     const replaceIndex = replaceIndexRef.current

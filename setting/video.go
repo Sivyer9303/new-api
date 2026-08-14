@@ -17,6 +17,7 @@ func GetEffectiveVideoSetting() video_setting.EffectiveSetting {
 			Enabled:         config.GlobalConfig.IsExplicit("video_setting.enabled"),
 			VideoToolGroups: config.GlobalConfig.IsExplicit("video_setting.video_tool_groups"),
 			Storage:         config.GlobalConfig.IsExplicit("video_setting.storage"),
+			UploadLimits:    config.GlobalConfig.IsExplicit("video_setting.upload_limits"),
 		},
 		video_setting.LegacySetting{
 			ToolEnabled:     legacyPublic.Enabled,

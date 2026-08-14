@@ -19,6 +19,7 @@ export type VideoRequestInput = {
   images?: string[]
   imageRoles?: VideoMediaRole[]
   audioURL?: string
+  videos?: string[]
   mediaFormat?: 'legacy' | 'normalized'
 }
 
@@ -46,6 +47,9 @@ export function buildVideoGenerationRequest(
     if (input.audioURL) {
       request.audio_url = input.audioURL
     }
+    if (input.videos && input.videos.length > 0) {
+      request.reference_videos = input.videos
+    }
     return request
   }
 
@@ -63,6 +67,15 @@ export function buildVideoGenerationRequest(
     media.push({
       type: 'audio',
       source: input.audioURL,
+    })
+  }
+  if (input.videos) {
+    input.videos.forEach((source) => {
+      media.push({
+        type: 'video',
+        role: 'reference',
+        source,
+      })
     })
   }
   if (media.length > 0) {

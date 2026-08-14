@@ -133,3 +133,25 @@ func TestBuildUpstreamBodyReferenceAudio(t *testing.T) {
 	assert.Equal(t, "data:image/jpeg;base64,pic", body["image"])
 	assert.Equal(t, "data:audio/mpeg;base64,aud", body["audio_url"])
 }
+
+func TestBuildUpstreamBodyReferenceVideos(t *testing.T) {
+	profile, ok := silkroad_setting.MatchProfile("dreamina-seedance-2-0-720")
+	require.True(t, ok)
+
+	req := FriendlyRequest{
+		Model:           "dreamina-seedance-2-0-720-ref",
+		Prompt:          "follow @Video1 camera motion",
+		GenerationType:  "reference_videos",
+		DurationValue:   "5",
+		AspectRatio:     "16:9",
+		Images:          []string{"data:image/jpeg;base64,pic"},
+		ReferenceVideos: []string{"data:video/mp4;base64,vid"},
+	}
+	data, err := buildUpstreamBody(req, profile, "dreamina-seedance-2-0-720-ref")
+	require.NoError(t, err)
+
+	var body map[string]any
+	require.NoError(t, common.Unmarshal(data, &body))
+	assert.Equal(t, "data:image/jpeg;base64,pic", body["image"])
+	assert.Equal(t, []any{"data:video/mp4;base64,vid"}, body["reference_videos"])
+}

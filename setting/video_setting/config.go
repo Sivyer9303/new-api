@@ -71,6 +71,22 @@ type R2StorageSetting struct {
 	InputTTLHours           int    `json:"input_ttl_hours"`
 }
 
+const (
+	DefaultMaxImageUploadMB = 10
+	DefaultMaxAudioUploadMB = 24
+	DefaultMaxVideoUploadMB = 50
+	MinUploadLimitMB        = 1
+	MaxUploadLimitMB        = 200
+)
+
+// UploadLimitsSetting caps reference media uploaded through the video tool /
+// staging path before they are sent upstream.
+type UploadLimitsSetting struct {
+	MaxImageMB int `json:"max_image_mb"`
+	MaxAudioMB int `json:"max_audio_mb"`
+	MaxVideoMB int `json:"max_video_mb"`
+}
+
 // StorageSetting configures video result storage. The local driver keeps its
 // historical flat fields so existing option rows stay readable; R2 settings are
 // nested because they are only meaningful for that driver.
@@ -85,15 +101,17 @@ type StorageSetting struct {
 }
 
 type VideoSetting struct {
-	Enabled         bool           `json:"enabled"`
-	VideoToolGroups []string       `json:"video_tool_groups"`
-	Storage         StorageSetting `json:"storage"`
+	Enabled         bool                `json:"enabled"`
+	VideoToolGroups []string            `json:"video_tool_groups"`
+	Storage         StorageSetting      `json:"storage"`
+	UploadLimits    UploadLimitsSetting `json:"upload_limits"`
 }
 
 type ExplicitFields struct {
 	Enabled         bool
 	VideoToolGroups bool
 	Storage         bool
+	UploadLimits    bool
 }
 
 type LegacySetting struct {
@@ -123,6 +141,15 @@ func defaultVideoSetting() VideoSetting {
 		Enabled:         false,
 		VideoToolGroups: []string{},
 		Storage:         defaultStorageSetting(),
+		UploadLimits:    defaultUploadLimitsSetting(),
+	}
+}
+
+func defaultUploadLimitsSetting() UploadLimitsSetting {
+	return UploadLimitsSetting{
+		MaxImageMB: DefaultMaxImageUploadMB,
+		MaxAudioMB: DefaultMaxAudioUploadMB,
+		MaxVideoMB: DefaultMaxVideoUploadMB,
 	}
 }
 
@@ -232,6 +259,7 @@ func ResolveEffectiveSetting(
 			Enabled:         legacy.ToolEnabled,
 			VideoToolGroups: NormalizeVideoToolGroups(legacy.VideoToolGroups),
 			Storage:         legacy.Storage,
+			UploadLimits:    defaultUploadLimitsSetting(),
 		},
 		StorageEnabled: legacy.StorageEnabled,
 	}
@@ -245,7 +273,11 @@ func ResolveEffectiveSetting(
 		effective.Storage = configured.Storage
 		effective.StorageEnabled = true
 	}
+	if explicit.UploadLimits {
+		effective.UploadLimits = configured.UploadLimits
+	}
 	NormalizeStorageSetting(&effective.Storage)
+	NormalizeUploadLimitsSetting(&effective.UploadLimits)
 	return effective
 }
 
@@ -291,11 +323,71 @@ func NormalizeStorageSetting(s *StorageSetting) {
 	}
 }
 
+// NormalizeUploadLimitsSetting fills zero/out-of-range upload caps with defaults.
+func NormalizeUploadLimitsSetting(s *UploadLimitsSetting) {
+	if s == nil {
+		return
+	}
+	if s.MaxImageMB < MinUploadLimitMB || s.MaxImageMB > MaxUploadLimitMB {
+		s.MaxImageMB = DefaultMaxImageUploadMB
+	}
+	if s.MaxAudioMB < MinUploadLimitMB || s.MaxAudioMB > MaxUploadLimitMB {
+		s.MaxAudioMB = DefaultMaxAudioUploadMB
+	}
+	if s.MaxVideoMB < MinUploadLimitMB || s.MaxVideoMB > MaxUploadLimitMB {
+		s.MaxVideoMB = DefaultMaxVideoUploadMB
+	}
+}
+
+func ValidateUploadLimitsSetting(s *UploadLimitsSetting) error {
+	if s == nil {
+		return errors.New("upload limits setting is nil")
+	}
+	for _, item := range []struct {
+		name  string
+		value int
+	}{
+		{"max_image_mb", s.MaxImageMB},
+		{"max_audio_mb", s.MaxAudioMB},
+		{"max_video_mb", s.MaxVideoMB},
+	} {
+		if item.value < MinUploadLimitMB || item.value > MaxUploadLimitMB {
+			return fmt.Errorf(
+				"upload_limits.%s must be between %d and %d",
+				item.name,
+				MinUploadLimitMB,
+				MaxUploadLimitMB,
+			)
+		}
+	}
+	return nil
+}
+
+// MaxBytesForContentType returns the configured byte cap for a staged media type.
+func (s UploadLimitsSetting) MaxBytesForContentType(contentType string) int64 {
+	NormalizeUploadLimitsSetting(&s)
+	mediaType, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(contentType)), ";")
+	switch {
+	case strings.HasPrefix(mediaType, "image/"):
+		return int64(s.MaxImageMB) << 20
+	case strings.HasPrefix(mediaType, "audio/"):
+		return int64(s.MaxAudioMB) << 20
+	case strings.HasPrefix(mediaType, "video/"):
+		return int64(s.MaxVideoMB) << 20
+	default:
+		// Unknown payloads use the strictest configured image cap.
+		return int64(s.MaxImageMB) << 20
+	}
+}
+
 func ValidateVideoSetting(s *VideoSetting) error {
 	if s == nil {
 		return errors.New("video setting is nil")
 	}
 	if err := ValidateVideoStorageSetting(&s.Storage); err != nil {
+		return err
+	}
+	if err := ValidateUploadLimitsSetting(&s.UploadLimits); err != nil {
 		return err
 	}
 	switch s.Storage.Driver {

@@ -18,18 +18,23 @@ type PublicGenerationType struct {
 	RequireRefModel bool   `json:"require_ref_model"`
 	RequireAudio    bool   `json:"require_audio"`
 	AllowAudio      bool   `json:"allow_audio"`
+	RequireVideo    bool   `json:"require_video"`
+	AllowVideo      bool   `json:"allow_video"`
 	ImagesMin       int    `json:"images_min"`
 	ImagesMax       int    `json:"images_max"`
+	VideosMin       int    `json:"videos_min"`
+	VideosMax       int    `json:"videos_max"`
 }
 
 // PublicProfile is a sanitized profile for the logged-in video tool UI.
 type PublicProfile struct {
-	ID            string         `json:"id"`
-	Label         string         `json:"label"`
-	ExactModels   []string       `json:"exact_models"`
-	ModelPrefixes []string       `json:"model_prefixes"`
-	Durations     []PublicOption `json:"durations"`
-	AspectRatios  []PublicOption `json:"aspect_ratios"`
+	ID                    string         `json:"id"`
+	Label                 string         `json:"label"`
+	ExactModels           []string       `json:"exact_models"`
+	ModelPrefixes         []string       `json:"model_prefixes"`
+	Durations             []PublicOption `json:"durations"`
+	AspectRatios          []PublicOption `json:"aspect_ratios"`
+	RequireRefModelSuffix bool           `json:"require_ref_model_suffix"`
 }
 
 // PublicVideoToolConfig is returned to logged-in users for the Seedance-style tool page.
@@ -61,12 +66,13 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 	for i := range s.Profiles {
 		p := buildProfileResolution(s, i, ProfileMatchDefault, s.Profiles[i].ID).Profile
 		pub := PublicProfile{
-			ID:            p.ID,
-			Label:         p.Label,
-			ExactModels:   append([]string{}, p.ExactModels...),
-			ModelPrefixes: append([]string{}, p.ModelPrefixes...),
-			Durations:     publicOptions(p.Durations),
-			AspectRatios:  publicOptions(p.AspectRatios),
+			ID:                    p.ID,
+			Label:                 p.Label,
+			ExactModels:           append([]string{}, p.ExactModels...),
+			ModelPrefixes:         append([]string{}, p.ModelPrefixes...),
+			Durations:             publicOptions(p.Durations),
+			AspectRatios:          publicOptions(p.AspectRatios),
+			RequireRefModelSuffix: p.EnforcesRefModelSuffix(),
 		}
 		if len(pub.Durations) == 0 || len(pub.AspectRatios) == 0 {
 			continue
@@ -107,8 +113,12 @@ func publicHardcodedGenerationTypes() []PublicGenerationType {
 			RequireRefModel: m.RequireRefModel,
 			RequireAudio:    m.RequireAudio,
 			AllowAudio:      m.AllowAudio,
+			RequireVideo:    m.RequireVideo,
+			AllowVideo:      m.AllowVideo,
 			ImagesMin:       m.ImagesMin,
 			ImagesMax:       m.ImagesMax,
+			VideosMin:       m.VideosMin,
+			VideosMax:       m.VideosMax,
 		})
 	}
 	return out

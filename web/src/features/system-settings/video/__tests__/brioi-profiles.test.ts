@@ -63,6 +63,24 @@ describe('Brioi provider profiles', () => {
     assert.equal(parsed[0].max_images, 1)
   })
 
+  test('caps reference_videos companion images at 9 for Seedance 2.5', () => {
+    const profiles = defaultBrioiProfiles()
+    assert.equal(profiles[2].max_images, 30)
+
+    const payload = JSON.parse(serializeBrioiProfiles(profiles))
+    const referenceVideos = payload[2].generation_modes.find(
+      (mode: { value: string }) => mode.value === 'reference_videos'
+    )
+
+    assert.equal(referenceVideos.images_max, 9)
+    assert.equal(
+      payload[2].generation_modes.find(
+        (mode: { value: string }) => mode.value === 'multi_image'
+      ).images_max,
+      30
+    )
+  })
+
   test('rejects values outside Brioi hard capabilities', () => {
     const profiles = defaultBrioiProfiles()
     profiles[0].resolutions.push('8K')

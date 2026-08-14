@@ -249,59 +249,196 @@ describe('video provider routing', () => {
     )
   })
 
-  test('adapts the provider map, ownership, and per-profile Brioi modes', () => {
+  test('keeps silkroad reference_audio visible with required companion images', () => {
     const config = normalizeVideoToolConfig({
       version: 2,
       enabled: true,
-      group_ownership: { video: 'brioi' },
       providers: {
-        brioi: {
-          enabled: true,
-          video_tool_groups: ['video'],
+        silkroad: {
+          groups: ['silkroad-group'],
+          default_profile_id: 'silkroad-default',
+          generation_types: [
+            {
+              label: '文生视频',
+              value: 'text2video',
+              sort: 1,
+              require_ref_model: false,
+              images_min: 0,
+              images_max: 0,
+            },
+            {
+              label: '参考音频',
+              value: 'reference_audio',
+              sort: 5,
+              require_ref_model: true,
+              require_audio: true,
+              allow_audio: true,
+              images_min: 1,
+              images_max: 9,
+            },
+          ],
           profiles: [
             {
-              model: 'seedance-2-5',
-              label: 'Seedance 2.5',
-              durations: [4, 29],
-              resolutions: ['480p', '720p'],
-              aspect_ratios: ['16:9', '9:16'],
-              generation_modes: [
-                {
-                  value: 'multi_image',
-                  sort: 3,
-                  images_min: 2,
-                  images_max: 30,
-                  image_roles: [],
-                },
-                {
-                  value: 'start_end',
-                  sort: 5,
-                  images_min: 2,
-                  images_max: 2,
-                  image_roles: ['first_frame', 'last_frame'],
-                },
-              ],
+              id: 'silkroad-default',
+              exact_models: ['dreamina-seedance-2-0-480p-ref'],
+              durations: [4],
+              aspect_ratios: ['16:9'],
             },
           ],
         },
       },
     })
-    const provider = resolveVideoProviderForGroup(config, 'video')
+    const provider = resolveVideoProviderForGroup(config, 'silkroad-group')
     assert.ok(provider)
-    const profile = resolveProviderVideoProfile(provider, 'seedance-2-5')
+    const profile = resolveProviderVideoProfile(
+      provider,
+      'dreamina-seedance-2-0-480p-ref'
+    )
     assert.ok(profile)
     const generationTypes = generationTypesForProfile(provider, profile)
-
-    assert.equal(provider.id, 'brioi')
-    assert.equal(provider.label, 'Brioi')
     assert.deepEqual(
       generationTypes.map((mode) => mode.value),
-      ['multi_image', 'start_end']
+      ['text2video', 'reference_audio']
     )
-    assert.equal(generationTypes[0].images_max, 30)
-    assert.deepEqual(generationTypes[1].image_roles, [
-      'first_frame',
-      'last_frame',
-    ])
+    const audioMode = generationTypes.find(
+      (mode) => mode.value === 'reference_audio'
+    )
+    assert.ok(audioMode)
+    assert.equal(audioMode.allow_audio, true)
+    assert.equal(audioMode.require_audio, true)
+    assert.deepEqual(audioMode.image_roles, ['reference'])
+  })
+
+  test('keeps silkroad reference_videos visible with optional companion images', () => {
+    const config = normalizeVideoToolConfig({
+      version: 2,
+      enabled: true,
+      providers: {
+        silkroad: {
+          groups: ['silkroad-group'],
+          default_profile_id: 'silkroad-default',
+          generation_types: [
+            {
+              label: '文生视频',
+              value: 'text2video',
+              sort: 1,
+              require_ref_model: false,
+              images_min: 0,
+              images_max: 0,
+            },
+            {
+              label: '参考视频',
+              value: 'reference_videos',
+              sort: 6,
+              require_ref_model: true,
+              require_video: true,
+              allow_video: true,
+              images_min: 0,
+              images_max: 9,
+              videos_min: 1,
+              videos_max: 3,
+            },
+          ],
+          profiles: [
+            {
+              id: 'silkroad-default',
+              exact_models: ['dreamina-seedance-2-0-480p-ref'],
+              durations: [4],
+              aspect_ratios: ['16:9'],
+            },
+          ],
+        },
+      },
+    })
+    const provider = resolveVideoProviderForGroup(config, 'silkroad-group')
+    assert.ok(provider)
+    const profile = resolveProviderVideoProfile(
+      provider,
+      'dreamina-seedance-2-0-480p-ref'
+    )
+    assert.ok(profile)
+    const generationTypes = generationTypesForProfile(provider, profile)
+    assert.deepEqual(
+      generationTypes.map((mode) => mode.value),
+      ['text2video', 'reference_videos']
+    )
+    const videoMode = generationTypes.find(
+      (mode) => mode.value === 'reference_videos'
+    )
+    assert.ok(videoMode)
+    assert.equal(videoMode.allow_video, true)
+    assert.equal(videoMode.require_video, true)
+    assert.equal(videoMode.videos_min, 1)
+    assert.equal(videoMode.videos_max, 3)
+    assert.deepEqual(videoMode.image_roles, ['reference'])
+  })
+
+  test('keeps brioi reference_videos mixed media with optional audio', () => {
+    const config = normalizeVideoToolConfig({
+      version: 2,
+      enabled: true,
+      providers: {
+        brioi: {
+          groups: ['brioi-group'],
+          default_profile_id: 'seedance-2-0',
+          generation_types: [
+            {
+              label: 'Text to video',
+              value: 'text2video',
+              sort: 1,
+              images_min: 0,
+              images_max: 0,
+            },
+            {
+              label: 'Reference video',
+              value: 'reference_videos',
+              sort: 6,
+              require_video: true,
+              allow_video: true,
+              allow_audio: true,
+              images_min: 0,
+              images_max: 9,
+              videos_min: 1,
+              videos_max: 3,
+            },
+          ],
+          profiles: [
+            {
+              id: 'seedance-2-0',
+              exact_models: ['seedance-2-0'],
+              durations: [4],
+              aspect_ratios: ['16:9'],
+              media_limits_by_mode: {
+                reference_videos: {
+                  min_items: 0,
+                  max_items: 15,
+                  accepted_types: ['image', 'video', 'audio'],
+                  allowed_roles: ['reference'],
+                  allow_audio: true,
+                  allow_video: true,
+                },
+              },
+            },
+          ],
+        },
+      },
+    })
+    const provider = resolveVideoProviderForGroup(config, 'brioi-group')
+    assert.ok(provider)
+    const profile = resolveProviderVideoProfile(provider, 'seedance-2-0')
+    assert.ok(profile)
+    const generationTypes = generationTypesForProfile(provider, profile)
+    const videoMode = generationTypes.find(
+      (mode) => mode.value === 'reference_videos'
+    )
+    assert.ok(videoMode)
+    assert.equal(videoMode.allow_video, true)
+    assert.equal(videoMode.require_video, true)
+    assert.equal(videoMode.allow_audio, true)
+    assert.equal(videoMode.require_audio, false)
+    assert.equal(videoMode.images_min, 0)
+    assert.equal(videoMode.images_max, 9)
+    assert.equal(videoMode.videos_min, 1)
+    assert.equal(videoMode.videos_max, 3)
   })
 })

@@ -5,6 +5,7 @@ import (
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/brioi_setting"
 	"github.com/QuantumNous/new-api/setting/silkroad_setting"
+	"github.com/QuantumNous/new-api/setting/video_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,10 +16,11 @@ type publicVideoProviderConfigs struct {
 }
 
 type publicVideoToolConfig struct {
-	Version         int                              `json:"version"`
-	Enabled         bool                             `json:"enabled"`
-	ProviderByGroup map[string]setting.VideoProvider `json:"provider_by_group"`
-	Providers       publicVideoProviderConfigs       `json:"providers"`
+	Version         int                               `json:"version"`
+	Enabled         bool                              `json:"enabled"`
+	ProviderByGroup map[string]setting.VideoProvider  `json:"provider_by_group"`
+	Providers       publicVideoProviderConfigs        `json:"providers"`
+	UploadLimits    video_setting.UploadLimitsSetting `json:"upload_limits"`
 }
 
 // GetVideoToolConfig returns sanitized provider capabilities for the logged-in
@@ -35,6 +37,9 @@ func GetVideoToolConfig(c *gin.Context) {
 		publicOwnership[group] = owner.Provider
 	}
 
+	uploadLimits := setting.GetEffectiveVideoSetting().UploadLimits
+	video_setting.NormalizeUploadLimitsSetting(&uploadLimits)
+
 	common.ApiSuccess(c, publicVideoToolConfig{
 		Version:         2,
 		Enabled:         setting.IsVideoGenerationToolEnabled(),
@@ -43,6 +48,7 @@ func GetVideoToolConfig(c *gin.Context) {
 			SilkRoad: silkRoad,
 			Brioi:    brioi,
 		},
+		UploadLimits: uploadLimits,
 	})
 }
 

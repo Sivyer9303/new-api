@@ -19,6 +19,9 @@ export const BRIOI_GENERATION_TYPES = [
 
 export type BrioiGenerationType = (typeof BRIOI_GENERATION_TYPES)[number]
 
+/** Companion images in mixed video refs; independent of Seedance 2.5's 30-image cap. */
+const BRIOI_REFERENCE_MIX_IMAGES_MAX = 9
+
 export type BrioiHardProfile = {
   id: string
   label: string
@@ -270,8 +273,9 @@ export function serializeBrioiProfiles(profiles: BrioiProfileForm[]): string {
       let imagesMax = 0
       if (value === 'image2video' || value === 'first_frame') imagesMax = 1
       if (value === 'start_end') imagesMax = 2
-      if (value === 'multi_image' || value === 'reference_videos') {
-        imagesMax = profile.max_images
+      if (value === 'multi_image') imagesMax = profile.max_images
+      if (value === 'reference_videos') {
+        imagesMax = Math.min(profile.max_images, BRIOI_REFERENCE_MIX_IMAGES_MAX)
       }
       return {
         value,

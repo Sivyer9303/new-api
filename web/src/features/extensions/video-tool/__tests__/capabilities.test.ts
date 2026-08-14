@@ -22,13 +22,19 @@ import { describe, test } from 'node:test'
 import {
   filterModelsForProfile,
   generationTypeDisableReason,
+  generationTypesForProfile,
   isVideoStoragePhase,
   modelSupportsGenerationType,
   retainCompatibleVideoModel,
+  resolutionFromModelName,
   resolveVideoProfile,
   resolveSelectedOption,
 } from '../lib/capabilities'
-import type { PublicGenerationType, PublicProfile } from '../types'
+import type {
+  PublicGenerationType,
+  PublicProfile,
+  VideoProviderConfig,
+} from '../types'
 
 function generationType(
   value: string,
@@ -41,8 +47,12 @@ function generationType(
     require_ref_model: requireRefModel,
     require_audio: false,
     allow_audio: false,
+    require_video: false,
+    allow_video: false,
     images_min: requireRefModel ? 1 : 0,
     images_max: requireRefModel ? 1 : 0,
+    videos_min: 0,
+    videos_max: 0,
     image_roles: requireRefModel ? ['reference'] : [],
   }
 }
@@ -57,12 +67,14 @@ const profiles: PublicProfile[] = [
     resolutions: [],
     aspect_ratios: [],
     generation_types: [],
+    require_ref_model_suffix: true,
     media: {
       min_items: 0,
       max_items: 0,
       accepted_types: [],
       allowed_roles: [],
       allow_audio: false,
+      allow_video: false,
     },
     media_limits: {},
   },
@@ -75,12 +87,14 @@ const profiles: PublicProfile[] = [
     resolutions: [],
     aspect_ratios: [],
     generation_types: [],
+    require_ref_model_suffix: true,
     media: {
       min_items: 0,
       max_items: 0,
       accepted_types: [],
       allowed_roles: [],
       allow_audio: false,
+      allow_video: false,
     },
     media_limits: {},
   },
@@ -203,5 +217,55 @@ describe('video tool capability resolution', () => {
       generationTypeDisableReason('seedance-2-0', imageToVideo),
       null
     )
+  })
+
+  test('clears require_ref_model when the profile disables the -ref suffix rule', () => {
+    const provider: VideoProviderConfig = {
+      id: 'silkroad',
+      label: 'SilkRoad',
+      groups: ['default'],
+      default_profile_id: 'grok',
+      strict_model_matching: false,
+      generation_types: [
+        generationType('text2video', false),
+        generationType('image2video', true),
+      ],
+      profiles: [
+        {
+          ...profiles[0],
+          id: 'grok',
+          label: 'Grok',
+          exact_models: ['grok-image-video'],
+          model_prefixes: ['grok-'],
+          require_ref_model_suffix: false,
+        },
+      ],
+    }
+    const generationTypes = generationTypesForProfile(
+      provider,
+      provider.profiles[0]
+    )
+    const imageMode = generationTypes.find(
+      (mode) => mode.value === 'image2video'
+    )
+    assert.ok(imageMode)
+    assert.equal(imageMode.require_ref_model, false)
+    assert.equal(
+      generationTypeDisableReason('grok-image-video', imageMode),
+      null
+    )
+  })
+})
+
+describe('resolutionFromModelName', () => {
+  test('reads Brioi resolution suffixes from local aliases', () => {
+    assert.equal(resolutionFromModelName('seedance-2-0-480p'), '480p')
+    assert.equal(
+      resolutionFromModelName('dreamina-seedance-2-0-720p-ref'),
+      '720p'
+    )
+    assert.equal(resolutionFromModelName('seedance-2-0-1080p'), '1080p')
+    assert.equal(resolutionFromModelName('seedance-2-0-4k'), '4K')
+    assert.equal(resolutionFromModelName('seedance-2-0'), '')
   })
 })

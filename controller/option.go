@@ -176,6 +176,10 @@ func validateVideoSettingOption(key, value string) error {
 		if err := common.UnmarshalJsonStr(value, &clone.Storage); err != nil {
 			return fmt.Errorf("invalid video storage setting: %w", err)
 		}
+	case "upload_limits":
+		if err := common.UnmarshalJsonStr(value, &clone.UploadLimits); err != nil {
+			return fmt.Errorf("invalid video upload limits: %w", err)
+		}
 	case "video_tool_groups":
 		if err := common.UnmarshalJsonStr(value, &clone.VideoToolGroups); err != nil {
 			return fmt.Errorf("invalid video tool groups: %w", err)
@@ -188,6 +192,8 @@ func validateVideoSettingOption(key, value string) error {
 		return nil
 	case "storage":
 		return video_setting.ValidateVideoStorageSetting(&clone.Storage)
+	case "upload_limits":
+		return video_setting.ValidateUploadLimitsSetting(&clone.UploadLimits)
 	case "video_tool_groups":
 		if config.GlobalConfig.IsExplicit("silkroad_setting.video_tool_groups") {
 			return nil
@@ -277,6 +283,7 @@ func GetOptions(c *gin.Context) {
 	effectiveVideo := setting.GetEffectiveVideoSetting()
 	effectiveVideoGroups, _ := common.Marshal(effectiveVideo.VideoToolGroups)
 	effectiveVideoStorage, _ := common.Marshal(effectiveVideo.Storage)
+	effectiveVideoUploadLimits, _ := common.Marshal(effectiveVideo.UploadLimits)
 	effectiveSilkRoadGroups, _ := common.Marshal(
 		setting.GetVideoProviderGroups(setting.VideoProviderSilkRoad),
 	)
@@ -296,6 +303,9 @@ func GetOptions(c *gin.Context) {
 		case k == "video_setting.storage" &&
 			!config.GlobalConfig.IsExplicit(k):
 			value = string(effectiveVideoStorage)
+		case k == "video_setting.upload_limits" &&
+			!config.GlobalConfig.IsExplicit(k):
+			value = string(effectiveVideoUploadLimits)
 		case k == "silkroad_setting.video_tool_groups" &&
 			!config.GlobalConfig.IsExplicit(k):
 			value = string(effectiveSilkRoadGroups)
@@ -472,6 +482,7 @@ func videoProviderOptionValues(request VideoProviderOptionUpdateRequest) (map[st
 			"brioi_setting.profiles":          string(profilesValue),
 			"brioi_setting.video_tool_groups": string(groupsValue),
 		}, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported video provider %q", request.Provider)
 	}
@@ -792,7 +803,7 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
-	case "video_setting.enabled", "video_setting.storage", "video_setting.video_tool_groups":
+	case "video_setting.enabled", "video_setting.storage", "video_setting.upload_limits", "video_setting.video_tool_groups":
 		err = validateVideoSettingOption(option.Key, option.Value.(string))
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{

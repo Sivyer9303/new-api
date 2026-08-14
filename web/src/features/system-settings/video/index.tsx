@@ -14,6 +14,10 @@ import {
 import type { VideoSettings } from '../types'
 import { DEFAULT_VIDEO_STORAGE, resolveVideoSettings } from './compatibility'
 import {
+  defaultVideoUploadLimitsValues,
+  serializeVideoUploadLimits,
+} from './upload-limits'
+import {
   getVideoSectionContent,
   getVideoSectionMeta,
   VIDEO_DEFAULT_SECTION,
@@ -28,6 +32,9 @@ const defaultVideoSettings: VideoSettings = {
   'video_setting.enabled': false,
   'video_setting.video_tool_groups': '[]',
   'video_setting.storage': DEFAULT_VIDEO_STORAGE,
+  'video_setting.upload_limits': serializeVideoUploadLimits(
+    defaultVideoUploadLimitsValues()
+  ),
   'silkroad_setting.common': DEFAULT_COMMON,
   'silkroad_setting.profiles': DEFAULT_PROFILES,
   'silkroad_setting.default_profile_id': 'seedance_reverse',

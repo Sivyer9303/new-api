@@ -51,8 +51,16 @@ func IsVideoGenerationToolEnabled() bool {
 	)
 }
 
-func videoGenerationToolEnabled(globalEnabled, silkRoadEnabled, brioiEnabled bool) bool {
-	return globalEnabled && (silkRoadEnabled || brioiEnabled)
+func videoGenerationToolEnabled(globalEnabled bool, providerEnabled ...bool) bool {
+	if !globalEnabled {
+		return false
+	}
+	for _, enabled := range providerEnabled {
+		if enabled {
+			return true
+		}
+	}
+	return false
 }
 
 func (err *VideoProviderResolutionError) Error() string {
@@ -121,26 +129,33 @@ func GetVideoProviderGroups(provider VideoProvider) []string {
 }
 
 func ValidateVideoProviderGroups(provider VideoProvider, candidateGroups []string) error {
-	var otherProvider VideoProvider
-	switch provider {
-	case VideoProviderSilkRoad:
-		otherProvider = VideoProviderBrioi
-	case VideoProviderBrioi:
-		otherProvider = VideoProviderSilkRoad
-	default:
+	sources := videoProviderGroupSources()
+	known := false
+	for _, source := range sources {
+		if source.Provider == provider {
+			known = true
+			break
+		}
+	}
+	if !known {
 		return fmt.Errorf("unknown video provider %q", provider)
 	}
 
-	otherGroups := make(map[string]struct{})
-	for _, group := range GetVideoProviderGroups(otherProvider) {
-		otherGroups[group] = struct{}{}
-	}
-	for _, group := range video_setting.NormalizeVideoToolGroups(candidateGroups) {
-		if _, conflict := otherGroups[group]; conflict {
-			return &VideoProviderGroupConflictError{
-				Group:             group,
-				ExistingProvider:  otherProvider,
-				RequestedProvider: provider,
+	for _, source := range sources {
+		if source.Provider == provider {
+			continue
+		}
+		otherGroups := make(map[string]struct{})
+		for _, group := range GetVideoProviderGroups(source.Provider) {
+			otherGroups[group] = struct{}{}
+		}
+		for _, group := range video_setting.NormalizeVideoToolGroups(candidateGroups) {
+			if _, conflict := otherGroups[group]; conflict {
+				return &VideoProviderGroupConflictError{
+					Group:             group,
+					ExistingProvider:  source.Provider,
+					RequestedProvider: provider,
+				}
 			}
 		}
 	}
@@ -182,33 +197,46 @@ func currentSilkRoadVideoProviderGroups() []string {
 	)
 }
 
+type videoProviderGroupSource struct {
+	Provider    VideoProvider
+	ChannelType int
+	Groups      []string
+}
+
+func videoProviderGroupSources() []videoProviderGroupSource {
+	return []videoProviderGroupSource{
+		{
+			Provider:    VideoProviderSilkRoad,
+			ChannelType: constant.ChannelTypeSilkRoad,
+			Groups:      currentSilkRoadVideoProviderGroups(),
+		},
+		{
+			Provider:    VideoProviderBrioi,
+			ChannelType: constant.ChannelTypeBrioi,
+			Groups:      brioi_setting.GetBrioiSetting().VideoToolGroups,
+		},
+	}
+}
+
 func currentVideoProviderOwnership() map[string]VideoProviderOwnership {
-	return resolveVideoProviderOwnership(
-		currentSilkRoadVideoProviderGroups(),
-		brioi_setting.GetBrioiSetting().VideoToolGroups,
-	)
+	return resolveVideoProviderOwnership(videoProviderGroupSources()...)
 }
 
 func resolveVideoProviderOwnership(
-	silkRoadGroups []string,
-	brioiGroups []string,
+	sources ...videoProviderGroupSource,
 ) map[string]VideoProviderOwnership {
 	ownership := make(map[string]VideoProviderOwnership)
 	conflicts := make(map[string]struct{})
-	for _, group := range video_setting.NormalizeVideoToolGroups(silkRoadGroups) {
-		ownership[group] = VideoProviderOwnership{
-			Provider:    VideoProviderSilkRoad,
-			ChannelType: constant.ChannelTypeSilkRoad,
-		}
-	}
-	for _, group := range video_setting.NormalizeVideoToolGroups(brioiGroups) {
-		if _, conflict := ownership[group]; conflict {
-			conflicts[group] = struct{}{}
-			continue
-		}
-		ownership[group] = VideoProviderOwnership{
-			Provider:    VideoProviderBrioi,
-			ChannelType: constant.ChannelTypeBrioi,
+	for _, source := range sources {
+		for _, group := range video_setting.NormalizeVideoToolGroups(source.Groups) {
+			if existing, ok := ownership[group]; ok && existing.Provider != source.Provider {
+				conflicts[group] = struct{}{}
+				continue
+			}
+			ownership[group] = VideoProviderOwnership{
+				Provider:    source.Provider,
+				ChannelType: source.ChannelType,
+			}
 		}
 	}
 	for group := range conflicts {

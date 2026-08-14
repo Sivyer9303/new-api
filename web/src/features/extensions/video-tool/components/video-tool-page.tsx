@@ -40,7 +40,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Tooltip,
   TooltipContent,
@@ -60,12 +59,18 @@ import { useVideoToolBootstrap } from '../hooks/use-video-tool-bootstrap'
 import {
   generationTypeDisableReason,
   generationTypesForProfile,
+  resolutionFromModelName,
   retainCompatibleVideoModel,
   resolveProviderVideoProfile,
   resolveSelectedOption,
   type GenerationTypeDisableReason,
 } from '../lib/capabilities'
 import { estimateVideoPrice } from '../lib/pricing'
+import {
+  buildPromptMentionOptions,
+  mentionToken,
+  type PromptMentionKind,
+} from '../lib/prompt-mentions'
 import { resolveVideoProviderByID } from '../lib/provider-config'
 import {
   revokeReferenceImageItems,
@@ -73,6 +78,7 @@ import {
 } from '../lib/reference-image'
 import { buildVideoGenerationRequest } from '../lib/request'
 import type { PublicGenerationType, VideoToolModel } from '../types'
+import { PromptMentionEditor } from './prompt-mention-editor'
 import { ReferenceImageGrid } from './reference-image-grid'
 import { VideoTaskResultCard } from './video-task-result-card'
 import { VideoToolStateCard } from './video-tool-state-card'
@@ -98,6 +104,8 @@ function generationTypeDisplayLabel(
       return translate('First & last frame')
     case 'reference_audio':
       return translate('Reference audio')
+    case 'reference_videos':
+      return translate('Reference video')
     default:
       return gt.label
   }
@@ -185,6 +193,125 @@ async function fileToDataURL(file: File): Promise<string> {
   return url
 }
 
+const MAX_REFERENCE_VIDEO_SECONDS = 15
+
+async function readVideoDurationSeconds(file: File): Promise<number> {
+  const objectURL = URL.createObjectURL(file)
+  try {
+    return await new Promise<number>((resolve, reject) => {
+      const video = document.createElement('video')
+      video.preload = 'metadata'
+      video.onloadedmetadata = () => {
+        resolve(Number.isFinite(video.duration) ? video.duration : 0)
+      }
+      video.onerror = () => reject(new Error('Failed to read video metadata'))
+      video.src = objectURL
+    })
+  } finally {
+    URL.revokeObjectURL(objectURL)
+  }
+}
+
+function isMp4VideoFile(file: File): boolean {
+  return (
+    /video\/mp4/i.test(file.type) || file.name.toLowerCase().endsWith('.mp4')
+  )
+}
+
+function isBrioiReferenceVideoFile(file: File): boolean {
+  const name = file.name.toLowerCase()
+  return (
+    isMp4VideoFile(file) ||
+    /video\/quicktime/i.test(file.type) ||
+    name.endsWith('.mov')
+  )
+}
+
+function isBrioiReferenceAudioDataURL(value: string): boolean {
+  const lower = value.toLowerCase()
+  return (
+    lower.startsWith('data:audio/mpeg;base64,') ||
+    lower.startsWith('data:audio/mp3;base64,') ||
+    lower.startsWith('data:audio/wav;base64,') ||
+    lower.startsWith('data:audio/x-wav;base64,') ||
+    lower.startsWith('data:audio/wave;base64,')
+  )
+}
+
+function isBrioiReferenceVideoDataURL(value: string): boolean {
+  const lower = value.toLowerCase()
+  return (
+    lower.startsWith('data:video/mp4;base64,') ||
+    lower.startsWith('data:video/quicktime;base64,')
+  )
+}
+
+function isAllowedReferenceAudioFile(file: File, allowWav: boolean): boolean {
+  const name = file.name.toLowerCase()
+  if (allowWav) {
+    return (
+      /audio\/(mpeg|mp3|wav|x-wav|wave)/i.test(file.type) ||
+      name.endsWith('.mp3') ||
+      name.endsWith('.wav')
+    )
+  }
+  return /audio\/(mpeg|mp3)/i.test(file.type) || name.endsWith('.mp3')
+}
+
+function isAllowedReferenceVideoFile(file: File, allowMov: boolean): boolean {
+  if (allowMov) return isBrioiReferenceVideoFile(file)
+  return isMp4VideoFile(file)
+}
+
+type TranslateText = (
+  key: string,
+  options?: Record<string, number | string>
+) => string
+
+function referenceAudioLabel(
+  translate: TranslateText,
+  requireAudio: boolean,
+  isBrioi: boolean
+): string {
+  if (requireAudio) return translate('Reference audio (required, MP3)')
+  if (isBrioi) return translate('Reference audio (optional, MP3/WAV)')
+  return translate('Reference audio (optional, MP3)')
+}
+
+function referenceAudioHelp(
+  translate: TranslateText,
+  requireAudio: boolean,
+  isBrioi: boolean
+): string {
+  if (isBrioi) {
+    return translate(
+      'Optional companion audio. Brioi numbers it as @音频1. MP3 or WAV; cannot be the only reference.'
+    )
+  }
+  if (requireAudio) {
+    return translate(
+      'Required. Sent as data:audio/mpeg;base64,… in audio_url. MP3 only. Images are optional.'
+    )
+  }
+  return translate(
+    'Optional. Sent as data:audio/mpeg;base64,… in audio_url. MP3 only.'
+  )
+}
+
+function referenceVideoLabel(
+  translate: TranslateText,
+  requireVideo: boolean,
+  isBrioi: boolean,
+  min: number,
+  max: number
+): string {
+  if (!requireVideo) return translate('Reference videos (optional, MP4)')
+  const key = isBrioi
+    ? 'Reference videos (required, MP4/MOV, {{min}}-{{max}}, ≤{{seconds}}s each)'
+    : 'Reference videos (required, MP4, {{min}}-{{max}}, ≤{{seconds}}s each)'
+  return translate(key, { min, max, seconds: MAX_REFERENCE_VIDEO_SECONDS })
+}
+
 export function VideoToolPage() {
   const { t } = useTranslation()
   const controlId = useId()
@@ -214,6 +341,10 @@ export function VideoToolPage() {
   )
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [audioPreviewUrl, setAudioPreviewUrl] = useState('')
+  const [referenceVideoFiles, setReferenceVideoFiles] = useState<File[]>([])
+  const [referenceVideoPreviewUrls, setReferenceVideoPreviewUrls] = useState<
+    string[]
+  >([])
   const [submitting, setSubmitting] = useState(false)
   const {
     taskId,
@@ -395,9 +526,47 @@ export function VideoToolPage() {
     return generationTypes.find((g) => g.value === generationType) ?? null
   }, [generationType, generationTypes])
 
+  const promptMentionOptions = useMemo(() => {
+    const labelFor = (kind: PromptMentionKind, index: number) => {
+      if (kind === 'image') return t('Image {{index}}', { index })
+      if (kind === 'audio') return t('Audio {{index}}', { index })
+      return t('Video {{index}}', { index })
+    }
+    return buildPromptMentionOptions({
+      images: referenceImages.map((item) => ({
+        previewUrl: item.previewUrl,
+        fileName: item.file.name,
+      })),
+      audio: audioFile ? { fileName: audioFile.name } : null,
+      videos: referenceVideoFiles.map((file, index) => ({
+        previewUrl: referenceVideoPreviewUrls[index],
+        fileName: file.name,
+      })),
+      dialect: activeProvider?.id === 'brioi' ? 'zh' : 'latin',
+      labelFor,
+    })
+  }, [
+    activeProvider?.id,
+    audioFile,
+    referenceImages,
+    referenceVideoFiles,
+    referenceVideoPreviewUrls,
+    t,
+  ])
+
   const durationOptions = selectedProfile?.durations ?? []
-  const resolutionOptions = selectedProfile?.resolutions ?? []
+  // Brioi maps shared upstream models (e.g. seedance-2-0) and encodes tier in
+  // the local alias; SilkRoad encodes resolution in the model name itself and
+  // rejects a separate resolution field.
+  const modelEncodedResolution =
+    activeProvider?.id === 'brioi'
+      ? resolutionFromModelName(selectedModel?.id ?? '')
+      : ''
+  const resolutionOptions = modelEncodedResolution
+    ? []
+    : (selectedProfile?.resolutions ?? [])
   const aspectOptions = selectedProfile?.aspect_ratios ?? []
+  const effectiveResolution = modelEncodedResolution || resolution
 
   const durationFieldKey =
     durationOptions.find((d) => d.value === durationValue)?.upstream_key ||
@@ -405,23 +574,23 @@ export function VideoToolPage() {
     'seconds'
 
   useEffect(() => {
-    if (!generationType) return
-    const mode = generationTypes.find(
-      (candidate) => candidate.value === generationType
+    const modelName = selectedModel?.profile_model || selectedModel?.id || ''
+    const enabledModes = generationTypes.filter(
+      (candidate) => !generationTypeDisableReason(modelName, candidate)
     )
-    if (!mode) {
-      setGenerationType('')
-      toast.message(
-        t(
-          'Selected generation mode was cleared because it is not supported by the selected model.'
-        )
-      )
+    if (enabledModes.length === 0) {
+      if (generationType) setGenerationType('')
       return
     }
-    const modelName = selectedModel?.profile_model || selectedModel?.id || ''
-    if (!modelName) return
-    if (generationTypeDisableReason(modelName, mode)) {
-      setGenerationType('')
+    if (
+      generationType &&
+      enabledModes.some((candidate) => candidate.value === generationType)
+    ) {
+      return
+    }
+    const hadSelection = Boolean(generationType)
+    setGenerationType(enabledModes[0].value)
+    if (hadSelection) {
       toast.message(
         t(
           'Selected generation mode was cleared because it is not supported by the selected model.'
@@ -437,14 +606,17 @@ export function VideoToolPage() {
       setAspectRatio('')
       return
     }
+    const encodedResolution =
+      activeProvider?.id === 'brioi'
+        ? resolutionFromModelName(selectedModel?.id ?? '')
+        : ''
     const nextDuration = resolveSelectedOption(
       durationValue,
       selectedProfile.durations
     )
-    const nextResolution = resolveSelectedOption(
-      resolution,
-      selectedProfile.resolutions
-    )
+    const nextResolution = encodedResolution
+      ? encodedResolution
+      : resolveSelectedOption(resolution, selectedProfile.resolutions)
     const nextAspectRatio = resolveSelectedOption(
       aspectRatio,
       selectedProfile.aspect_ratios
@@ -452,7 +624,14 @@ export function VideoToolPage() {
     if (nextDuration !== durationValue) setDurationValue(nextDuration)
     if (nextResolution !== resolution) setResolution(nextResolution)
     if (nextAspectRatio !== aspectRatio) setAspectRatio(nextAspectRatio)
-  }, [selectedProfile, durationValue, resolution, aspectRatio])
+  }, [
+    activeProvider?.id,
+    selectedProfile,
+    selectedModel,
+    durationValue,
+    resolution,
+    aspectRatio,
+  ])
 
   // Trim or clear reference images when the selected mode's image limit changes.
   useEffect(() => {
@@ -497,6 +676,28 @@ export function VideoToolPage() {
     setAudioFile(null)
     setAudioPreviewUrl('')
   }, [audioFile, selectedGenType?.allow_audio, selectedGenType?.value, t])
+
+  // Clear reference videos when the mode does not allow them.
+  useEffect(() => {
+    if (selectedGenType?.allow_video) return
+    if (referenceVideoFiles.length === 0) return
+    toast.message(
+      t(
+        'Reference videos were cleared because they are not supported by the selected mode.'
+      )
+    )
+    referenceVideoPreviewUrls.forEach((url) => {
+      if (url) URL.revokeObjectURL(url)
+    })
+    setReferenceVideoFiles([])
+    setReferenceVideoPreviewUrls([])
+  }, [
+    referenceVideoFiles.length,
+    referenceVideoPreviewUrls,
+    selectedGenType?.allow_video,
+    selectedGenType?.value,
+    t,
+  ])
 
   useEffect(() => {
     return () => {
@@ -592,6 +793,12 @@ export function VideoToolPage() {
       selectedGenType?.allow_audio && audioFile
         ? `data:audio/mpeg;base64,…(${audioFile.name})`
         : undefined
+    const videos =
+      selectedGenType?.allow_video && referenceVideoFiles.length > 0
+        ? referenceVideoFiles.map(
+            (file) => `data:video/mp4;base64,…(${file.name})`
+          )
+        : undefined
     const body = buildVideoGenerationRequest({
       model: safeModelId,
       prompt,
@@ -599,11 +806,13 @@ export function VideoToolPage() {
       aspectRatio,
       durationFieldKey,
       durationValue,
-      resolution,
+      resolution: effectiveResolution,
       images,
       imageRoles: selectedGenType?.image_roles,
       audioURL,
-      mediaFormat: activeProvider?.id === 'silkroad' ? 'legacy' : 'normalized',
+      videos,
+      mediaFormat:
+        activeProvider?.id === 'silkroad' ? 'legacy' : 'normalized',
     })
     return JSON.stringify(body, null, 2)
   }, [
@@ -611,12 +820,13 @@ export function VideoToolPage() {
     prompt,
     generationType,
     aspectRatio,
-    resolution,
+    effectiveResolution,
     durationFieldKey,
     durationValue,
     selectedGenType,
     referenceImages,
     audioFile,
+    referenceVideoFiles,
     activeProvider?.id,
   ])
 
@@ -643,7 +853,7 @@ export function VideoToolPage() {
       !prompt.trim() ||
       !durationValue ||
       !aspectRatio ||
-      (resolutionOptions.length > 0 && !resolution)
+      (resolutionOptions.length > 0 && !effectiveResolution)
     ) {
       toast.error(t('Please fill in all required fields'))
       return
@@ -669,6 +879,21 @@ export function VideoToolPage() {
       toast.error(t('This mode requires an MP3 reference audio file'))
       return
     }
+    const minVideos = selectedGenType.videos_min
+    const maxVideos = selectedGenType.videos_max
+    if (
+      selectedGenType.allow_video &&
+      (referenceVideoFiles.length < minVideos ||
+        referenceVideoFiles.length > maxVideos)
+    ) {
+      toast.error(
+        t('This mode requires {{min}}-{{max}} reference video(s)', {
+          min: minVideos,
+          max: maxVideos,
+        })
+      )
+      return
+    }
 
     setSubmitting(true)
     resetTaskPolling()
@@ -684,12 +909,60 @@ export function VideoToolPage() {
       let audioURL = ''
       if (selectedGenType.allow_audio && audioFile) {
         audioURL = await fileToDataURL(audioFile)
-        const lower = audioURL.toLowerCase()
-        if (
-          !lower.startsWith('data:audio/mpeg;base64,') &&
-          !lower.startsWith('data:audio/mp3;base64,')
+        const allowWav = activeProvider?.id === 'brioi'
+        if (allowWav) {
+          if (!isBrioiReferenceAudioDataURL(audioURL)) {
+            throw new Error(t('Reference audio must be an MP3 or WAV file'))
+          }
+        } else if (
+          !audioURL.toLowerCase().startsWith('data:audio/mpeg;base64,') &&
+          !audioURL.toLowerCase().startsWith('data:audio/mp3;base64,')
         ) {
           throw new Error(t('Reference audio must be an MP3 file'))
+        }
+      }
+      let videos: string[] = []
+      if (selectedGenType.allow_video && referenceVideoFiles.length > 0) {
+        const allowMov = activeProvider?.id === 'brioi'
+        let totalSeconds = 0
+        for (const file of referenceVideoFiles) {
+          if (!isAllowedReferenceVideoFile(file, allowMov)) {
+            throw new Error(
+              allowMov
+                ? t('Reference video must be an MP4 or MOV file')
+                : t('Reference video must be an MP4 file')
+            )
+          }
+          const duration = await readVideoDurationSeconds(file)
+          if (duration > MAX_REFERENCE_VIDEO_SECONDS) {
+            throw new Error(
+              t('Each reference video must be at most {{max}} seconds', {
+                max: MAX_REFERENCE_VIDEO_SECONDS,
+              })
+            )
+          }
+          totalSeconds += duration
+        }
+        if (totalSeconds > MAX_REFERENCE_VIDEO_SECONDS) {
+          throw new Error(
+            t(
+              'Total reference video duration must be at most {{max}} seconds',
+              { max: MAX_REFERENCE_VIDEO_SECONDS }
+            )
+          )
+        }
+        videos = await filesToDataUrls(referenceVideoFiles)
+        for (const video of videos) {
+          const ok = allowMov
+            ? isBrioiReferenceVideoDataURL(video)
+            : video.toLowerCase().startsWith('data:video/mp4;base64,')
+          if (!ok) {
+            throw new Error(
+              allowMov
+                ? t('Reference video must be an MP4 or MOV file')
+                : t('Reference video must be an MP4 file')
+            )
+          }
         }
       }
 
@@ -700,10 +973,11 @@ export function VideoToolPage() {
         aspectRatio,
         durationFieldKey,
         durationValue,
-        resolution,
+        resolution: effectiveResolution,
         images,
         imageRoles: selectedGenType.image_roles,
         audioURL,
+        videos,
         mediaFormat:
           activeProvider?.id === 'silkroad' ? 'legacy' : 'normalized',
       })
@@ -1001,13 +1275,31 @@ export function VideoToolPage() {
 
                   <div className='space-y-2'>
                     <Label htmlFor={`${controlId}-prompt`}>{t('Prompt')}</Label>
-                    <Textarea
+                    <PromptMentionEditor
                       id={`${controlId}-prompt`}
                       value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      rows={4}
-                      placeholder={t('Describe the video you want to generate')}
+                      onChange={setPrompt}
+                      options={promptMentionOptions}
+                      disabled={submitting || isPolling}
+                      placeholder={t(
+                        'Describe the video you want to generate. Type @ to mention uploaded media.'
+                      )}
+                      emptyMenuLabel={t(
+                        'Upload images, audio, or video first, then type @ to insert.'
+                      )}
+                      imageGroupLabel={t('Images')}
+                      audioGroupLabel={t('Audio')}
+                      videoGroupLabel={t('Videos')}
                     />
+                    <p className='text-muted-foreground text-xs'>
+                      {activeProvider?.id === 'brioi'
+                        ? t(
+                            'Type @ to insert @图片1 / @视频1 / @音频1. Chips are display-only; the submitted prompt keeps the @ tokens.'
+                          )
+                        : t(
+                            'Type @ to insert @Image1 / @Audio1 / @Video1. Chips are display-only; the submitted prompt keeps the @ tokens.'
+                          )}
+                    </p>
                   </div>
 
                   <div
@@ -1113,6 +1405,11 @@ export function VideoToolPage() {
                         max={selectedGenType?.images_max ?? 1}
                         roles={selectedGenType?.image_roles ?? []}
                         disabled={submitting || isPolling}
+                        maxBytes={
+                          (config?.upload_limits.max_image_mb ?? 10) *
+                          1024 *
+                          1024
+                        }
                       />
                     </div>
                   )}
@@ -1120,24 +1417,44 @@ export function VideoToolPage() {
                   {selectedGenType?.allow_audio && (
                     <div className='space-y-2'>
                       <Label htmlFor={`${controlId}-reference-audio`}>
-                        {selectedGenType.require_audio
-                          ? t('Reference audio (required, MP3)')
-                          : t('Reference audio (optional, MP3)')}
+                        {referenceAudioLabel(
+                          t,
+                          selectedGenType.require_audio,
+                          activeProvider?.id === 'brioi'
+                        )}
                       </Label>
                       <Input
                         id={`${controlId}-reference-audio`}
                         type='file'
-                        accept='audio/mpeg,audio/mp3,.mp3'
+                        accept={
+                          activeProvider?.id === 'brioi'
+                            ? 'audio/mpeg,audio/mp3,audio/wav,audio/x-wav,.mp3,.wav'
+                            : 'audio/mpeg,audio/mp3,.mp3'
+                        }
                         disabled={submitting || isPolling}
                         onChange={(e) => {
                           const file = e.target.files?.[0] ?? null
-                          if (
-                            file &&
-                            !/audio\/(mpeg|mp3)/i.test(file.type) &&
-                            !file.name.toLowerCase().endsWith('.mp3')
-                          ) {
+                          const allowWav = activeProvider?.id === 'brioi'
+                          if (file && !isAllowedReferenceAudioFile(file, allowWav)) {
                             toast.error(
-                              t('Reference audio must be an MP3 file')
+                              allowWav
+                                ? t('Reference audio must be an MP3 or WAV file')
+                                : t('Reference audio must be an MP3 file')
+                            )
+                            e.target.value = ''
+                            setAudioFile(null)
+                            setAudioPreviewUrl('')
+                            return
+                          }
+                          const maxAudioBytes =
+                            (config?.upload_limits.max_audio_mb ?? 24) *
+                            1024 *
+                            1024
+                          if (file && file.size > maxAudioBytes) {
+                            toast.error(
+                              t('Each audio file must be at most {{max}} MB', {
+                                max: config?.upload_limits.max_audio_mb ?? 24,
+                              })
                             )
                             e.target.value = ''
                             setAudioFile(null)
@@ -1177,12 +1494,149 @@ export function VideoToolPage() {
                         </div>
                       )}
                       <p className='text-muted-foreground text-xs'>
-                        {selectedGenType.require_audio
+                        {referenceAudioHelp(
+                          t,
+                          selectedGenType.require_audio,
+                          activeProvider?.id === 'brioi'
+                        )}
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedGenType?.allow_video && (
+                    <div className='space-y-2'>
+                      <Label htmlFor={`${controlId}-reference-videos`}>
+                        {referenceVideoLabel(
+                          t,
+                          selectedGenType.require_video,
+                          activeProvider?.id === 'brioi',
+                          selectedGenType.videos_min,
+                          selectedGenType.videos_max
+                        )}
+                      </Label>
+                      <Input
+                        id={`${controlId}-reference-videos`}
+                        type='file'
+                        accept={
+                          activeProvider?.id === 'brioi'
+                            ? 'video/mp4,video/quicktime,.mp4,.mov'
+                            : 'video/mp4,.mp4'
+                        }
+                        multiple
+                        disabled={submitting || isPolling}
+                        onChange={async (e) => {
+                          const picked = [...(e.target.files ?? [])]
+                          e.target.value = ''
+                          if (picked.length === 0) return
+                          const maxCount = selectedGenType.videos_max || 3
+                          const next = [...referenceVideoFiles, ...picked].slice(
+                            0,
+                            maxCount
+                          )
+                          const maxVideoBytes =
+                            (config?.upload_limits.max_video_mb ?? 50) *
+                            1024 *
+                            1024
+                          for (const file of next) {
+                            const allowMov = activeProvider?.id === 'brioi'
+                            if (!isAllowedReferenceVideoFile(file, allowMov)) {
+                              toast.error(
+                                allowMov
+                                  ? t('Reference video must be an MP4 or MOV file')
+                                  : t('Reference video must be an MP4 file')
+                              )
+                              return
+                            }
+                            if (file.size > maxVideoBytes) {
+                              toast.error(
+                                t(
+                                  'Each video file must be at most {{max}} MB',
+                                  {
+                                    max:
+                                      config?.upload_limits.max_video_mb ?? 50,
+                                  }
+                                )
+                              )
+                              return
+                            }
+                            try {
+                              const duration =
+                                await readVideoDurationSeconds(file)
+                              if (duration > MAX_REFERENCE_VIDEO_SECONDS) {
+                                toast.error(
+                                  t(
+                                    'Each reference video must be at most {{max}} seconds',
+                                    { max: MAX_REFERENCE_VIDEO_SECONDS }
+                                  )
+                                )
+                                return
+                              }
+                            } catch {
+                              toast.error(
+                                t('Failed to read reference video metadata')
+                              )
+                              return
+                            }
+                          }
+                          referenceVideoPreviewUrls.forEach((url) => {
+                            if (url) URL.revokeObjectURL(url)
+                          })
+                          setReferenceVideoFiles(next)
+                          setReferenceVideoPreviewUrls(
+                            next.map((file) => URL.createObjectURL(file))
+                          )
+                        }}
+                      />
+                      {referenceVideoFiles.length > 0 && (
+                        <div className='space-y-2'>
+                          {referenceVideoFiles.map((file, index) => (
+                            <div
+                              key={`${file.name}-${file.size}-${file.lastModified}`}
+                              className='flex items-center gap-2 rounded-md border px-3 py-2'
+                            >
+                              <p className='text-muted-foreground min-w-0 flex-1 truncate text-sm'>
+                                {mentionToken(
+                                  'video',
+                                  index + 1,
+                                  activeProvider?.id === 'brioi' ? 'zh' : 'latin'
+                                )}
+                                : {file.name}
+                              </p>
+                              <Button
+                                type='button'
+                                size='sm'
+                                variant='outline'
+                                disabled={submitting || isPolling}
+                                onClick={() => {
+                                  const nextFiles = referenceVideoFiles.filter(
+                                    (_, i) => i !== index
+                                  )
+                                  const nextUrls =
+                                    referenceVideoPreviewUrls.filter(
+                                      (_, i) => i !== index
+                                    )
+                                  const removed =
+                                    referenceVideoPreviewUrls[index]
+                                  if (removed) URL.revokeObjectURL(removed)
+                                  setReferenceVideoFiles(nextFiles)
+                                  setReferenceVideoPreviewUrls(nextUrls)
+                                }}
+                              >
+                                {t('Remove')}
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <p className='text-muted-foreground text-xs'>
+                        {activeProvider?.id === 'brioi'
                           ? t(
-                              'Required. Sent as data:audio/mpeg;base64,… in audio_url. MP3 only. Images are optional.'
+                              'Brioi sends these as ref type=video. Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.',
+                              { seconds: MAX_REFERENCE_VIDEO_SECONDS }
                             )
                           : t(
-                              'Optional. Sent as data:audio/mpeg;base64,… in audio_url. MP3 only.'
+                              'Sent as reference_videos. Use @Video1 / @Image1 in the prompt. MP4 only; total duration ≤{{seconds}}s.',
+                              { seconds: MAX_REFERENCE_VIDEO_SECONDS }
                             )}
                       </p>
                     </div>

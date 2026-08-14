@@ -96,7 +96,12 @@ func TestValidateFriendlyRequestRejectsMissingRefModel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = checkRequireRefModel(mode, "dreamina-seedance-2-0-720")
+	err = checkRequireRefModel(mode, "dreamina-seedance-2-0-720", profile)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "-ref")
+
+	disabled := false
+	profile.RequireRefModelSuffix = &disabled
+	err = checkRequireRefModel(mode, "grok-image-video", profile)
+	require.NoError(t, err)
 }

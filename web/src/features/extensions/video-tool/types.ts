@@ -30,8 +30,12 @@ export type PublicGenerationType = {
   require_ref_model: boolean
   require_audio: boolean
   allow_audio: boolean
+  require_video: boolean
+  allow_video: boolean
   images_min: number
   images_max: number
+  videos_min: number
+  videos_max: number
   image_roles: VideoMediaRole[]
 }
 
@@ -44,6 +48,7 @@ export type PublicMediaLimits = {
   accepted_types: VideoMediaType[]
   allowed_roles: VideoMediaRole[]
   allow_audio: boolean
+  allow_video: boolean
 }
 
 export type PublicProfile = {
@@ -55,6 +60,7 @@ export type PublicProfile = {
   resolutions: PublicOption[]
   aspect_ratios: PublicOption[]
   generation_types: string[]
+  require_ref_model_suffix: boolean
   media: PublicMediaLimits
   media_limits: Record<string, PublicMediaLimits>
 }
@@ -69,12 +75,19 @@ export type VideoProviderConfig = {
   strict_model_matching: boolean
 }
 
+export type VideoUploadLimits = {
+  max_image_mb: number
+  max_audio_mb: number
+  max_video_mb: number
+}
+
 export type VideoToolConfig = {
   version: number
   enabled: boolean
   providers: VideoProviderConfig[]
   provider_by_group: Record<string, string>
   video_tool_groups: string[]
+  upload_limits: VideoUploadLimits
 }
 
 export type VideoToolModel = {

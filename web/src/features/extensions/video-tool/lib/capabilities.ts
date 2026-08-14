@@ -22,6 +22,22 @@ export function resolveSelectedOption(
     : (options[0]?.value ?? '')
 }
 
+/** Derive Brioi resolution from a local/public model alias (e.g. seedance-2-0-480p). */
+export function resolutionFromModelName(modelName: string): string {
+  const normalized = modelName.trim().toLowerCase().replace(/-ref$/, '')
+  if (!normalized) return ''
+  const suffixes: Array<[string, string]> = [
+    ['-1080p', '1080p'],
+    ['-720p', '720p'],
+    ['-480p', '480p'],
+    ['-4k', '4K'],
+  ]
+  for (const [suffix, value] of suffixes) {
+    if (normalized.endsWith(suffix)) return value
+  }
+  return ''
+}
+
 export function retainCompatibleVideoModel(
   selectedModelID: string,
   compatibleModels: Array<{ id: string }>
@@ -93,10 +109,13 @@ function applyMediaLimits(
   generationType: PublicGenerationType,
   limits: PublicMediaLimits
 ): PublicGenerationType {
-  if (generationType.images_max <= 0) {
+  if (generationType.images_max <= 0 && !generationType.allow_video) {
     return {
       ...generationType,
       allow_audio: generationType.allow_audio && limits.allow_audio,
+      allow_video:
+        generationType.allow_video &&
+        (limits.allow_video || limits.accepted_types.includes('video')),
     }
   }
   const maxItems =
@@ -119,6 +138,11 @@ function applyMediaLimits(
     images_max: maxItems,
     image_roles: roles,
     allow_audio: generationType.allow_audio && limits.allow_audio,
+    allow_video:
+      generationType.allow_video &&
+      (limits.allow_video ||
+        limits.accepted_types.length === 0 ||
+        limits.accepted_types.includes('video')),
   }
 }
 
@@ -128,7 +152,8 @@ function hasMediaLimits(limits: PublicMediaLimits): boolean {
     limits.max_items > 0 ||
     limits.accepted_types.length > 0 ||
     limits.allowed_roles.length > 0 ||
-    limits.allow_audio
+    limits.allow_audio ||
+    limits.allow_video
   )
 }
 
@@ -140,19 +165,26 @@ export function generationTypesForProfile(
     profile.generation_types.length > 0
       ? new Set(profile.generation_types)
       : null
+  const enforceRefSuffix = profile.require_ref_model_suffix !== false
   return provider.generation_types
     .filter((generationType) => enabledTypes?.has(generationType.value) ?? true)
     .map((generationType) => {
       const modeLimits = profile.media_limits[generationType.value]
       const limits = modeLimits ?? profile.media
-      return hasMediaLimits(limits)
+      const limited = hasMediaLimits(limits)
         ? applyMediaLimits(generationType, limits)
         : generationType
+      if (enforceRefSuffix || !limited.require_ref_model) {
+        return limited
+      }
+      return { ...limited, require_ref_model: false }
     })
-    .filter(
-      (generationType) =>
-        generationType.images_max === 0 || generationType.image_roles.length > 0
-    )
+    .filter((generationType) => {
+      if (generationType.allow_video || generationType.require_video) return true
+      if (generationType.images_max === 0) return true
+      if (generationType.image_roles.length > 0) return true
+      return generationType.allow_audio || generationType.require_audio
+    })
 }
 
 export function resolveProviderVideoProfile(

@@ -23,6 +23,7 @@ const VIDEO_SECTIONS = [
       createElement(VideoGeneralSettingsSection, {
         defaultValues: {
           enabled: settings['video_setting.enabled'],
+          uploadLimitsJson: settings['video_setting.upload_limits'],
         },
       }),
   },

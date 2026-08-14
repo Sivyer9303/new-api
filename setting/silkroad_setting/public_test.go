@@ -33,8 +33,11 @@ func TestGetPublicVideoToolConfigFiltersDisabled(t *testing.T) {
 	for _, d := range seedance.Durations {
 		assert.NotEqual(t, "10", d.Value)
 	}
-	assert.Len(t, cfg.GenerationTypes, 5)
+	assert.Len(t, cfg.GenerationTypes, 6)
+	assert.Equal(t, GenerationReferenceVideos, cfg.GenerationTypes[5].Value)
+	assert.True(t, cfg.GenerationTypes[5].AllowVideo)
 	assert.Contains(t, seedance.ModelPrefixes, "seedance-2.0-")
+	assert.True(t, seedance.RequireRefModelSuffix)
 }
 
 func TestGetPublicVideoToolConfigIncludesPrefixes(t *testing.T) {
@@ -60,4 +63,27 @@ func TestGetPublicVideoToolConfigExposesNormalizedGroups(t *testing.T) {
 
 	cfg := GetPublicVideoToolConfig()
 	assert.Equal(t, []string{"default", "silkroad"}, cfg.VideoToolGroups)
+}
+
+func TestGetPublicVideoToolConfigDisablesRefSuffixWhenConfigured(t *testing.T) {
+	prev := silkRoadSetting
+	t.Cleanup(func() { silkRoadSetting = prev })
+
+	silkRoadSetting = defaultSilkRoadSetting()
+	disabled := false
+	silkRoadSetting.Profiles = append(silkRoadSetting.Profiles, Profile{
+		ID:                    "grok",
+		Label:                 "Grok",
+		ExactModels:           []string{"grok-image-video"},
+		RequireRefModelSuffix: &disabled,
+		Durations: []OptionItem{
+			{Label: "5s", Value: "5", UpstreamKey: "seconds", Enabled: true, Sort: 1},
+		},
+		AspectRatios: defaultAspectRatios(),
+	})
+
+	cfg := GetPublicVideoToolConfig()
+	grok, ok := findPublicProfile(cfg.Profiles, "grok")
+	require.True(t, ok)
+	assert.False(t, grok.RequireRefModelSuffix)
 }

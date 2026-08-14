@@ -21,6 +21,7 @@ describe('SilkRoad profile inheritance', () => {
     )
 
     assert.equal(form[0].exact_models_text, 'seedance-2.0-pro')
+    assert.equal(form[0].require_ref_model_suffix, true)
     assert.deepEqual(form[0].durations, [])
     assert.deepEqual(form[0].aspect_ratios, [])
     assert.deepEqual(profilesFormToApi(form), [
@@ -33,6 +34,30 @@ describe('SilkRoad profile inheritance', () => {
     ])
   })
 
+  test('serializes require_ref_model_suffix false for non-Seedance profiles', () => {
+    const form = parseProfilesToForm(
+      JSON.stringify([
+        {
+          id: 'grok',
+          label: 'Grok',
+          exact_models: ['grok-image-video'],
+          model_prefixes: ['grok-'],
+          require_ref_model_suffix: false,
+        },
+      ])
+    )
+
+    assert.equal(form[0].require_ref_model_suffix, false)
+    assert.deepEqual(profilesFormToApi(form), [
+      {
+        id: 'grok',
+        label: 'Grok',
+        exact_models: ['grok-image-video'],
+        model_prefixes: ['grok-'],
+        require_ref_model_suffix: false,
+      },
+    ])
+  })
   test('requires the selected default profile to remain in the profile list', () => {
     const profiles = parseProfilesToForm(
       '[{"id":"default","label":"Default","model_prefixes":[]}]'

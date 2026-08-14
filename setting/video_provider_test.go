@@ -13,8 +13,16 @@ import (
 
 func TestResolveVideoProviderOwnershipNormalizesAndRejectsOverlap(t *testing.T) {
 	ownership := resolveVideoProviderOwnership(
-		[]string{" legacy ", "", "legacy", "shared"},
-		[]string{" brioi ", "brioi", "shared"},
+		videoProviderGroupSource{
+			Provider:    VideoProviderSilkRoad,
+			ChannelType: constant.ChannelTypeSilkRoad,
+			Groups:      []string{" legacy ", "", "legacy", "shared"},
+		},
+		videoProviderGroupSource{
+			Provider:    VideoProviderBrioi,
+			ChannelType: constant.ChannelTypeBrioi,
+			Groups:      []string{" brioi ", "brioi", "shared"},
+		},
 	)
 
 	assert.Equal(t, VideoProviderOwnership{
@@ -68,8 +76,16 @@ func TestResolveVideoProviderGroupUsesLegacySilkRoadGroups(t *testing.T) {
 
 func TestResolveVideoProviderForGroupsRequiresOneProvider(t *testing.T) {
 	ownership := resolveVideoProviderOwnership(
-		[]string{"silkroad"},
-		[]string{"brioi"},
+		videoProviderGroupSource{
+			Provider:    VideoProviderSilkRoad,
+			ChannelType: constant.ChannelTypeSilkRoad,
+			Groups:      []string{"silkroad"},
+		},
+		videoProviderGroupSource{
+			Provider:    VideoProviderBrioi,
+			ChannelType: constant.ChannelTypeBrioi,
+			Groups:      []string{"brioi"},
+		},
 	)
 	assert.Len(t, ownership, 2)
 
@@ -100,6 +116,7 @@ func TestIsVideoGenerationToolEnabledUsesAnyProvider(t *testing.T) {
 		globalEnabled   bool
 		silkRoadEnabled bool
 		brioiEnabled    bool
+		xTokenEnabled   bool
 		expectedEnabled bool
 	}{
 		{
@@ -124,6 +141,7 @@ func TestIsVideoGenerationToolEnabledUsesAnyProvider(t *testing.T) {
 			globalEnabled:   false,
 			silkRoadEnabled: true,
 			brioiEnabled:    true,
+			xTokenEnabled:   true,
 			expectedEnabled: false,
 		},
 	}
@@ -134,6 +152,7 @@ func TestIsVideoGenerationToolEnabledUsesAnyProvider(t *testing.T) {
 				test.globalEnabled,
 				test.silkRoadEnabled,
 				test.brioiEnabled,
+				test.xTokenEnabled,
 			))
 		})
 	}

@@ -20,7 +20,10 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import type { SystemOption, VideoSettings } from '../../types'
-import { resolveVideoSettings } from '../compatibility'
+import {
+  DEFAULT_VIDEO_UPLOAD_LIMITS,
+  resolveVideoSettings,
+} from '../compatibility'
 import {
   DEFAULT_LOCAL_RETENTION_DAYS,
   DEFAULT_R2_RETENTION_DAYS,
@@ -30,6 +33,7 @@ const legacySettings: VideoSettings = {
   'video_setting.enabled': false,
   'video_setting.video_tool_groups': '[]',
   'video_setting.storage': '{}',
+  'video_setting.upload_limits': DEFAULT_VIDEO_UPLOAD_LIMITS,
   'silkroad_setting.common': '{}',
   'silkroad_setting.profiles': '[{"id":"legacy"}]',
   'silkroad_setting.default_profile_id': 'legacy',
