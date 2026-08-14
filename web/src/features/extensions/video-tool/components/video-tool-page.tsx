@@ -41,6 +41,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { fetchTokenKey } from '@/features/keys/api'
 import type { ApiKey } from '@/features/keys/types'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
@@ -52,10 +58,12 @@ import { fetchVideoModelsForToken, submitVideoGeneration } from '../api'
 import { useVideoTaskPolling } from '../hooks/use-video-task-polling'
 import { useVideoToolBootstrap } from '../hooks/use-video-tool-bootstrap'
 import {
+  generationTypeDisableReason,
   generationTypesForProfile,
   retainCompatibleVideoModel,
   resolveProviderVideoProfile,
   resolveSelectedOption,
+  type GenerationTypeDisableReason,
 } from '../lib/capabilities'
 import { estimateVideoPrice } from '../lib/pricing'
 import { resolveVideoProviderByID } from '../lib/provider-config'
@@ -93,6 +101,59 @@ function generationTypeDisplayLabel(
     default:
       return gt.label
   }
+}
+
+function generationTypeDisableMessage(
+  reason: GenerationTypeDisableReason | null,
+  translate: (key: string) => string
+): string {
+  if (reason === 'requires_ref_model') {
+    return translate('This mode requires a model whose name contains -ref.')
+  }
+  if (reason === 'requires_non_ref_model') {
+    return translate(
+      'This mode requires a model whose name does not contain -ref.'
+    )
+  }
+  return ''
+}
+
+function VideoGenerationModeButton(props: {
+  generationType: PublicGenerationType
+  selected: boolean
+  disabled: boolean
+  disableReason: GenerationTypeDisableReason | null
+  label: string
+  disableMessage: string
+  onSelect: (value: string) => void
+}) {
+  const button = (
+    <Button
+      type='button'
+      size='sm'
+      variant={props.selected ? 'default' : 'outline'}
+      className={cn(
+        'h-auto min-h-9 max-w-full whitespace-normal px-3 py-2 text-left leading-snug',
+        props.selected && 'bg-primary text-primary-foreground'
+      )}
+      onClick={() => props.onSelect(props.generationType.value)}
+      disabled={props.disabled}
+      role='radio'
+      aria-checked={props.selected}
+      aria-disabled={props.disabled}
+    >
+      {props.label}
+    </Button>
+  )
+  if (!props.disableReason) return button
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className='inline-flex' />}>
+        {button}
+      </TooltipTrigger>
+      <TooltipContent>{props.disableMessage}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 function apiKeySelectLabel(key: ApiKey): string {
@@ -280,7 +341,7 @@ export function VideoToolPage() {
           setModelId('')
           toast.error(t('No video models available for this key'))
         }
-        // Selection is synced from filteredModels (priced + mode) via safeModelId.
+        // Selection is synced from available priced models via safeModelId.
       } catch (err) {
         if (
           abortController.signal.aborted ||
@@ -344,10 +405,22 @@ export function VideoToolPage() {
     'seconds'
 
   useEffect(() => {
-    if (
-      generationType &&
-      !generationTypes.some((candidate) => candidate.value === generationType)
-    ) {
+    if (!generationType) return
+    const mode = generationTypes.find(
+      (candidate) => candidate.value === generationType
+    )
+    if (!mode) {
+      setGenerationType('')
+      toast.message(
+        t(
+          'Selected generation mode was cleared because it is not supported by the selected model.'
+        )
+      )
+      return
+    }
+    const modelName = selectedModel?.profile_model || selectedModel?.id || ''
+    if (!modelName) return
+    if (generationTypeDisableReason(modelName, mode)) {
       setGenerationType('')
       toast.message(
         t(
@@ -355,7 +428,7 @@ export function VideoToolPage() {
         )
       )
     }
-  }, [generationType, generationTypes, t])
+  }, [generationType, generationTypes, selectedModel, t])
 
   useEffect(() => {
     if (!selectedProfile) {
@@ -464,42 +537,16 @@ export function VideoToolPage() {
     t,
   ])
 
-  const filteredModels = useMemo(() => {
-    if (!activeProvider) return []
-    return availableModels.filter((model) => {
-      const profile = resolveProviderVideoProfile(
-        activeProvider,
-        model.profile_model
-      )
-      if (!profile) return false
-      const profileGenerationTypes = generationTypesForProfile(
-        activeProvider,
-        profile
-      )
-      const mode = profileGenerationTypes.find(
-        (candidate) => candidate.value === generationType
-      )
-      if (generationType && !mode) return false
-      return !mode?.require_ref_model || model.profile_model.includes('-ref')
-    })
-  }, [activeProvider, availableModels, generationType])
-
   // Base UI Select requires its value to remain among the rendered items.
-  // Clear an incompatible user choice instead of silently replacing it.
   const safeModelId = useMemo(
-    () => retainCompatibleVideoModel(modelId, filteredModels),
-    [filteredModels, modelId]
+    () => retainCompatibleVideoModel(modelId, availableModels),
+    [availableModels, modelId]
   )
 
   useEffect(() => {
     if (!modelId || safeModelId === modelId) return
     setModelId('')
-    toast.message(
-      t(
-        'Selected model was cleared because it does not support this generation mode.'
-      )
-    )
-  }, [safeModelId, modelId, t])
+  }, [modelId, safeModelId])
 
   const priceEstimate = useMemo(() => {
     if (!safeModelId || !durationValue) return null
@@ -851,13 +898,13 @@ export function VideoToolPage() {
                   <Select
                     value={safeModelId || null}
                     onValueChange={(v) => setModelId(v ?? '')}
-                    disabled={filteredModels.length === 0 || loadingModels}
+                    disabled={availableModels.length === 0 || loadingModels}
                   >
                     <SelectTrigger id={`${controlId}-model`} className='w-full'>
                       <SelectValue placeholder={modelPlaceholder} />
                     </SelectTrigger>
                     <SelectContent>
-                      {filteredModels.map((model) => (
+                      {availableModels.map((model) => (
                         <SelectItem key={model.id} value={model.id}>
                           {model.id}
                         </SelectItem>
@@ -902,14 +949,6 @@ export function VideoToolPage() {
                       )}
                     </p>
                   ) : null}
-                  {!loadingModels &&
-                  !modelLoadError &&
-                  availableModels.length > 0 &&
-                  filteredModels.length === 0 ? (
-                    <p className='text-muted-foreground mt-2 text-sm'>
-                      {t('No models match the selected filters')}
-                    </p>
-                  ) : null}
                 </CardContent>
               </Card>
 
@@ -920,33 +959,38 @@ export function VideoToolPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className='space-y-4'>
-                  <div
-                    className='flex flex-wrap gap-2'
-                    role='radiogroup'
-                    aria-label={t('Generation mode')}
-                  >
-                    {generationTypes.map((gt) => (
-                      <Button
-                        key={gt.value}
-                        type='button'
-                        size='sm'
-                        variant={
-                          generationType === gt.value ? 'default' : 'outline'
-                        }
-                        className={cn(
-                          'h-auto min-h-9 max-w-full whitespace-normal px-3 py-2 text-left leading-snug',
-                          generationType === gt.value &&
-                            'bg-primary text-primary-foreground'
-                        )}
-                        onClick={() => setGenerationType(gt.value)}
-                        disabled={!selectedProfile}
-                        role='radio'
-                        aria-checked={generationType === gt.value}
-                      >
-                        {generationTypeDisplayLabel(gt, t)}
-                      </Button>
-                    ))}
-                  </div>
+                  <TooltipProvider>
+                    <div
+                      className='flex flex-wrap gap-2'
+                      role='radiogroup'
+                      aria-label={t('Generation mode')}
+                    >
+                      {generationTypes.map((gt) => {
+                        const modelName =
+                          selectedModel?.profile_model ||
+                          selectedModel?.id ||
+                          ''
+                        const disableReason = selectedProfile
+                          ? generationTypeDisableReason(modelName, gt)
+                          : null
+                        return (
+                          <VideoGenerationModeButton
+                            key={gt.value}
+                            generationType={gt}
+                            selected={generationType === gt.value}
+                            disabled={!selectedProfile || disableReason != null}
+                            disableReason={disableReason}
+                            disableMessage={generationTypeDisableMessage(
+                              disableReason,
+                              t
+                            )}
+                            label={generationTypeDisplayLabel(gt, t)}
+                            onSelect={setGenerationType}
+                          />
+                        )
+                      })}
+                    </div>
+                  </TooltipProvider>
                   {selectedGenType?.require_ref_model && (
                     <p className='text-muted-foreground text-sm'>
                       {t(

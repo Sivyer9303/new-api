@@ -511,6 +511,25 @@ func (t *Task) UpdateWithStatus(fromStatus TaskStatus) (bool, error) {
 	return result.RowsAffected > 0, nil
 }
 
+// UpdatePrivateDataIfStatus writes private_data and data only while the row is
+// still in fromStatus. Used when a full CAS may have failed after the provider
+// already returned a task ID.
+func (t *Task) UpdatePrivateDataIfStatus(fromStatus TaskStatus) (bool, error) {
+	if t == nil {
+		return false, errors.New("task is nil")
+	}
+	result := DB.Model(t).
+		Where("id = ? AND status = ?", t.ID, fromStatus).
+		Updates(map[string]any{
+			"private_data": t.PrivateData,
+			"data":         t.Data,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
 // ClaimWithStatusAndUpdatedAt leases a task revision by guarding both its
 // status and update timestamp. It also works when fromStatus equals toStatus,
 // which lets watchdogs renew a stale recovery row without two workers owning

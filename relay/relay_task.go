@@ -34,6 +34,7 @@ type TaskSubmitResult struct {
 	Quota                int
 	Task                 *model.Task
 	ProviderAccepted     bool
+	HasDurableUpstreamID bool
 	AcceptanceUncertain  bool
 	ReservationUncertain bool
 	//PerCallPrice   types.PriceData
@@ -269,6 +270,19 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		task.TaskID,
 		task.ChannelId,
 	))
+	if skipUpstreamCreate(task) {
+		result.ProviderAccepted = true
+		result.HasDurableUpstreamID = true
+		result.AcceptanceUncertain = false
+		result.UpstreamTaskID = strings.TrimSpace(task.PrivateData.UpstreamTaskID)
+		result.TaskData = task.Data
+		result.Quota = task.Quota
+		return result, service.TaskErrorWrapperLocal(
+			errors.New("task already accepted by provider"),
+			"task_already_accepted",
+			http.StatusConflict,
+		)
+	}
 
 	// 8. Reserve the current attempt's full quota. Auto-group retries may
 	// select a more expensive group, so an existing session can be topped up.
@@ -369,8 +383,6 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 			http.StatusBadGateway,
 		)
 	}
-	result.ProviderAccepted = true
-	result.AcceptanceUncertain = false
 
 	// 12. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
 	finalQuota := info.PriceData.Quota
@@ -384,22 +396,11 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 
 	// 13. Durably record provider acceptance before billing settlement or any
-	// client success response. A failure here leaves the SUBMITTING row for
-	// administrator recovery and must not trigger an automatic refund.
-	updated, err := persistProviderAcceptance(task, submitResponse)
-	if err != nil {
-		return result, service.TaskErrorWrapperLocal(
-			fmt.Errorf("persist provider acceptance: %w", err),
-			"persist_provider_acceptance_failed",
-			http.StatusInternalServerError,
-		)
-	}
-	if !updated {
-		return result, service.TaskErrorWrapperLocal(
-			errors.New("task submission state changed before provider acceptance was persisted"),
-			"persist_provider_acceptance_failed",
-			http.StatusConflict,
-		)
+	// client success response. ProviderAccepted is published only after the
+	// acceptance CAS succeeds. A failed write stays uncertain, withholds
+	// refunds, and best-effort records the upstream ID for polling recovery.
+	if persistErr := recordProviderAcceptance(result, task, submitResponse); persistErr != nil {
+		return result, persistErr
 	}
 	logger.LogInfo(c, fmt.Sprintf(
 		"task_lifecycle stage=provider_accepted task_id=%s channel_id=%d",
@@ -414,6 +415,44 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	return result, nil
 }
 
+func skipUpstreamCreate(task *model.Task) bool {
+	return task != nil && strings.TrimSpace(task.PrivateData.UpstreamTaskID) != ""
+}
+
+func recordProviderAcceptance(
+	result *TaskSubmitResult,
+	task *model.Task,
+	response *channel.TaskSubmitResponse,
+) *dto.TaskError {
+	updated, err := persistProviderAcceptance(task, response)
+	if err == nil && updated {
+		result.ProviderAccepted = true
+		result.HasDurableUpstreamID = true
+		result.AcceptanceUncertain = false
+		return nil
+	}
+
+	result.ProviderAccepted = false
+	result.AcceptanceUncertain = true
+	if persistErr := persistUncertainProviderAcceptance(task, response); persistErr != nil {
+		common.SysError("persist uncertain provider acceptance: " + persistErr.Error())
+	} else {
+		result.HasDurableUpstreamID = true
+	}
+	if err != nil {
+		return service.TaskErrorWrapperLocal(
+			fmt.Errorf("persist provider acceptance: %w", err),
+			"persist_provider_acceptance_failed",
+			http.StatusInternalServerError,
+		)
+	}
+	return service.TaskErrorWrapperLocal(
+		errors.New("task submission state changed before provider acceptance was persisted"),
+		"persist_provider_acceptance_failed",
+		http.StatusConflict,
+	)
+}
+
 func persistProviderAcceptance(
 	task *model.Task,
 	response *channel.TaskSubmitResponse,
@@ -426,6 +465,32 @@ func persistProviderAcceptance(
 	task.Data = response.TaskData
 	task.Status = model.TaskStatusSubmitting
 	return task.UpdateWithStatus(model.TaskStatusSubmitting)
+}
+
+func persistUncertainProviderAcceptance(
+	task *model.Task,
+	response *channel.TaskSubmitResponse,
+) error {
+	if task == nil || response == nil {
+		return errors.New("task provider acceptance is incomplete")
+	}
+	upstreamID := strings.TrimSpace(response.UpstreamTaskID)
+	if upstreamID == "" {
+		return errors.New("upstream task id is empty")
+	}
+	task.PrivateData.UpstreamTaskID = upstreamID
+	task.PrivateData.NoAutomaticRefund = true
+	if len(response.TaskData) > 0 {
+		task.Data = response.TaskData
+	}
+	updated, err := task.UpdatePrivateDataIfStatus(model.TaskStatusSubmitting)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return errors.New("task submission state changed before uncertain acceptance was persisted")
+	}
+	return nil
 }
 
 func validateTaskSubmitHTTPResponse(resp *http.Response) *dto.TaskError {
@@ -491,6 +556,10 @@ func persistSubmittingTask(
 	task.Action = info.Action
 
 	if existing, ok := info.PersistedTask.(*model.Task); ok && existing != nil {
+		if skipUpstreamCreate(existing) {
+			info.PersistedTask = existing
+			return existing, nil
+		}
 		task.ID = existing.ID
 		task.CreatedAt = existing.CreatedAt
 		task.UpdatedAt = existing.UpdatedAt

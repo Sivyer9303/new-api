@@ -3,84 +3,65 @@
 ## Handoff State
 
 - Branch: `feat/generic-video-foundation`
-- Baseline commit: `b19b1bb05`
-- Core package verification completed before handoff:
+- P0 submission durability is implemented on top of `b19b1bb05`.
+- Latest core package verification:
   `go test ./model ./service ./relay ./controller`
 - `docker-compose.local.yml` remains local and untracked.
 - Docker/live-provider verification has not been run in the final hardening state.
 
-## P0: Finish Submission Durability
+## P0: Submission Durability (done)
 
 ### 1. Publish provider acceptance only after it is durable
 
-`RelayTaskSubmit` currently sets `TaskSubmitResult.ProviderAccepted` before
-`persistProviderAcceptance` commits the upstream task ID. If that database
-update fails, the controller suppresses refund and failure finalization even
-though the durable row has no provider handle.
+`ProviderAccepted` is now set only after `persistProviderAcceptance` wins its
+CAS. A failed write stays `AcceptanceUncertain`, withholds automatic refund,
+and best-effort records the upstream ID through a narrower
+`UpdatePrivateDataIfStatus` so polling can recover the row.
 
-Required change:
+Retry/create is skipped when a persisted `UpstreamTaskID` already exists.
 
-1. Keep the response acceptance state uncertain while parsing and adjusting
-   billing.
-2. Set `ProviderAccepted=true` only after the acceptance CAS succeeds.
-3. If persistence fails after a valid upstream ID was returned, withhold
-   automatic refund and persist a recoverable/provider-review marker without
-   claiming that acceptance is durable.
-4. Add regression tests for database error and CAS-loss boundaries.
+Covered by:
 
-Acceptance criteria:
-
-- A failed acceptance write never returns client success.
-- A failed acceptance write never automatically refunds.
-- `ProviderAccepted` implies the database contains the upstream task ID.
-- No retry can create a second upstream task after a valid ID was received.
+- `TestRecordProviderAcceptancePublishesFlagOnlyAfterDurableWrite`
+- `TestRecordProviderAcceptanceRecoversUpstreamIDAfterFullCASFailure`
+- `TestRecordProviderAcceptanceDoesNotClaimDurableIDOnCASLoss`
+- `TestPersistProviderAcceptanceLeavesSubmittingRecordRecoverableOnDatabaseFailure`
+- `TestPersistProviderAcceptanceCASLossLeavesExistingRowUntouched`
+- `TestPersistSubmittingTaskKeepsAcceptedUpstreamID`
 
 ### 2. Keep accepted tasks pollable after local submission failure
 
-After provider acceptance is persisted, `SettleBilling` or the
-`SUBMITTING -> SUBMITTED` update can still fail. The row then remains
-`SUBMITTING`, while polling currently skips every `SUBMITTING` row.
+Polling skips `SUBMITTING` only when `UpstreamTaskID` is empty. Accepted rows
+that remain `SUBMITTING` after settle or `SUBMITTED` CAS failure stay pollable
+and keep `NoAutomaticRefund`. Finalize/refund is skipped when
+`ProviderAccepted` or `HasDurableUpstreamID` is set.
 
-Required change:
+Covered by:
 
-1. Introduce a recoverable accepted-submission transition, or allow polling of
-   `SUBMITTING` rows only when `UpstreamTaskID` is non-empty.
-2. Preserve the no-automatic-refund policy for these rows.
-3. Ensure polling can still reach provider success, idempotent settlement,
-   storage, and content delivery after a process restart.
-4. Add tests for settlement failure, submission-ready CAS failure, and restart
-   recovery.
-
-Acceptance criteria:
-
-- A durable upstream ID is never left permanently unpolled.
-- A local post-accept failure cannot trigger a duplicate create request.
-- Recovery settles billing at most once and exposes storage only afterward.
+- `TestRunTaskPollingSkipsSubmittingTasksWithoutUpstreamID`
+- `TestRunTaskPollingPollsSubmittingTasksWithUpstreamID`
+- `TestRunTaskPollingRecoversAcceptedSubmittingTaskIntoStorage`
+- `TestFinalizeSubmittingTaskFailureLeavesAcceptedTasksPollable`
 
 ## P1: Re-audit Reservation and Refund Recovery
 
-The final session added:
+Covered in this session:
 
-- synchronous database quota writes for task reservations even when batch
-  updates are enabled;
-- an explicit reservation-uncertainty error for failed compensation;
-- durable `refund_pending`, retry time, and retry-attempt columns;
-- atomic persisted-task refunds; and
-- exponential refund retry scheduling that prevents poison rows from starving
-  later work.
+1. `TestDecreaseTokenQuotaDirectWritesWhenBatchUpdatesAreEnabled` proves
+   `DecreaseTokenQuotaDirect` writes through `BatchUpdateEnabled=true`.
+2. `TestReserveReturnsUncertainWhenFundingCompensationFails` and
+   `TestEnsureTaskQuotaReservedPropagatesReservationUncertainty` cover
+   compensation failure → `ErrBillingReservationUncertain` without retry.
+3. `TestRefundTaskQuotaIsAtomicAndIdempotent` covers concurrent workers.
+4. `TestRecoverPendingTaskRefundRotatesFailedRows` covers poison-row delay.
+5. `TestTaskAutoMigrateAddsRefundRecoveryColumns` covers SQLite AutoMigrate.
 
-These changes passed the core package tests but still need focused verification:
+Still needed before release:
 
-1. Run with `common.BatchUpdateEnabled=true` and prove task debits are written
-   synchronously rather than queued only in memory.
-2. Inject token-compensation and funding-compensation failures and verify the
-   task enters provider review without automatic refund.
-3. Verify concurrent refund workers apply one refund and clear the pending
-   marker once.
-4. Verify permanently failing refunds are delayed and later task IDs continue
-   to receive attempts.
-5. Verify `Task` auto-migration for the new refund columns on SQLite, MySQL,
-   and PostgreSQL.
+- MySQL and PostgreSQL AutoMigrate of `refund_pending` / `refund_retry_at` /
+  `refund_attempts`.
+- A request-level test that a compensation failure after a persisted
+  `SUBMITTING` row enters provider review without automatic refund.
 
 ## P1: Complete Automated Verification
 

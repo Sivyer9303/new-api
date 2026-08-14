@@ -28,6 +28,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { getFreshAuthHeaders } from '@/lib/auth-session'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
+import { localizeTaskFailReason } from '@/lib/localize-task-fail-reason'
+import { resolveAuthenticatedVideoPlaybackUrl } from '@/lib/resolve-authenticated-video-playback-url'
 import { cn } from '@/lib/utils'
 
 import { TASK_ACTIONS, TASK_STATUS } from '../../constants'
@@ -263,17 +265,14 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
                 toast.error(t('Session expired!'))
                 return
               }
-              const res = await fetch(proxyUrl, {
-                headers: { Authorization: auth },
-              })
-              if (!res.ok) {
-                toast.error(t('Failed to load video preview'))
-                return
+              const { url, revoke } = await resolveAuthenticatedVideoPlaybackUrl(
+                proxyUrl,
+                auth
+              )
+              window.open(url, '_blank', 'noopener,noreferrer')
+              if (revoke) {
+                window.setTimeout(revoke, 60_000)
               }
-              const blob = await res.blob()
-              const objectUrl = URL.createObjectURL(blob)
-              window.open(objectUrl, '_blank', 'noopener,noreferrer')
-              window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
             } catch {
               toast.error(t('Failed to load video preview'))
             }
@@ -301,6 +300,8 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           return <span className='text-muted-foreground/60 text-xs'>-</span>
         }
 
+        const displayReason = localizeTaskFailReason(failReason, t)
+
         return (
           <div className='flex max-w-[220px] flex-col gap-1'>
             <button
@@ -310,7 +311,7 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
               title={t('Click to view full error message')}
             >
               <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
-                {failReason}
+                {displayReason}
               </span>
             </button>
             <FailReasonDialog

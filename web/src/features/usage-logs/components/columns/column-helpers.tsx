@@ -20,6 +20,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Zap } from 'lucide-react'
 /* eslint-disable react-refresh/only-export-components */
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { DataTableColumnHeader } from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
@@ -30,6 +31,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { formatTimestampToDate, formatTokens } from '@/lib/format'
+import { localizeTaskFailReason } from '@/lib/localize-task-fail-reason'
 import { cn } from '@/lib/utils'
 
 import { formatDuration } from '../../lib/format'
@@ -210,8 +212,10 @@ export function createFailReasonColumn<T>(config: {
       <DataTableColumnHeader column={column} title={headerLabel} />
     ),
     cell: function FailReasonCell({ row }) {
+      const { t } = useTranslation()
       const failReason = row.getValue(accessorKey) as string
       const [dialogOpen, setDialogOpen] = useState(false)
+      const displayReason = localizeTaskFailReason(failReason, t)
 
       if (!failReason) {
         return <span className='text-muted-foreground/60 text-xs'>-</span>
@@ -226,7 +230,7 @@ export function createFailReasonColumn<T>(config: {
             title={cellTitle}
           >
             <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
-              {failReason}
+              {displayReason}
             </span>
           </button>
           <FailReasonDialog

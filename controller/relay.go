@@ -511,6 +511,7 @@ func RelayTask(c *gin.Context) {
 	defer func() {
 		acceptedOrUncertain := result != nil &&
 			(result.ProviderAccepted ||
+				result.HasDurableUpstreamID ||
 				result.AcceptanceUncertain ||
 				result.ReservationUncertain)
 		if taskErr != nil && relayInfo.Billing != nil && !acceptedOrUncertain {
@@ -576,6 +577,7 @@ func RelayTask(c *gin.Context) {
 		}
 		if attemptResult != nil &&
 			(attemptResult.ProviderAccepted ||
+				attemptResult.HasDurableUpstreamID ||
 				attemptResult.AcceptanceUncertain ||
 				attemptResult.ReservationUncertain) {
 			break
@@ -603,6 +605,11 @@ func RelayTask(c *gin.Context) {
 	if taskErr == nil {
 		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
 			common.SysError("settle task billing error: " + settleErr.Error())
+			logger.LogError(c, fmt.Sprintf(
+				"task_lifecycle stage=accepted_unsettled task_id=%s channel_id=%d",
+				result.Task.TaskID,
+				result.Task.ChannelId,
+			))
 			taskErr = service.TaskErrorWrapperLocal(
 				settleErr,
 				"settle_task_billing_failed",
@@ -615,12 +622,22 @@ func RelayTask(c *gin.Context) {
 			updated, updateErr := result.Task.UpdateWithStatus(model.TaskStatusSubmitting)
 			if updateErr != nil {
 				common.SysError("mark task submission ready error: " + updateErr.Error())
+				logger.LogError(c, fmt.Sprintf(
+					"task_lifecycle stage=accepted_unready task_id=%s channel_id=%d",
+					result.Task.TaskID,
+					result.Task.ChannelId,
+				))
 				taskErr = service.TaskErrorWrapperLocal(
 					updateErr,
 					"persist_task_submission_ready_failed",
 					http.StatusInternalServerError,
 				)
 			} else if !updated {
+				logger.LogError(c, fmt.Sprintf(
+					"task_lifecycle stage=accepted_unready task_id=%s channel_id=%d",
+					result.Task.TaskID,
+					result.Task.ChannelId,
+				))
 				taskErr = service.TaskErrorWrapperLocal(
 					errors.New("task submission state changed before it became pollable"),
 					"persist_task_submission_ready_failed",
@@ -645,7 +662,9 @@ func RelayTask(c *gin.Context) {
 }
 
 func finalizeSubmittingTaskFailure(result *relay.TaskSubmitResult, taskErr *taskdto.TaskError) bool {
-	if result == nil || result.Task == nil || result.ProviderAccepted {
+	if result == nil || result.Task == nil ||
+		result.ProviderAccepted ||
+		result.HasDurableUpstreamID {
 		return false
 	}
 

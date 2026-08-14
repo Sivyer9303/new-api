@@ -18,6 +18,11 @@ import (
 // It is a variable so content delivery can be tested without live credentials.
 var presignStoredVideoURL = service.PresignStoredVideoURL
 
+func prefersJSONVideoDelivery(c *gin.Context) bool {
+	accept := strings.ToLower(strings.TrimSpace(c.GetHeader("Accept")))
+	return strings.Contains(accept, "application/json")
+}
+
 // serveSilkRoadVideoContent delivers a stored video: local files stream through
 // this handler, object storage answers with a short-lived signed redirect.
 // It never redirects or proxies the client to UpstreamResultURL.
@@ -56,6 +61,13 @@ func serveSilkRoadVideoContent(c *gin.Context, task *model.Task) {
 				task.ChannelId,
 			))
 			c.Header("Cache-Control", "private, no-store")
+			// Browser fetch cannot follow cross-origin 302s into a readable blob
+			// (CORS). Dashboard/API clients that ask for JSON receive the signed
+			// URL and open it directly; navigations keep the 302 redirect.
+			if prefersJSONVideoDelivery(c) {
+				c.JSON(http.StatusOK, gin.H{"url": signedURL})
+				return
+			}
 			c.Redirect(http.StatusFound, signedURL)
 			return
 		}

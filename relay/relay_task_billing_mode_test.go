@@ -2,6 +2,7 @@ package relay
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -76,6 +78,20 @@ func TestEnsureTaskQuotaReservedReturnsLocalErrorBeforeRetrySubmission(t *testin
 	assert.Equal(t, "reserve_task_quota_failed", taskErr.Code)
 }
 
+func TestEnsureTaskQuotaReservedPropagatesReservationUncertainty(t *testing.T) {
+	billing := &recordingTaskBilling{
+		err: fmt.Errorf("%w: compensation failed", service.ErrBillingReservationUncertain),
+	}
+	info := &relaycommon.RelayInfo{Billing: billing}
+	info.PriceData.Quota = 12_345
+
+	taskErr := ensureTaskQuotaReserved(nil, info)
+
+	require.NotNil(t, taskErr)
+	assert.True(t, taskErr.LocalError)
+	require.ErrorIs(t, taskErr.Error, service.ErrBillingReservationUncertain)
+}
+
 func TestValidateTaskSubmitHTTPResponseAcceptsAll2xxAndClosesErrors(t *testing.T) {
 	for _, status := range []int{http.StatusOK, http.StatusCreated, http.StatusAccepted} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
@@ -108,6 +124,7 @@ func TestAmbiguousTaskSubmitStatusesAreNeverRetriedOrRefunded(t *testing.T) {
 		http.StatusInternalServerError,
 		http.StatusBadGateway,
 		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
 	} {
 		assert.True(t, isAmbiguousTaskSubmitStatus(status), status)
 	}
@@ -276,4 +293,193 @@ func TestPersistProviderAcceptanceLeavesSubmittingRecordRecoverableOnDatabaseFai
 	assert.Empty(t, stored.PrivateData.UpstreamTaskID)
 	assert.False(t, stored.PrivateData.NoAutomaticRefund)
 	assert.Equal(t, 100, stored.Quota)
+}
+
+func TestPersistSubmittingTaskKeepsAcceptedUpstreamID(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:relay-task-keep-accepted?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Task{}))
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", nil)
+	info := &relaycommon.RelayInfo{
+		UserId:          7,
+		UsingGroup:      "video",
+		OriginModelName: "seedance-public",
+		RelayMode:       relayconstant.RelayModeVideoSubmit,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType:       constant.ChannelTypeBrioi,
+			ChannelId:         11,
+			ApiKey:            "selected-key",
+			UpstreamModelName: "seedance-upstream",
+		},
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{
+			Action:       constant.TaskActionGenerate,
+			PublicTaskID: "task_public_keep_accepted",
+		},
+	}
+
+	first, err := persistSubmittingTask(context, info, constant.TaskPlatform("62"), 123)
+	require.NoError(t, err)
+	first.PrivateData.UpstreamTaskID = "upstream-already-accepted"
+	first.PrivateData.NoAutomaticRefund = true
+	require.NoError(t, first.Update())
+
+	info.ChannelId = 12
+	info.ChannelMeta.ChannelId = 12
+	second, err := persistSubmittingTask(context, info, constant.TaskPlatform("62"), 456)
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, second.ID)
+	assert.Equal(t, "upstream-already-accepted", second.PrivateData.UpstreamTaskID)
+	assert.True(t, second.PrivateData.NoAutomaticRefund)
+	assert.Equal(t, 11, second.ChannelId)
+	assert.Equal(t, 123, second.Quota)
+	assert.True(t, skipUpstreamCreate(second))
+}
+
+func TestPersistProviderAcceptanceCASLossLeavesExistingRowUntouched(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:relay-task-acceptance-cas?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Task{}))
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+
+	task := &model.Task{
+		TaskID: "task_public_acceptance_cas",
+		Status: model.TaskStatusSubmitted,
+		Quota:  100,
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	updated, err := persistProviderAcceptance(task, &channel.TaskSubmitResponse{
+		UpstreamTaskID: "upstream-accepted",
+		TaskData:       []byte(`{"id":"public"}`),
+		ResponseData:   []byte(`{"id":"public"}`),
+	})
+	require.NoError(t, err)
+	assert.False(t, updated)
+
+	var stored model.Task
+	require.NoError(t, db.First(&stored, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusSubmitted, stored.Status)
+	assert.Empty(t, stored.PrivateData.UpstreamTaskID)
+	assert.False(t, stored.PrivateData.NoAutomaticRefund)
+}
+
+func TestRecordProviderAcceptancePublishesFlagOnlyAfterDurableWrite(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:relay-task-record-acceptance?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Task{}))
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+
+	task := &model.Task{
+		TaskID: "task_public_record_acceptance",
+		Status: model.TaskStatusSubmitting,
+		Quota:  100,
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	result := &TaskSubmitResult{Task: task, AcceptanceUncertain: true}
+	taskErr := recordProviderAcceptance(result, task, &channel.TaskSubmitResponse{
+		UpstreamTaskID: "upstream-accepted",
+		TaskData:       []byte(`{"id":"public"}`),
+		ResponseData:   []byte(`{"id":"public"}`),
+	})
+	require.Nil(t, taskErr)
+	assert.True(t, result.ProviderAccepted)
+	assert.True(t, result.HasDurableUpstreamID)
+	assert.False(t, result.AcceptanceUncertain)
+
+	var stored model.Task
+	require.NoError(t, db.First(&stored, task.ID).Error)
+	assert.Equal(t, "upstream-accepted", stored.PrivateData.UpstreamTaskID)
+	assert.True(t, stored.PrivateData.NoAutomaticRefund)
+}
+
+func TestRecordProviderAcceptanceRecoversUpstreamIDAfterFullCASFailure(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:relay-task-record-acceptance-retry?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Task{}))
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+
+	task := &model.Task{
+		TaskID: "task_public_record_acceptance_retry",
+		Status: model.TaskStatusSubmitting,
+		Quota:  100,
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	attempts := 0
+	require.NoError(t, db.Callback().Update().Before("gorm:update").
+		Register("test:fail_first_acceptance_update", func(tx *gorm.DB) {
+			if tx.Statement.Table != "tasks" {
+				return
+			}
+			attempts++
+			if attempts == 1 {
+				tx.AddError(errors.New("forced provider acceptance update failure"))
+			}
+		}))
+	t.Cleanup(func() {
+		_ = db.Callback().Update().Remove("test:fail_first_acceptance_update")
+	})
+
+	result := &TaskSubmitResult{Task: task, AcceptanceUncertain: true}
+	taskErr := recordProviderAcceptance(result, task, &channel.TaskSubmitResponse{
+		UpstreamTaskID: "upstream-accepted",
+		TaskData:       []byte(`{"id":"public"}`),
+		ResponseData:   []byte(`{"id":"public"}`),
+	})
+	require.NotNil(t, taskErr)
+	assert.False(t, result.ProviderAccepted)
+	assert.True(t, result.AcceptanceUncertain)
+	assert.True(t, result.HasDurableUpstreamID)
+	assert.Equal(t, "persist_provider_acceptance_failed", taskErr.Code)
+
+	var stored model.Task
+	require.NoError(t, db.First(&stored, task.ID).Error)
+	assert.Equal(t, model.TaskStatusSubmitting, stored.Status)
+	assert.Equal(t, "upstream-accepted", stored.PrivateData.UpstreamTaskID)
+	assert.True(t, stored.PrivateData.NoAutomaticRefund)
+}
+
+func TestRecordProviderAcceptanceDoesNotClaimDurableIDOnCASLoss(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:relay-task-record-acceptance-cas?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Task{}))
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+
+	task := &model.Task{
+		TaskID: "task_public_record_acceptance_cas",
+		Status: model.TaskStatusSubmitted,
+		Quota:  100,
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	result := &TaskSubmitResult{Task: task, AcceptanceUncertain: true}
+	taskErr := recordProviderAcceptance(result, task, &channel.TaskSubmitResponse{
+		UpstreamTaskID: "upstream-accepted",
+		TaskData:       []byte(`{"id":"public"}`),
+		ResponseData:   []byte(`{"id":"public"}`),
+	})
+	require.NotNil(t, taskErr)
+	assert.False(t, result.ProviderAccepted)
+	assert.True(t, result.AcceptanceUncertain)
+	assert.False(t, result.HasDurableUpstreamID)
+
+	var stored model.Task
+	require.NoError(t, db.First(&stored, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusSubmitted, stored.Status)
+	assert.Empty(t, stored.PrivateData.UpstreamTaskID)
 }

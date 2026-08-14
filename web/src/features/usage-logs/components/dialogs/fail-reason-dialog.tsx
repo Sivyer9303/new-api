@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { localizeTaskFailReason } from '@/lib/localize-task-fail-reason'
 
 interface FailReasonDialogProps {
   failReason: string
@@ -38,6 +39,7 @@ export function FailReasonDialog({
 }: FailReasonDialogProps) {
   const { t } = useTranslation()
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
+  const displayReason = localizeTaskFailReason(failReason, t)
 
   return (
     <Dialog
@@ -60,17 +62,17 @@ export function FailReasonDialog({
                 variant='ghost'
                 size='sm'
                 className='absolute top-2 right-2 h-8 w-8 p-0'
-                onClick={() => copyToClipboard(failReason)}
+                onClick={() => copyToClipboard(displayReason)}
                 title={t('Copy to clipboard')}
               >
-                {copiedText === failReason ? (
+                {copiedText === displayReason ? (
                   <Check className='size-4 text-green-600' />
                 ) : (
                   <Copy className='size-4' />
                 )}
               </Button>
               <p className='overflow-wrap-anywhere pr-10 text-sm leading-relaxed break-all whitespace-pre-wrap text-red-600'>
-                {failReason || '-'}
+                {displayReason || '-'}
               </p>
             </div>
           </div>

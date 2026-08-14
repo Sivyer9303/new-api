@@ -10,7 +10,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { fetchVideoContentBlob, fetchVideoGeneration } from '../api'
+import { localizeTaskFailReason } from '@/lib/localize-task-fail-reason'
+
+import { fetchVideoGeneration, resolveVideoPlaybackUrl } from '../api'
 
 const POLL_INTERVAL_MS = 3000
 const POLL_MAX_ATTEMPTS = 120
@@ -134,9 +136,15 @@ export function useVideoTaskPolling() {
           const siteContent = `/v1/videos/${taskId}/content`
           let playableUrl = siteContent
           try {
-            const blob = await fetchVideoContentBlob(pollingTokenKey, taskId)
-            if (cancelled) return
-            playableUrl = URL.createObjectURL(blob)
+            const resolved = await resolveVideoPlaybackUrl(
+              pollingTokenKey,
+              taskId
+            )
+            if (cancelled) {
+              resolved.revoke?.()
+              return
+            }
+            playableUrl = resolved.url
           } catch {
             playableUrl = siteContent
           }
@@ -148,10 +156,13 @@ export function useVideoTaskPolling() {
           return
         }
         if (isTerminalFailure(status)) {
-          const message =
+          const rawMessage =
             statusResponse.error?.message ||
             statusResponse.fail_reason ||
-            t('Video generation failed')
+            ''
+          const message = rawMessage
+            ? localizeTaskFailReason(rawMessage, t)
+            : t('Video generation failed')
           setPollError(message)
           if (seenTerminalToastRef.current !== taskId) {
             seenTerminalToastRef.current = taskId

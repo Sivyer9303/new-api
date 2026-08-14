@@ -31,6 +31,34 @@ export function retainCompatibleVideoModel(
     : ''
 }
 
+function isReferenceVideoModel(modelName: string): boolean {
+  return modelName.includes('-ref')
+}
+
+export function modelSupportsGenerationType(
+  modelName: string,
+  generationType: PublicGenerationType
+): boolean {
+  const isRefModel = isReferenceVideoModel(modelName)
+  if (generationType.require_ref_model) return isRefModel
+  return !isRefModel
+}
+
+export type GenerationTypeDisableReason =
+  | 'requires_ref_model'
+  | 'requires_non_ref_model'
+
+export function generationTypeDisableReason(
+  modelName: string,
+  generationType: PublicGenerationType
+): GenerationTypeDisableReason | null {
+  if (!modelName || modelSupportsGenerationType(modelName, generationType)) {
+    return null
+  }
+  if (generationType.require_ref_model) return 'requires_ref_model'
+  return 'requires_non_ref_model'
+}
+
 export function resolveVideoProfile(
   profiles: PublicProfile[],
   modelID: string,

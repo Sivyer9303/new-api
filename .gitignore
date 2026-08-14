@@ -43,3 +43,6 @@ service/openaicompat/chat_responses_live_local_test.go
 docs
 go.work
 go.work.sum
+
+# Local Docker override; may contain machine-specific build or credentials.
+docker-compose.local.yml

@@ -21,12 +21,31 @@ import { describe, test } from 'node:test'
 
 import {
   filterModelsForProfile,
+  generationTypeDisableReason,
   isVideoStoragePhase,
+  modelSupportsGenerationType,
   retainCompatibleVideoModel,
   resolveVideoProfile,
   resolveSelectedOption,
 } from '../lib/capabilities'
-import type { PublicProfile } from '../types'
+import type { PublicGenerationType, PublicProfile } from '../types'
+
+function generationType(
+  value: string,
+  requireRefModel: boolean
+): PublicGenerationType {
+  return {
+    label: value,
+    value,
+    sort: 1,
+    require_ref_model: requireRefModel,
+    require_audio: false,
+    allow_audio: false,
+    images_min: requireRefModel ? 1 : 0,
+    images_max: requireRefModel ? 1 : 0,
+    image_roles: requireRefModel ? ['reference'] : [],
+  }
+}
 
 const profiles: PublicProfile[] = [
   {
@@ -129,5 +148,60 @@ describe('video tool capability resolution', () => {
       'seedance-2.5-ref'
     )
     assert.equal(retainCompatibleVideoModel('', compatible), '')
+  })
+
+  test('disables image modes for a non-ref model and text-to-video for a ref model', () => {
+    const textToVideo = generationType('text2video', false)
+    const imageToVideo = generationType('image2video', true)
+
+    assert.equal(
+      modelSupportsGenerationType('dreamina-seedance-2-0-480p', textToVideo),
+      true
+    )
+    assert.equal(
+      modelSupportsGenerationType('dreamina-seedance-2-0-480p', imageToVideo),
+      false
+    )
+    assert.equal(
+      generationTypeDisableReason('dreamina-seedance-2-0-480p', imageToVideo),
+      'requires_ref_model'
+    )
+
+    assert.equal(
+      modelSupportsGenerationType(
+        'dreamina-seedance-2-0-480p-ref',
+        textToVideo
+      ),
+      false
+    )
+    assert.equal(
+      modelSupportsGenerationType(
+        'dreamina-seedance-2-0-480p-ref',
+        imageToVideo
+      ),
+      true
+    )
+    assert.equal(
+      generationTypeDisableReason(
+        'dreamina-seedance-2-0-480p-ref',
+        textToVideo
+      ),
+      'requires_non_ref_model'
+    )
+  })
+
+  test('keeps every mode enabled for providers that do not require -ref names', () => {
+    const textToVideo = generationType('text2video', false)
+    const imageToVideo = generationType('image2video', false)
+
+    assert.equal(modelSupportsGenerationType('seedance-2-0', textToVideo), true)
+    assert.equal(
+      modelSupportsGenerationType('seedance-2-0', imageToVideo),
+      true
+    )
+    assert.equal(
+      generationTypeDisableReason('seedance-2-0', imageToVideo),
+      null
+    )
   })
 })

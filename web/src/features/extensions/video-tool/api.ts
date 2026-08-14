@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import axios from 'axios'
 
 import { api } from '@/lib/api'
+import { resolveAuthenticatedVideoPlaybackUrl } from '@/lib/resolve-authenticated-video-playback-url'
 
 import { normalizeVideoToolConfig } from './lib/provider-config'
 import type {
@@ -242,6 +243,24 @@ export async function fetchVideoContentBlob(
     return res.data
   } catch (err) {
     throw axiosErrorMessage(err, 'Failed to load video preview')
+  }
+}
+
+/** Resolves a playable URL for in-page preview (signed R2 URL or streamed blob). */
+export async function resolveVideoPlaybackUrl(
+  tokenKey: string,
+  taskId: string
+): Promise<{ url: string; revoke?: () => void }> {
+  try {
+    return await resolveAuthenticatedVideoPlaybackUrl(
+      `/v1/videos/${encodeURIComponent(taskId)}/content`,
+      `Bearer ${bearerKey(tokenKey)}`
+    )
+  } catch (err) {
+    if (err instanceof Error && err.message) {
+      throw err
+    }
+    throw new Error('Failed to load video preview')
   }
 }
 

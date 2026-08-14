@@ -4,6 +4,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -138,4 +139,38 @@ func TestRefundTaskQuotaRollsBackWhenSubscriptionIsMissing(t *testing.T) {
 	var storedTask Task
 	require.NoError(t, DB.First(&storedTask, task.ID).Error)
 	assert.Equal(t, 40, storedTask.Quota)
+}
+
+func TestDecreaseTokenQuotaDirectWritesWhenBatchUpdatesAreEnabled(t *testing.T) {
+	setupVideoRefundTestDB(t)
+	previousBatch := common.BatchUpdateEnabled
+	common.BatchUpdateEnabled = true
+	t.Cleanup(func() { common.BatchUpdateEnabled = previousBatch })
+
+	token := Token{
+		UserId:      1,
+		Key:         "batch-token",
+		Name:        "video",
+		RemainQuota: 100,
+		UsedQuota:   0,
+	}
+	require.NoError(t, DB.Create(&token).Error)
+
+	require.NoError(t, DecreaseTokenQuota(token.Id, token.Key, 10))
+	var stored Token
+	require.NoError(t, DB.First(&stored, token.Id).Error)
+	assert.Equal(t, 100, stored.RemainQuota)
+	assert.Zero(t, stored.UsedQuota)
+
+	require.NoError(t, DecreaseTokenQuotaDirect(token.Id, token.Key, 10))
+	require.NoError(t, DB.First(&stored, token.Id).Error)
+	assert.Equal(t, 90, stored.RemainQuota)
+	assert.Equal(t, 10, stored.UsedQuota)
+}
+
+func TestTaskAutoMigrateAddsRefundRecoveryColumns(t *testing.T) {
+	setupVideoRefundTestDB(t)
+	assert.True(t, DB.Migrator().HasColumn(&Task{}, "refund_pending"))
+	assert.True(t, DB.Migrator().HasColumn(&Task{}, "refund_retry_at"))
+	assert.True(t, DB.Migrator().HasColumn(&Task{}, "refund_attempts"))
 }

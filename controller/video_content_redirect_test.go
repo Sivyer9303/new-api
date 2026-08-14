@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -48,6 +50,26 @@ func TestServeStoredVideoContent_RedirectsToPresignedURL(t *testing.T) {
 	assert.Equal(t, signed, w.Header().Get("Location"))
 	assert.Equal(t, "private, no-store", w.Header().Get("Cache-Control"))
 	assert.NotContains(t, w.Header().Get("Location"), "upstream.example")
+	assert.NotContains(t, w.Body.String(), "upstream.example")
+}
+
+func TestServeStoredVideoContent_JSONAcceptReturnsPresignedURL(t *testing.T) {
+	signed := "https://acct.r2.cloudflarestorage.com/videos/videos/task_r2_json?X-Amz-Expires=900&X-Amz-Signature=abc"
+	withPresignedVideoDelivery(t, signed, nil)
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	task := readyStoredVideoTask("task_r2_json")
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/"+task.TaskID+"/content", nil)
+	c.Request.Header.Set("Accept", "application/json")
+	serveSilkRoadVideoContent(c, task)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, w.Header().Get("Location"))
+	assert.Equal(t, "private, no-store", w.Header().Get("Cache-Control"))
+	assert.Contains(t, w.Body.String(), "acct.r2.cloudflarestorage.com/videos/videos/task_r2_json")
+	assert.Contains(t, w.Body.String(), "X-Amz-Signature=abc")
 	assert.NotContains(t, w.Body.String(), "upstream.example")
 }
 

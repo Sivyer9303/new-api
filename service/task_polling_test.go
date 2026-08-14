@@ -255,6 +255,13 @@ func (a *taskPollingFetchAdaptor) fetchedTaskIDs() []string {
 	return append([]string(nil), a.taskIDs...)
 }
 
+func withTaskPollingQueryLimit(t *testing.T, limit int) {
+	t.Helper()
+	previous := constant.TaskQueryLimit
+	constant.TaskQueryLimit = limit
+	t.Cleanup(func() { constant.TaskQueryLimit = previous })
+}
+
 func seedTaskPollingChannel(t *testing.T, id int, disableSleep bool) {
 	t.Helper()
 	ch := &model.Channel{
@@ -320,13 +327,15 @@ func TestUpdateVideoTasksDefaultSleepWaitsBetweenTasks(t *testing.T) {
 	assert.Equal(t, 1, adaptor.fetchCount())
 }
 
-func TestRunTaskPollingSkipsSubmittingTasks(t *testing.T) {
+func TestRunTaskPollingSkipsSubmittingTasksWithoutUpstreamID(t *testing.T) {
 	truncate(t)
+	withTaskPollingQueryLimit(t, 1000)
 
 	const channelID = 100
 	seedTaskPollingChannel(t, channelID, true)
-	task := seedPollingTask(t, channelID, "task_submitting", "upstream_submitting")
+	task := seedPollingTask(t, channelID, "task_submitting", "")
 	task.Status = model.TaskStatusSubmitting
+	task.SubmitTime = time.Now().Unix()
 	require.NoError(t, task.Update())
 
 	adaptor := &taskPollingFetchAdaptor{}
@@ -340,6 +349,33 @@ func TestRunTaskPollingSkipsSubmittingTasks(t *testing.T) {
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 	assert.Equal(t, model.TaskStatusSubmitting, reloaded.Status)
+}
+
+func TestRunTaskPollingPollsSubmittingTasksWithUpstreamID(t *testing.T) {
+	truncate(t)
+	withTaskPollingQueryLimit(t, 1000)
+
+	const channelID = 103
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_submitting_accepted", "upstream_submitting_accepted")
+	task.Status = model.TaskStatusSubmitting
+	task.SubmitTime = time.Now().Unix()
+	task.PrivateData.NoAutomaticRefund = true
+	require.NoError(t, task.Update())
+
+	adaptor := &taskPollingFetchAdaptor{}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	RunTaskPollingOnce(context.Background(), nil)
+
+	assert.Equal(t, 1, adaptor.fetchCount())
+	assert.Equal(t, []string{"upstream_submitting_accepted"}, adaptor.fetchedTaskIDs())
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusInProgress, reloaded.Status)
+	assert.True(t, reloaded.PrivateData.NoAutomaticRefund)
 }
 
 func TestUpdateVideoTasksCanSkipPollingSleepPerChannel(t *testing.T) {
@@ -746,6 +782,54 @@ func TestUpdateVideoTasksMovesProviderSuccessIntoStoragePhase(t *testing.T) {
 	assert.NotContains(t, string(reloaded.Data), resultURL)
 	assert.NotContains(t, string(reloaded.Data), "upstream-secret")
 	assert.Contains(t, string(reloaded.Data), task.TaskID)
+}
+
+func TestRunTaskPollingRecoversAcceptedSubmittingTaskIntoStorage(t *testing.T) {
+	truncate(t)
+	withTaskPollingQueryLimit(t, 1000)
+	withSilkRoadStorage(t, t.TempDir(), "node-a", "https://video.example.com")
+
+	const channelID = 505
+	channel := &model.Channel{
+		Id:     channelID,
+		Type:   constant.ChannelTypeBrioi,
+		Name:   "brioi_accepted_submitting",
+		Key:    "sk-test",
+		Status: common.ChannelStatusEnabled,
+	}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{DisableTaskPollingSleep: true})
+	require.NoError(t, model.DB.Create(channel).Error)
+	task := &model.Task{
+		TaskID:     "video_public_accepted_submitting",
+		Platform:   constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeBrioi)),
+		ChannelId:  channelID,
+		Status:     model.TaskStatusSubmitting,
+		Progress:   "0%",
+		SubmitTime: time.Now().Unix(),
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID:    "video_upstream_accepted_submitting",
+			VideoTask:         true,
+			NoAutomaticRefund: true,
+		},
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	resultURL := "https://cdn.example/private-result.mp4"
+	adaptor := &videoSuccessPollingAdaptor{resultURL: resultURL}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	RunTaskPollingOnce(context.Background(), nil)
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusStoring, reloaded.Status)
+	assert.Equal(t, "99%", reloaded.Progress)
+	assert.Equal(t, "pending", reloaded.PrivateData.StorageStatus)
+	assert.Equal(t, resultURL, reloaded.PrivateData.UpstreamResultURL)
+	assert.Equal(t, "https://video.example.com/v1/videos/"+task.TaskID+"/content", reloaded.PrivateData.ResultURL)
+	assert.Zero(t, reloaded.FinishTime)
 }
 
 func TestUpdateVideoTasksRequiresResultBeforeSettlement(t *testing.T) {

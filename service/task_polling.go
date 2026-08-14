@@ -226,7 +226,8 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 		taskM := make(map[string]*model.Task)
 		nullTaskIds := make([]int64, 0)
 		for _, task := range tasks {
-			if task.Status == model.TaskStatusSubmitting {
+			if task.Status == model.TaskStatusSubmitting &&
+				!hasPersistedUpstreamTaskID(task) {
 				continue
 			}
 			upstreamID := task.GetUpstreamTaskID()
@@ -261,6 +262,10 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 	}
 	common.SysLog("任务进度轮询完成")
 	return summary
+}
+
+func hasPersistedUpstreamTaskID(task *model.Task) bool {
+	return task != nil && strings.TrimSpace(task.PrivateData.UpstreamTaskID) != ""
 }
 
 // DispatchPlatformUpdate 按平台分发轮询更新

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"os"
@@ -850,4 +851,38 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+func TestReserveReturnsUncertainWhenFundingCompensationFails(t *testing.T) {
+	truncate(t)
+	const userID = 901
+	seedUser(t, userID, 10_000)
+	session := &BillingSession{
+		relayInfo: &relaycommon.RelayInfo{
+			UserId:          userID,
+			TokenId:         userID,
+			TokenKey:        "missing-token",
+			ForcePreConsume: true,
+		},
+		funding: &WalletFunding{userId: userID, forceDB: true},
+	}
+
+	attempts := 0
+	require.NoError(t, model.DB.Callback().Update().Before("gorm:update").
+		Register("test:fail_funding_compensation", func(tx *gorm.DB) {
+			if tx.Statement.Table != "users" {
+				return
+			}
+			attempts++
+			if attempts >= 2 {
+				tx.AddError(errors.New("forced funding compensation failure"))
+			}
+		}))
+	t.Cleanup(func() {
+		_ = model.DB.Callback().Update().Remove("test:fail_funding_compensation")
+	})
+
+	err := session.Reserve(100)
+	require.ErrorIs(t, err, ErrBillingReservationUncertain)
+	assert.Equal(t, 9_900, getUserQuota(t, userID))
 }
