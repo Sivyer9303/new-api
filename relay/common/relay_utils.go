@@ -120,6 +120,7 @@ func createTaskError(err error, code string, statusCode int, localError bool) *d
 func storeTaskRequest(c *gin.Context, info *RelayInfo, action string, requestObj TaskSubmitReq) {
 	info.Action = action
 	c.Set("task_request", requestObj)
+	info.SetTaskRequestSnapshot(SnapshotFromTaskSubmitReq(requestObj))
 }
 func GetTaskRequest(c *gin.Context) (TaskSubmitReq, error) {
 	v, exists := c.Get("task_request")

@@ -83,13 +83,30 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
 
-	info.Action = constant.TaskActionGenerate
+	info.Action = constant.TaskActionFromGenerationType(req.GenerationType)
 	c.Set(normalizedRequestKey, normalizedRequest{request: req, profile: profile})
 	c.Set("task_request", relaycommon.TaskSubmitReq{
 		Prompt:   req.Prompt,
 		Model:    req.Model,
 		Duration: *req.Duration,
 		Seconds:  strconv.Itoa(*req.Duration),
+	})
+	media := make([]relaycommon.TaskMediaSnapshot, 0, len(req.Media))
+	for _, item := range req.Media {
+		media = append(media, relaycommon.TaskMediaSnapshot{
+			Type: string(item.Type),
+			Role: string(item.Role),
+		})
+	}
+	info.SetTaskRequestSnapshot(relaycommon.TaskRequestSnapshot{
+		Model:          req.Model,
+		Prompt:         req.Prompt,
+		GenerationType: req.GenerationType,
+		Duration:       *req.Duration,
+		Seconds:        strconv.Itoa(*req.Duration),
+		Resolution:     req.Resolution,
+		AspectRatio:    req.AspectRatio,
+		Media:          media,
 	})
 	return nil
 }
@@ -124,9 +141,6 @@ func parseRequest(body []byte, info *relaycommon.RelayInfo) (videocommon.VideoGe
 	}
 	if err := rejectUnknownFields(raw); err != nil {
 		return videocommon.VideoGenerateRequest{}, resolvedProfile{}, err
-	}
-	if _, exists := raw["audio_url"]; exists {
-		return videocommon.VideoGenerateRequest{}, resolvedProfile{}, fmt.Errorf("audio references are not supported by Brioi")
 	}
 	// Singular video_url is reserved/rejected; use media type=video or reference_videos.
 	if _, exists := raw["video_url"]; exists {
@@ -233,6 +247,7 @@ func rejectUnknownFields(raw map[string]json.RawMessage) error {
 		"audio_url":        {},
 		"video_url":        {},
 		"reference_videos": {},
+		"reference_audios": {},
 	}
 	unknown := make([]string, 0)
 	for key := range raw {
@@ -375,11 +390,19 @@ func requestMedia(
 	imagesRaw, hasImages := raw["images"]
 	mediaRaw, hasMedia := raw["media"]
 	videosRaw, hasVideos := raw["reference_videos"]
+	audiosRaw, hasAudios := raw["reference_audios"]
+	_, hasAudioURL := raw["audio_url"]
 	if hasImages && hasMedia {
 		return nil, fmt.Errorf("images and media cannot be used together")
 	}
 	if hasVideos && hasMedia {
 		return nil, fmt.Errorf("reference_videos and media cannot be used together")
+	}
+	if (hasAudios || hasAudioURL) && hasMedia {
+		return nil, fmt.Errorf("audio fields and media cannot be used together")
+	}
+	if hasAudios && hasAudioURL {
+		return nil, fmt.Errorf("audio_url and reference_audios cannot be used together")
 	}
 
 	var media []videocommon.VideoMedia
@@ -419,7 +442,7 @@ func requestMedia(
 	}
 
 	if hasVideos {
-		videos, err := parseReferenceVideos(videosRaw)
+		videos, err := parseStringList(videosRaw, "reference_videos")
 		if err != nil {
 			return nil, err
 		}
@@ -431,21 +454,46 @@ func requestMedia(
 			})
 		}
 	}
+
+	if hasAudios {
+		audios, err := parseStringList(audiosRaw, "reference_audios")
+		if err != nil {
+			return nil, err
+		}
+		for _, audio := range audios {
+			media = append(media, videocommon.VideoMedia{
+				Type:   videocommon.VideoMediaAudio,
+				Role:   videocommon.VideoMediaRoleReference,
+				Source: audio,
+			})
+		}
+	}
+	if hasAudioURL {
+		audioURL, err := requestString(raw, "audio_url")
+		if err != nil {
+			return nil, fmt.Errorf("audio_url: %w", err)
+		}
+		media = append(media, videocommon.VideoMedia{
+			Type:   videocommon.VideoMediaAudio,
+			Role:   videocommon.VideoMediaRoleReference,
+			Source: audioURL,
+		})
+	}
 	return media, nil
 }
 
-func parseReferenceVideos(raw json.RawMessage) ([]string, error) {
-	var videos []string
-	if err := common.Unmarshal(raw, &videos); err != nil {
-		return nil, fmt.Errorf("reference_videos must be an array of strings")
+func parseStringList(raw json.RawMessage, field string) ([]string, error) {
+	var values []string
+	if err := common.Unmarshal(raw, &values); err != nil {
+		return nil, fmt.Errorf("%s must be an array of strings", field)
 	}
-	out := make([]string, 0, len(videos))
-	for index, video := range videos {
-		video = strings.TrimSpace(video)
-		if video == "" {
-			return nil, fmt.Errorf("reference_videos[%d] is empty", index)
+	out := make([]string, 0, len(values))
+	for index, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, fmt.Errorf("%s[%d] is empty", field, index)
 		}
-		out = append(out, video)
+		out = append(out, value)
 	}
 	return out, nil
 }
@@ -529,6 +577,7 @@ func validateRequest(request videocommon.VideoGenerateRequest, profile resolvedP
 
 	references := 0
 	videos := 0
+	audios := 0
 	firstFrames := 0
 	lastFrames := 0
 	for index, media := range request.Media {
@@ -545,9 +594,19 @@ func validateRequest(request videocommon.VideoGenerateRequest, profile resolvedP
 				return fmt.Errorf("media[%d] type %q is only supported for generation_type %q", index, media.Type, GenerationReferenceVideos)
 			}
 			if !isInlineVideoDataURL(media.Source) {
-				return fmt.Errorf("media[%d] must be an inline MP4 video data URL", index)
+				return fmt.Errorf("media[%d] must be an inline MP4 or MOV video data URL", index)
 			}
 			if err := service.ValidateVideoInputVideoDataURL(media.Source); err != nil {
+				return fmt.Errorf("media[%d] is invalid: %w", index, err)
+			}
+		case videocommon.VideoMediaAudio:
+			if request.GenerationType != GenerationReferenceVideos {
+				return fmt.Errorf("media[%d] type %q is only supported for generation_type %q", index, media.Type, GenerationReferenceVideos)
+			}
+			if !isInlineAudioDataURL(media.Source) {
+				return fmt.Errorf("media[%d] must be an inline MP3 or WAV audio data URL", index)
+			}
+			if err := service.ValidateVideoInputAudioDataURL(media.Source); err != nil {
 				return fmt.Errorf("media[%d] is invalid: %w", index, err)
 			}
 		default:
@@ -555,9 +614,12 @@ func validateRequest(request videocommon.VideoGenerateRequest, profile resolvedP
 		}
 		switch media.Role {
 		case "", videocommon.VideoMediaRoleReference:
-			if media.Type == videocommon.VideoMediaVideo {
+			switch media.Type {
+			case videocommon.VideoMediaVideo:
 				videos++
-			} else {
+			case videocommon.VideoMediaAudio:
+				audios++
+			default:
 				references++
 			}
 		case videocommon.VideoMediaRoleFirstFrame:
@@ -583,7 +645,7 @@ func validateRequest(request videocommon.VideoGenerateRequest, profile resolvedP
 	if lastFrames > 0 && firstFrames == 0 {
 		return fmt.Errorf("last_frame requires first_frame")
 	}
-	if (references > 0 || videos > 0) && firstFrames+lastFrames > 0 {
+	if (references > 0 || videos > 0 || audios > 0) && firstFrames+lastFrames > 0 {
 		return fmt.Errorf("ordinary references cannot be mixed with strict frame media")
 	}
 
@@ -622,18 +684,27 @@ func validateRequest(request videocommon.VideoGenerateRequest, profile resolvedP
 				maxVideos,
 			)
 		}
-		maxCompanion := min(mode.ImagesMax, profile.hard.maxReferenceItems-videos)
-		if maxCompanion < 0 {
-			maxCompanion = 0
-		}
-		if references < 0 || references > maxCompanion || firstFrames+lastFrames != 0 {
+		maxCompanion := min(mode.ImagesMax, brioi_setting.ReferenceMixImagesMax)
+		if references > maxCompanion || firstFrames+lastFrames != 0 {
 			return fmt.Errorf(
 				"reference_videos allows up to %d companion reference images",
 				maxCompanion,
 			)
 		}
-		if videos+references != len(request.Media) {
+		if audios > brioi_setting.ReferenceAudiosMax {
+			return fmt.Errorf(
+				"reference_videos allows up to %d companion reference audios",
+				brioi_setting.ReferenceAudiosMax,
+			)
+		}
+		if videos+references+audios != len(request.Media) {
 			return fmt.Errorf("reference_videos only accepts ordinary reference media")
+		}
+		if len(request.Media) > min(profile.hard.maxReferenceItems, brioi_setting.ReferenceMixTotalMax) {
+			return fmt.Errorf(
+				"reference_videos allows at most %d mixed reference items",
+				min(profile.hard.maxReferenceItems, brioi_setting.ReferenceMixTotalMax),
+			)
 		}
 	default:
 		return fmt.Errorf("generation_type %q is not supported by Brioi", request.GenerationType)
@@ -658,5 +729,26 @@ func isInlineVideoDataURL(source string) bool {
 		return false
 	}
 	metadata := strings.ToLower(source[:comma])
-	return strings.HasPrefix(metadata, "data:video/mp4") && strings.Contains(metadata, ";base64")
+	if !strings.Contains(metadata, ";base64") {
+		return false
+	}
+	return strings.HasPrefix(metadata, "data:video/mp4") ||
+		strings.HasPrefix(metadata, "data:video/quicktime")
+}
+
+func isInlineAudioDataURL(source string) bool {
+	source = strings.TrimSpace(source)
+	comma := strings.IndexByte(source, ',')
+	if comma <= 0 || comma == len(source)-1 {
+		return false
+	}
+	metadata := strings.ToLower(source[:comma])
+	if !strings.Contains(metadata, ";base64") {
+		return false
+	}
+	return strings.HasPrefix(metadata, "data:audio/mpeg") ||
+		strings.HasPrefix(metadata, "data:audio/mp3") ||
+		strings.HasPrefix(metadata, "data:audio/wav") ||
+		strings.HasPrefix(metadata, "data:audio/x-wav") ||
+		strings.HasPrefix(metadata, "data:audio/wave")
 }

@@ -35,14 +35,14 @@ var modelProfiles = map[string]modelProfile{
 		maxDuration:       15,
 		resolutions:       stringSet("480p", "720p"),
 		aspectRatios:      stringSet("21:9", "16:9", "4:3", "1:1", "3:4", "9:16"),
-		maxReferenceItems: 9,
+		maxReferenceItems: brioi_setting.ReferenceMixTotalMax,
 	},
 	ModelSeedance20: {
 		minDuration:       4,
 		maxDuration:       15,
 		resolutions:       stringSet("480p", "720p", "1080p", "4K"),
 		aspectRatios:      stringSet("21:9", "16:9", "4:3", "1:1", "3:4", "9:16"),
-		maxReferenceItems: 9,
+		maxReferenceItems: brioi_setting.ReferenceMixTotalMax,
 	},
 	ModelSeedance25: {
 		minDuration:       4,

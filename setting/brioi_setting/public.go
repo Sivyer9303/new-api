@@ -84,6 +84,7 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 		mediaLimits := make(map[string]PublicMediaLimits)
 		maxItems := 0
 		allowVideo := false
+		allowAudio := false
 		for _, mode := range generationModes {
 			if !mode.Enabled {
 				continue
@@ -93,11 +94,17 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 			generationTypes = append(generationTypes, publicMode.Value)
 			mediaLimits[publicMode.Value] = publicModeMediaLimits(publicMode)
 			itemCap := publicMode.ImagesMax + publicMode.VideosMax
+			if publicMode.AllowAudio {
+				itemCap += ReferenceAudiosMax
+			}
 			if itemCap > maxItems {
 				maxItems = itemCap
 			}
 			if publicMode.AllowVideo {
 				allowVideo = true
+			}
+			if publicMode.AllowAudio {
+				allowAudio = true
 			}
 			current, exists := providerModes[publicMode.Value]
 			if !exists || publicMode.ImagesMax > current.ImagesMax || publicMode.VideosMax > current.VideosMax {
@@ -119,7 +126,10 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 		}
 		acceptedTypes := []string{"image"}
 		if allowVideo {
-			acceptedTypes = []string{"image", "video"}
+			acceptedTypes = append(acceptedTypes, "video")
+		}
+		if allowAudio {
+			acceptedTypes = append(acceptedTypes, "audio")
 		}
 		public.Profiles = append(public.Profiles, PublicProfile{
 			ID:              profile.Model,
@@ -141,7 +151,7 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 					ImageRoleFirstFrame,
 					ImageRoleLastFrame,
 				},
-				AllowAudio: false,
+				AllowAudio: allowAudio,
 				AllowVideo: allowVideo,
 			},
 			MediaLimits: mediaLimits,
@@ -191,6 +201,7 @@ func publicGenerationMode(mode GenerationModeSetting) PublicGenerationMode {
 		public.Label = "Reference video"
 		public.RequireVideo = true
 		public.AllowVideo = true
+		public.AllowAudio = true
 		public.ImagesMin = 0
 		public.VideosMin = ReferenceVideosMin
 		public.VideosMax = ReferenceVideosMax
@@ -209,17 +220,19 @@ func publicModeMediaLimits(mode PublicGenerationMode) PublicMediaLimits {
 	if mode.AllowVideo || mode.VideosMax > 0 {
 		acceptedTypes = append(acceptedTypes, "video")
 	}
-	minItems := mode.ImagesMin
-	if mode.VideosMin > minItems {
-		minItems = mode.VideosMin
+	if mode.AllowAudio {
+		acceptedTypes = append(acceptedTypes, "audio")
 	}
 	maxItems := mode.ImagesMax + mode.VideosMax
+	if mode.AllowAudio {
+		maxItems += ReferenceAudiosMax
+	}
 	return PublicMediaLimits{
-		MinItems:      minItems,
+		MinItems:      mode.ImagesMin,
 		MaxItems:      maxItems,
 		AcceptedTypes: acceptedTypes,
 		AllowedRoles:  append([]string(nil), mode.ImageRoles...),
-		AllowAudio:    false,
+		AllowAudio:    mode.AllowAudio,
 		AllowVideo:    mode.AllowVideo || mode.VideosMax > 0,
 	}
 }

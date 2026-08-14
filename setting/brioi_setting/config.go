@@ -21,10 +21,14 @@ const (
 	GenerationReferenceVideos = "reference_videos"
 )
 
-// Reference video bounds for Seedance-style @VideoN prompts (companion images optional).
+// Mixed-reference bounds from Brioi Seedance 2 docs: images 0–9, videos 1–3,
+// audio 0–3, total ref items ≤15. Video may stand alone; audio may not.
 const (
-	ReferenceVideosMin = 1
-	ReferenceVideosMax = 3
+	ReferenceVideosMin    = 1
+	ReferenceVideosMax    = 3
+	ReferenceAudiosMax    = 3
+	ReferenceMixImagesMax = 9
+	ReferenceMixTotalMax  = 15
 )
 
 const (
@@ -121,8 +125,8 @@ func defaultGenerationModes(model string) []GenerationModeSetting {
 		{Value: GenerationMultiImage, Enabled: true, ImagesMax: multiImageMax, Sort: 3},
 		{Value: GenerationFirstFrame, Enabled: true, ImagesMax: 1, Sort: 4},
 		{Value: GenerationStartEnd, Enabled: true, ImagesMax: 2, Sort: 5},
-		// Companion images share the same hard ceiling as multi_image.
-		{Value: GenerationReferenceVideos, Enabled: true, ImagesMax: multiImageMax, Sort: 6},
+		// Mixed refs: companion images optional; video/audio caps are hardcoded.
+		{Value: GenerationReferenceVideos, Enabled: true, ImagesMax: ReferenceMixImagesMax, Sort: 6},
 	}
 }
 

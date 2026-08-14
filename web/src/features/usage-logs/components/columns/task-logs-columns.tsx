@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { ColumnDef } from '@tanstack/react-table'
 import { Music } from 'lucide-react'
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useMemo, type MouseEvent } from 'react'
+import { useState, useMemo, type MouseEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -33,13 +33,18 @@ import { resolveAuthenticatedVideoPlaybackUrl } from '@/lib/resolve-authenticate
 import { cn } from '@/lib/utils'
 
 import { TASK_ACTIONS, TASK_STATUS } from '../../constants'
-import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
+import { taskStatusMapper } from '../../lib/mappers'
+import {
+  hasTaskRequestSnapshot,
+  taskLogActionLabel,
+} from '../../lib/task-log-display'
 import type { TaskLog } from '../../types'
 import {
   AudioPreviewDialog,
   type AudioClip,
 } from '../dialogs/audio-preview-dialog'
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
+import { TaskRequestParamsButton } from '../dialogs/request-params-dialog'
 import { useUsageLogsContext } from '../usage-logs-provider'
 import { VideoRecoveryActions } from '../video-recovery-actions'
 import {
@@ -190,7 +195,7 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
               className='border-border/60 bg-muted/30 !text-foreground max-w-full truncate rounded-md border px-1.5 py-0.5 font-mono'
             />
             <span className='text-muted-foreground/60 truncate text-[11px]'>
-              {t(log.platform)} · {t(taskActionMapper.getLabel(log.action))}
+              {t(taskLogActionLabel(log))}
             </span>
           </div>
         )
@@ -232,19 +237,14 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
 
         const isSunoSuccess =
           log.platform === 'suno' && status === TASK_STATUS.SUCCESS
-        if (isSunoSuccess) {
-          const data = parseTaskData(log.data)
-          if (
-            data.some(
-              (c) =>
-                c &&
-                typeof c === 'object' &&
-                (c as Record<string, unknown>).audio_url
-            )
-          ) {
-            return <AudioPreviewCell log={log} />
-          }
-        }
+        const sunoHasAudio =
+          isSunoSuccess &&
+          parseTaskData(log.data).some(
+            (c) =>
+              c &&
+              typeof c === 'object' &&
+              (c as Record<string, unknown>).audio_url
+          )
 
         const isVideoTask =
           log.action === TASK_ACTIONS.GENERATE ||
@@ -253,8 +253,24 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           log.action === TASK_ACTIONS.REFERENCE_GENERATE ||
           log.action === TASK_ACTIONS.REMIX_GENERATE
         const isSuccess = status === TASK_STATUS.SUCCESS
+        const showRequest = hasTaskRequestSnapshot(log)
+        const showRecovery = isAdmin && isVideoTask
+        const hasFailReason = Boolean(failReason)
 
-        if (isSuccess && isVideoTask) {
+        if (
+          !sunoHasAudio &&
+          !(isSuccess && isVideoTask) &&
+          !hasFailReason &&
+          !showRequest &&
+          !showRecovery
+        ) {
+          return <span className='text-muted-foreground/60 text-xs'>-</span>
+        }
+
+        let preview: ReactNode = null
+        if (sunoHasAudio) {
+          preview = <AudioPreviewCell log={log} />
+        } else if (isSuccess && isVideoTask) {
           const proxyUrl = `/v1/videos/${log.task_id}/content`
           const openPreview = async (event: MouseEvent<HTMLAnchorElement>) => {
             event.preventDefault()
@@ -265,10 +281,8 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
                 toast.error(t('Session expired!'))
                 return
               }
-              const { url, revoke } = await resolveAuthenticatedVideoPlaybackUrl(
-                proxyUrl,
-                auth
-              )
+              const { url, revoke } =
+                await resolveAuthenticatedVideoPlaybackUrl(proxyUrl, auth)
               window.open(url, '_blank', 'noopener,noreferrer')
               if (revoke) {
                 window.setTimeout(revoke, 60_000)
@@ -277,51 +291,49 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
               toast.error(t('Failed to load video preview'))
             }
           }
-          return (
-            <div className='flex max-w-[220px] flex-col gap-1 text-xs'>
-              <a
-                href={proxyUrl}
-                target='_blank'
-                rel='noopener noreferrer'
-                onClick={openPreview}
-                className='text-foreground hover:underline'
-              >
-                {t('Click to preview video')}
-              </a>
-              {isAdmin && <VideoRecoveryActions taskID={log.task_id} />}
-            </div>
+          preview = (
+            <a
+              href={proxyUrl}
+              target='_blank'
+              rel='noopener noreferrer'
+              onClick={openPreview}
+              className='text-foreground hover:underline'
+            >
+              {t('Click to preview video')}
+            </a>
           )
         }
 
-        if (!failReason) {
-          if (isAdmin && isVideoTask) {
-            return <VideoRecoveryActions taskID={log.task_id} />
-          }
-          return <span className='text-muted-foreground/60 text-xs'>-</span>
-        }
-
-        const displayReason = localizeTaskFailReason(failReason, t)
+        const displayReason = hasFailReason
+          ? localizeTaskFailReason(failReason, t)
+          : ''
 
         return (
-          <div className='flex max-w-[220px] flex-col gap-1'>
-            <button
-              type='button'
-              className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
-              onClick={() => setDialogOpen(true)}
-              title={t('Click to view full error message')}
-            >
-              <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
-                {displayReason}
-              </span>
-            </button>
-            <FailReasonDialog
-              failReason={failReason}
-              open={dialogOpen}
-              onOpenChange={setDialogOpen}
-            />
-            {isAdmin && isVideoTask && (
+          <div className='flex max-w-[220px] flex-col gap-1 text-xs'>
+            {preview}
+            {hasFailReason ? (
+              <>
+                <button
+                  type='button'
+                  className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
+                  onClick={() => setDialogOpen(true)}
+                  title={t('Click to view full error message')}
+                >
+                  <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
+                    {displayReason}
+                  </span>
+                </button>
+                <FailReasonDialog
+                  failReason={failReason}
+                  open={dialogOpen}
+                  onOpenChange={setDialogOpen}
+                />
+              </>
+            ) : null}
+            {showRequest ? <TaskRequestParamsButton log={log} /> : null}
+            {showRecovery ? (
               <VideoRecoveryActions taskID={log.task_id} />
-            )}
+            ) : null}
           </div>
         )
       },

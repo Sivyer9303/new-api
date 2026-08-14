@@ -287,11 +287,34 @@ export interface MidjourneyLog {
 // Task Logs Types
 // ============================================================================
 
+export interface TaskMediaSnapshot {
+  type: string
+  role?: string
+}
+
+export interface TaskRequestSnapshot {
+  model?: string
+  prompt?: string
+  generation_type?: string
+  duration?: number
+  seconds?: string
+  resolution?: string
+  aspect_ratio?: string
+  size?: string
+  media?: TaskMediaSnapshot[]
+}
+
+export interface TaskLogProperties {
+  origin_model_name?: string
+  upstream_model_name?: string
+  request?: TaskRequestSnapshot
+}
+
 export interface TaskLog {
   id: number
   user_id: number
   username?: string
-  platform: string // suno, kling, runway, etc.
+  platform: string // suno, kling, runway, channel type id, etc.
   task_id: string
   action: string // MUSIC, LYRICS, GENERATE, TEXT_GENERATE, etc.
   channel_id: number
@@ -305,6 +328,7 @@ export interface TaskLog {
   other?: string
   created_at?: number
   updated_at?: number
+  properties?: TaskLogProperties | string
 }
 
 export interface VideoTaskDiagnostics {

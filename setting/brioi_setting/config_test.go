@@ -38,7 +38,7 @@ func TestDefaultBrioiProfilesMatchDocumentedHardCapabilities(t *testing.T) {
 	assert.Equal(t, []string{"480p", "720p"}, latest.Resolutions)
 	assert.Equal(t, []string{"16:9", "9:16"}, latest.AspectRatios)
 	assert.Equal(t, 30, latest.GenerationModes[2].ImagesMax)
-	assert.Equal(t, 30, latest.GenerationModes[5].ImagesMax)
+	assert.Equal(t, 9, latest.GenerationModes[5].ImagesMax)
 }
 
 func TestResolveProfileUsesExactMappedUpstreamNameWithoutFallback(t *testing.T) {
@@ -259,10 +259,14 @@ func TestPublicBrioiConfigOmitsDisabledAndAdministrativeFields(t *testing.T) {
 	require.NotNil(t, referenceVideos)
 	assert.True(t, referenceVideos.AllowVideo)
 	assert.True(t, referenceVideos.RequireVideo)
+	assert.True(t, referenceVideos.AllowAudio)
+	assert.False(t, referenceVideos.RequireAudio)
 	assert.Equal(t, ReferenceVideosMin, referenceVideos.VideosMin)
 	assert.Equal(t, ReferenceVideosMax, referenceVideos.VideosMax)
 	assert.True(t, public.Profiles[0].Media.AllowVideo)
+	assert.True(t, public.Profiles[0].Media.AllowAudio)
 	assert.Contains(t, public.Profiles[0].Media.AcceptedTypes, "video")
+	assert.Contains(t, public.Profiles[0].Media.AcceptedTypes, "audio")
 
 	encoded, err := common.Marshal(public)
 	require.NoError(t, err)

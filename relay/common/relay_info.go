@@ -856,6 +856,9 @@ type TaskRelayInfo struct {
 	// PublicTaskID 是提交时预生成的 task_xxxx 格式公开 ID，
 	// 供适配器构造公开响应（避免暴露上游真实 ID）。
 	PublicTaskID string
+	// RequestSnapshot is a sanitized copy of the client request for task logs.
+	// It must not include media payloads, signed URLs, or credentials.
+	RequestSnapshot *TaskRequestSnapshot
 	// PersistedTask holds the durable pre-submission task for retries in the
 	// current request. Stored as any to avoid an import cycle with model.
 	PersistedTask any

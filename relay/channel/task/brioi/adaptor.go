@@ -102,11 +102,11 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	for index, media := range stored.request.Media {
 		stagedURL, err := stage(c.Request.Context(), channelID, media.Source)
 		if err != nil {
-			return nil, fmt.Errorf("stage Brioi image %d: %w", index, err)
+			return nil, fmt.Errorf("stage Brioi media %d: %w", index, err)
 		}
 		parsed, err := url.Parse(strings.TrimSpace(stagedURL))
 		if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" {
-			return nil, fmt.Errorf("stage Brioi image %d did not return an HTTPS URL", index)
+			return nil, fmt.Errorf("stage Brioi media %d did not return an HTTPS URL", index)
 		}
 		ref := upstreamRef{
 			URL:  stagedURL,

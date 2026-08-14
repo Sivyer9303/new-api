@@ -16,9 +16,10 @@ import (
 	"github.com/QuantumNous/new-api/setting/video_setting"
 )
 
-// maxStagedInputBytes caps a single staged reference asset. Reference images and
-// MP3 clips are small; a larger payload is either abuse or a client bug.
-const maxStagedInputBytes = 24 << 20
+// maxStagedInputBytes is the historical absolute ceiling used by tests and as a
+// last-resort clamp when settings are unavailable. Prefer
+// UploadLimitsSetting.MaxBytesForContentType for production paths.
+const maxStagedInputBytes = 200 << 20
 
 var (
 	ErrVideoInputStagingUnavailable = errors.New(
@@ -127,11 +128,36 @@ func ValidateVideoInputVideoDataURL(media string) error {
 		return fmt.Errorf("reference video type is invalid")
 	}
 	declaredType = strings.ToLower(declaredType)
-	if declaredType != "video/mp4" {
+	switch declaredType {
+	case "video/mp4", "video/quicktime":
+	default:
 		return fmt.Errorf("reference video type %q is not supported", declaredType)
 	}
 	if len(payload) == 0 {
 		return errors.New("reference video payload is empty")
+	}
+	return nil
+}
+
+// ValidateVideoInputAudioDataURL verifies size and declared type for an MP3 or
+// WAV data URL before any upstream channel is attempted.
+func ValidateVideoInputAudioDataURL(media string) error {
+	payload, declaredType, err := readVideoInputDataURL(context.Background(), media)
+	if err != nil {
+		return err
+	}
+	declaredType, _, err = mime.ParseMediaType(strings.TrimSpace(declaredType))
+	if err != nil {
+		return fmt.Errorf("reference audio type is invalid")
+	}
+	declaredType = strings.ToLower(declaredType)
+	switch declaredType {
+	case "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave":
+	default:
+		return fmt.Errorf("reference audio type %q is not supported", declaredType)
+	}
+	if len(payload) == 0 {
+		return errors.New("reference audio payload is empty")
 	}
 	return nil
 }
@@ -143,11 +169,13 @@ func readVideoInputDataURL(ctx context.Context, media string) ([]byte, string, e
 	}
 	defer body.Close()
 
+	limits := settingUploadLimits()
+	maxBytes := limits.MaxBytesForContentType(contentType)
 	buffer := &bytes.Buffer{}
 	size, err := copyVideoWithContext(
 		ctx,
 		buffer,
-		io.LimitReader(body, maxStagedInputBytes+1),
+		io.LimitReader(body, maxBytes+1),
 	)
 	if err != nil {
 		return nil, "", err
@@ -155,10 +183,16 @@ func readVideoInputDataURL(ctx context.Context, media string) ([]byte, string, e
 	if size <= 0 {
 		return nil, "", errors.New("reference media is empty")
 	}
-	if size > maxStagedInputBytes {
-		return nil, "", fmt.Errorf("reference media exceeds %d bytes", maxStagedInputBytes)
+	if size > maxBytes {
+		return nil, "", fmt.Errorf("reference media exceeds %d bytes", maxBytes)
 	}
 	return buffer.Bytes(), contentType, nil
+}
+
+func settingUploadLimits() video_setting.UploadLimitsSetting {
+	limits := video_setting.GetVideoSetting().UploadLimits
+	video_setting.NormalizeUploadLimitsSetting(&limits)
+	return limits
 }
 
 func normalizeVideoInputImageType(contentType string) string {
@@ -215,10 +249,12 @@ func stagedVideoInputExtension(contentType string) string {
 		return ".gif"
 	case "audio/mpeg", "audio/mp3":
 		return ".mp3"
-	case "audio/wav", "audio/x-wav":
+	case "audio/wav", "audio/x-wav", "audio/wave":
 		return ".wav"
 	case "video/mp4":
 		return ".mp4"
+	case "video/quicktime":
+		return ".mov"
 	default:
 		return ".bin"
 	}

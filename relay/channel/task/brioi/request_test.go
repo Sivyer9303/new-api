@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/brioi_setting"
 	"github.com/gin-gonic/gin"
@@ -61,6 +62,9 @@ func newBrioiContext(
 func TestBuildRequestBodyGoldenModesAndModels(t *testing.T) {
 	imageDataURL := brioiTestImageDataURL(t)
 	videoDataURL := "data:video/mp4;base64," + base64.StdEncoding.EncodeToString([]byte("fake-mp4"))
+	audioDataURL := "data:audio/mpeg;base64," + base64.StdEncoding.EncodeToString([]byte("fake-mp3"))
+	movDataURL := "data:video/quicktime;base64," + base64.StdEncoding.EncodeToString([]byte("fake-mov"))
+	wavDataURL := "data:audio/wav;base64," + base64.StdEncoding.EncodeToString([]byte("fake-wav"))
 	tests := []struct {
 		name string
 		body string
@@ -105,8 +109,8 @@ func TestBuildRequestBodyGoldenModesAndModels(t *testing.T) {
 				"resolution":"4K",
 				"aspect_ratio":"1:1",
 				"ref":[
-					{"url":"https://r2.example/0.png?signature=one","type":"image"},
-					{"url":"https://r2.example/1.png?signature=two","type":"image"}
+					{"url":"https://r2.example/0.png?signature=s0","type":"image"},
+					{"url":"https://r2.example/1.png?signature=s1","type":"image"}
 				]
 			}`,
 		},
@@ -131,8 +135,8 @@ func TestBuildRequestBodyGoldenModesAndModels(t *testing.T) {
 				"resolution":"720p",
 				"aspect_ratio":"9:16",
 				"ref":[
-					{"url":"https://r2.example/0.png?signature=one","type":"image","role":"last_frame"},
-					{"url":"https://r2.example/1.png?signature=two","type":"image","role":"first_frame"}
+					{"url":"https://r2.example/0.png?signature=s0","type":"image","role":"last_frame"},
+					{"url":"https://r2.example/1.png?signature=s1","type":"image","role":"first_frame"}
 				]
 			}`,
 		},
@@ -154,33 +158,89 @@ func TestBuildRequestBodyGoldenModesAndModels(t *testing.T) {
 				"resolution":"1080p",
 				"aspect_ratio":"16:9",
 				"ref":[
-					{"url":"https://r2.example/0.png?signature=one","type":"image","role":"first_frame"}
+					{"url":"https://r2.example/0.png?signature=s0","type":"image","role":"first_frame"}
 				]
 			}`,
 		},
 		{
-			name: "Seedance 2.0 reference videos with companion image",
+			name: "Seedance 2.0 mixed image, video, and audio refs",
 			body: fmt.Sprintf(`{
 				"model":"seedance-2-0",
-				"prompt":"continue @Video1 with @Image1 style",
+				"prompt":"保持 @图片1 中人物，衔接 @视频1 的动作，声音参考 @音频1",
+				"generation_type":"reference_videos",
+				"duration":10,
+				"resolution":"720p",
+				"aspect_ratio":"16:9",
+				"media":[
+					{"type":"image","role":"reference","source":"%s"},
+					{"type":"image","role":"reference","source":"%s"},
+					{"type":"video","role":"reference","source":"%s"},
+					{"type":"video","role":"reference","source":"%s"},
+					{"type":"audio","role":"reference","source":"%s"},
+					{"type":"audio","role":"reference","source":"%s"}
+				]
+			}`, imageDataURL, imageDataURL, videoDataURL, videoDataURL, audioDataURL, audioDataURL),
+			want: `{
+				"model":"seedance-2-0",
+				"prompt":"保持 @图片1 中人物，衔接 @视频1 的动作，声音参考 @音频1",
+				"duration":10,
+				"resolution":"720p",
+				"aspect_ratio":"16:9",
+				"ref":[
+					{"url":"https://r2.example/0.png?signature=s0","type":"image"},
+					{"url":"https://r2.example/1.png?signature=s1","type":"image"},
+					{"url":"https://r2.example/2.mp4?signature=s2","type":"video"},
+					{"url":"https://r2.example/3.mp4?signature=s3","type":"video"},
+					{"url":"https://r2.example/4.mp3?signature=s4","type":"audio"},
+					{"url":"https://r2.example/5.mp3?signature=s5","type":"audio"}
+				]
+			}`,
+		},
+		{
+			name: "Seedance 2.0 video-only reference",
+			body: fmt.Sprintf(`{
+				"model":"seedance-2-0",
+				"prompt":"参考 @视频1 的动作与镜头节奏生成新视频",
+				"generation_type":"reference_videos",
+				"duration":4,
+				"resolution":"720p",
+				"aspect_ratio":"16:9",
+				"reference_videos":["%s"]
+			}`, videoDataURL),
+			want: `{
+				"model":"seedance-2-0",
+				"prompt":"参考 @视频1 的动作与镜头节奏生成新视频",
+				"duration":4,
+				"resolution":"720p",
+				"aspect_ratio":"16:9",
+				"ref":[
+					{"url":"https://r2.example/0.mp4?signature=s0","type":"video"}
+				]
+			}`,
+		},
+		{
+			name: "Seedance 2.0 MOV and WAV mixed refs",
+			body: fmt.Sprintf(`{
+				"model":"seedance-2-0",
+				"prompt":"人物先参考 @视频1，说话声音参考 @音频1",
 				"generation_type":"reference_videos",
 				"duration":8,
 				"resolution":"720p",
 				"aspect_ratio":"16:9",
 				"media":[
 					{"type":"video","role":"reference","source":"%s"},
-					{"type":"image","role":"reference","source":"%s"}
+					{"type":"audio","role":"reference","source":"%s"}
 				]
-			}`, videoDataURL, imageDataURL),
+			}`, movDataURL, wavDataURL),
 			want: `{
 				"model":"seedance-2-0",
-				"prompt":"continue @Video1 with @Image1 style",
+				"prompt":"人物先参考 @视频1，说话声音参考 @音频1",
 				"duration":8,
 				"resolution":"720p",
 				"aspect_ratio":"16:9",
 				"ref":[
-					{"url":"https://r2.example/0.mp4?signature=one","type":"video"},
-					{"url":"https://r2.example/1.png?signature=two","type":"image"}
+					{"url":"https://r2.example/0.mov?signature=s0","type":"video"},
+					{"url":"https://r2.example/1.wav?signature=s1","type":"audio"}
 				]
 			}`,
 		},
@@ -206,18 +266,27 @@ func TestBuildRequestBodyGoldenModesAndModels(t *testing.T) {
 				assert.True(
 					t,
 					strings.HasPrefix(source, "data:image/") ||
-						strings.HasPrefix(source, "data:video/mp4"),
+						strings.HasPrefix(source, "data:video/") ||
+						strings.HasPrefix(source, "data:audio/"),
 				)
 				ext := ".png"
-				if strings.HasPrefix(source, "data:video/") {
+				switch {
+				case strings.HasPrefix(source, "data:video/quicktime"):
+					ext = ".mov"
+				case strings.HasPrefix(source, "data:video/"):
 					ext = ".mp4"
+				case strings.HasPrefix(source, "data:audio/wav"),
+					strings.HasPrefix(source, "data:audio/x-wav"),
+					strings.HasPrefix(source, "data:audio/wave"):
+					ext = ".wav"
+				case strings.HasPrefix(source, "data:audio/"):
+					ext = ".mp3"
 				}
-				signatures := []string{"one", "two"}
 				url := fmt.Sprintf(
-					"https://r2.example/%d%s?signature=%s",
+					"https://r2.example/%d%s?signature=s%d",
 					staged,
 					ext,
-					signatures[staged],
+					staged,
 				)
 				staged++
 				return url, nil
@@ -233,6 +302,7 @@ func TestBuildRequestBodyGoldenModesAndModels(t *testing.T) {
 			assert.NotContains(t, string(body), "generation_type")
 			assert.NotContains(t, string(body), "data:image")
 			assert.NotContains(t, string(body), "data:video")
+			assert.NotContains(t, string(body), "data:audio")
 			assert.NotContains(t, string(body), `"images"`)
 		})
 	}
@@ -254,7 +324,43 @@ func TestRequestValidationUsesMappedModelAndBoundedBillingSeconds(t *testing.T) 
 	stored, ok := getNormalizedRequest(context)
 	require.True(t, ok)
 	assert.Equal(t, ModelSeedance20, stored.request.Model)
+	assert.Equal(t, constant.TaskActionTextGenerate, info.Action)
+	require.NotNil(t, info.RequestSnapshot)
+	assert.Equal(t, "text2video", info.RequestSnapshot.GenerationType)
 	assert.Equal(t, map[string]float64{"seconds": 15}, adaptor.EstimateBilling(context, info))
+}
+
+func TestValidateRequestStoresSanitizedMixedReferenceSnapshot(t *testing.T) {
+	imageDataURL := brioiTestImageDataURL(t)
+	videoDataURL := "data:video/mp4;base64," + base64.StdEncoding.EncodeToString([]byte("fake-mp4"))
+	audioDataURL := "data:audio/mpeg;base64," + base64.StdEncoding.EncodeToString([]byte("fake-mp3"))
+	body := fmt.Sprintf(`{
+		"model":"seedance-2-0",
+		"prompt":"保持 @图片1，衔接 @视频1",
+		"generation_type":"reference_videos",
+		"duration":10,
+		"resolution":"720p",
+		"aspect_ratio":"16:9",
+		"media":[
+			{"type":"image","role":"reference","source":"%s"},
+			{"type":"video","role":"reference","source":"%s"},
+			{"type":"audio","role":"reference","source":"%s"}
+		]
+	}`, imageDataURL, videoDataURL, audioDataURL)
+	context, info := newBrioiContext(t, "/v1/video/generations", body, ModelSeedance20, ModelSeedance20)
+
+	require.Nil(t, (&TaskAdaptor{}).ValidateRequestAndSetAction(context, info))
+
+	assert.Equal(t, constant.TaskActionReferenceGenerate, info.Action)
+	require.NotNil(t, info.RequestSnapshot)
+	assert.Equal(t, "reference_videos", info.RequestSnapshot.GenerationType)
+	assert.Equal(t, "保持 @图片1，衔接 @视频1", info.RequestSnapshot.Prompt)
+	assert.NotContains(t, info.RequestSnapshot.Prompt, "data:")
+	assert.Equal(t, []relaycommon.TaskMediaSnapshot{
+		{Type: "image", Role: "reference"},
+		{Type: "video", Role: "reference"},
+		{Type: "audio", Role: "reference"},
+	}, info.RequestSnapshot.Media)
 }
 
 func TestRequestDerivesResolutionFromMappedOriginModel(t *testing.T) {
@@ -425,7 +531,7 @@ func TestRequestValidationRejectsProtocolBoundaries(t *testing.T) {
 			mutate: func(body map[string]any) {
 				body["audio_url"] = "data:audio/mpeg;base64,YXVkaW8="
 			},
-			contains: "audio references",
+			contains: "only supported",
 		},
 		{
 			name: "video_url singular rejected",
@@ -660,7 +766,7 @@ func TestRequestValidationRejectsInvalidRoleCombinations(t *testing.T) {
 			media: []map[string]string{{
 				"type": "audio", "role": "reference", "source": "data:audio/mpeg;base64,YQ==",
 			}},
-			contains: "not supported",
+			contains: "only supported",
 		},
 	}
 
@@ -670,6 +776,72 @@ func TestRequestValidationRejectsInvalidRoleCombinations(t *testing.T) {
 				"model":           ModelSeedance20,
 				"prompt":          "roles",
 				"generation_type": test.generation,
+				"duration":        8,
+				"resolution":      "720p",
+				"aspect_ratio":    "16:9",
+				"media":           test.media,
+			})
+			require.NoError(t, err)
+			context, info := newBrioiContext(
+				t,
+				"/v1/video/generations",
+				string(body),
+				ModelSeedance20,
+				ModelSeedance20,
+			)
+
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(context, info)
+
+			require.NotNil(t, taskErr)
+			assert.Contains(t, taskErr.Message, test.contains)
+		})
+	}
+}
+
+func TestReferenceVideosRejectsAudioOnlyAndOverCap(t *testing.T) {
+	video := "data:video/mp4;base64," + base64.StdEncoding.EncodeToString([]byte("fake-mp4"))
+	audio := "data:audio/mpeg;base64," + base64.StdEncoding.EncodeToString([]byte("fake-mp3"))
+	tests := []struct {
+		name     string
+		media    []map[string]string
+		contains string
+	}{
+		{
+			name: "audio without video",
+			media: []map[string]string{{
+				"type": "audio", "role": "reference", "source": audio,
+			}},
+			contains: "between 1 and 3 reference videos",
+		},
+		{
+			name: "four reference videos",
+			media: []map[string]string{
+				{"type": "video", "role": "reference", "source": video},
+				{"type": "video", "role": "reference", "source": video},
+				{"type": "video", "role": "reference", "source": video},
+				{"type": "video", "role": "reference", "source": video},
+			},
+			contains: "between 1 and 3 reference videos",
+		},
+		{
+			name: "four companion audios",
+			media: []map[string]string{
+				{"type": "video", "role": "reference", "source": video},
+				{"type": "audio", "role": "reference", "source": audio},
+				{"type": "audio", "role": "reference", "source": audio},
+				{"type": "audio", "role": "reference", "source": audio},
+				{"type": "audio", "role": "reference", "source": audio},
+			},
+			contains: "up to 3 companion reference audios",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := common.Marshal(map[string]any{
+				"model":           ModelSeedance20,
+				"prompt":          "refs",
+				"generation_type": GenerationReferenceVideos,
 				"duration":        8,
 				"resolution":      "720p",
 				"aspect_ratio":    "16:9",

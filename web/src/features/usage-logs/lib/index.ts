@@ -59,5 +59,13 @@ export {
   taskPlatformMapper,
 } from './mappers'
 
+export {
+  getTaskRequestCopyJSON,
+  getTaskRequestFields,
+  getTaskRequestMedia,
+  hasTaskRequestSnapshot,
+  taskLogActionLabel,
+} from './task-log-display'
+
 // Column utilities
 export { useColumnsByCategory } from './columns'

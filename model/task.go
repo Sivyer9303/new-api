@@ -102,9 +102,10 @@ func (t *Task) GetData(v any) error {
 }
 
 type Properties struct {
-	Input             string `json:"input"`
-	UpstreamModelName string `json:"upstream_model_name,omitempty"`
-	OriginModelName   string `json:"origin_model_name,omitempty"`
+	Input             string                           `json:"input,omitempty"`
+	UpstreamModelName string                           `json:"upstream_model_name,omitempty"`
+	OriginModelName   string                           `json:"origin_model_name,omitempty"`
+	Request           *commonRelay.TaskRequestSnapshot `json:"request,omitempty"`
 }
 
 func (m *Properties) Scan(val interface{}) error {
@@ -237,6 +238,10 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 		if relayInfo.OriginModelName != "" {
 			properties.OriginModelName = relayInfo.OriginModelName
 		}
+	}
+	if relayInfo != nil && relayInfo.TaskRelayInfo != nil && relayInfo.TaskRelayInfo.RequestSnapshot != nil {
+		snapshot := *relayInfo.TaskRelayInfo.RequestSnapshot
+		properties.Request = &snapshot
 	}
 
 	// 使用预生成的公开 ID（如果有），否则新生成
