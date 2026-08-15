@@ -27,78 +27,81 @@ function stableStringify(obj) {
 
 const newKeys = {
   en: {
-    'View request': 'View request',
-    'Request parameters': 'Request parameters',
-    'Request parameters for this task': 'Request parameters for this task',
-    'No request parameters were recorded for this task.':
-      'No request parameters were recorded for this task.',
-    'Generation type': 'Generation type',
-    Size: 'Size',
-    Attachments: 'Attachments',
+    'Provider task failed': 'Provider task failed',
+    'Provider completed the task without a usable result; administrator review is required':
+      'Provider completed the task without a usable result; administrator review is required',
+    'Provider returned an unknown task status; administrator review is required':
+      'Provider returned an unknown task status; administrator review is required',
+    'Optional companion audio. Numbered as @音频1. MP3 or WAV; cannot be the only reference.':
+      'Optional companion audio. Numbered as @音频1. MP3 or WAV; cannot be the only reference.',
+    'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
+      'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.',
   },
   zh: {
-    'View request': '查看请求',
-    'Request parameters': '请求参数',
-    'Request parameters for this task': '查看该任务提交时的请求参数',
-    'No request parameters were recorded for this task.':
-      '该任务没有记录请求参数。',
-    'Generation type': '生成类型',
-    Size: '尺寸',
-    Attachments: '附件',
+    'Provider task failed': '视频任务失败',
+    'Provider completed the task without a usable result; administrator review is required':
+      '视频已完成但没有可用结果，请联系管理员审核。',
+    'Provider returned an unknown task status; administrator review is required':
+      '视频任务状态未知，请联系管理员审核。',
+    'Optional companion audio. Numbered as @音频1. MP3 or WAV; cannot be the only reference.':
+      '可选配套音频。按 @音频1 编号。支持 MP3 或 WAV；不能作为唯一参考。',
+    'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
+      '请在提示词中使用 @视频N / @图片N。支持 MP4 或 MOV；1–3 段；总时长 ≤{{seconds}} 秒。',
   },
   'zh-TW': {
-    'View request': '查看請求',
-    'Request parameters': '請求參數',
-    'Request parameters for this task': '查看此任務送出時的請求參數',
-    'No request parameters were recorded for this task.':
-      '此任務沒有記錄請求參數。',
-    'Generation type': '產生類型',
-    Size: '尺寸',
-    Attachments: '附件',
+    'Provider task failed': '影片任務失敗',
+    'Provider completed the task without a usable result; administrator review is required':
+      '影片已完成但沒有可用結果，請聯絡管理員審核。',
+    'Provider returned an unknown task status; administrator review is required':
+      '影片任務狀態未知，請聯絡管理員審核。',
+    'Optional companion audio. Numbered as @音频1. MP3 or WAV; cannot be the only reference.':
+      '可選搭配音訊。以 @音频1 編號。支援 MP3 或 WAV；不能作為唯一參考。',
+    'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
+      '請在提示詞使用 @视频N / @图片N。支援 MP4 或 MOV；1–3 段；總時長 ≤{{seconds}} 秒。',
   },
   fr: {
-    'View request': 'Voir la requête',
-    'Request parameters': 'Paramètres de la requête',
-    'Request parameters for this task':
-      'Paramètres envoyés pour cette tâche',
-    'No request parameters were recorded for this task.':
-      'Aucun paramètre de requête n’a été enregistré pour cette tâche.',
-    'Generation type': 'Type de génération',
-    Size: 'Taille',
-    Attachments: 'Pièces jointes',
+    'Provider task failed': 'Échec de la tâche vidéo',
+    'Provider completed the task without a usable result; administrator review is required':
+      'La tâche est terminée sans résultat utilisable ; une revue administrateur est requise.',
+    'Provider returned an unknown task status; administrator review is required':
+      'Statut de tâche inconnu ; une revue administrateur est requise.',
+    'Optional companion audio. Numbered as @音频1. MP3 or WAV; cannot be the only reference.':
+      'Audio d’accompagnement optionnel. Numéroté @音频1. MP3 ou WAV ; ne peut pas être la seule référence.',
+    'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
+      'Utilisez @视频N / @图片N dans le prompt. MP4 ou MOV ; 1–3 clips ; durée totale ≤{{seconds}} s.',
   },
   ja: {
-    'View request': 'リクエストを表示',
-    'Request parameters': 'リクエストパラメータ',
-    'Request parameters for this task':
-      'このタスク送信時のリクエストパラメータ',
-    'No request parameters were recorded for this task.':
-      'このタスクのリクエストパラメータは記録されていません。',
-    'Generation type': '生成タイプ',
-    Size: 'サイズ',
-    Attachments: '添付',
+    'Provider task failed': '動画タスクに失敗しました',
+    'Provider completed the task without a usable result; administrator review is required':
+      'タスクは完了しましたが利用可能な結果がありません。管理者による確認が必要です。',
+    'Provider returned an unknown task status; administrator review is required':
+      'タスクの状態が不明です。管理者による確認が必要です。',
+    'Optional companion audio. Numbered as @音频1. MP3 or WAV; cannot be the only reference.':
+      '任意の補助音声です。@音频1 と番号付けされます。MP3 または WAV。音声だけでは参照にできません。',
+    'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
+      'プロンプトでは @视频N / @图片N を使ってください。MP4 または MOV、1–3 本、合計時間 ≤{{seconds}} 秒。',
   },
   ru: {
-    'View request': 'Посмотреть запрос',
-    'Request parameters': 'Параметры запроса',
-    'Request parameters for this task':
-      'Параметры запроса, отправленные для этой задачи',
-    'No request parameters were recorded for this task.':
-      'Для этой задачи параметры запроса не сохранены.',
-    'Generation type': 'Тип генерации',
-    Size: 'Размер',
-    Attachments: 'Вложения',
+    'Provider task failed': 'Ошибка видеозадачи',
+    'Provider completed the task without a usable result; administrator review is required':
+      'Задача завершена без пригодного результата; требуется проверка администратора.',
+    'Provider returned an unknown task status; administrator review is required':
+      'Неизвестный статус задачи; требуется проверка администратора.',
+    'Optional companion audio. Numbered as @音频1. MP3 or WAV; cannot be the only reference.':
+      'Необязательное сопутствующее аудио. Нумерация: @音频1. MP3 или WAV; не может быть единственной ссылкой.',
+    'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
+      'Используйте @视频N / @图片N в запросе. MP4 или MOV; 1–3 клипа; общая длительность ≤{{seconds}} с.',
   },
   vi: {
-    'View request': 'Xem yêu cầu',
-    'Request parameters': 'Tham số yêu cầu',
-    'Request parameters for this task':
-      'Tham số yêu cầu đã gửi cho tác vụ này',
-    'No request parameters were recorded for this task.':
-      'Tác vụ này không ghi lại tham số yêu cầu.',
-    'Generation type': 'Kiểu tạo',
-    Size: 'Kích thước',
-    Attachments: 'Tệp đính kèm',
+    'Provider task failed': 'Tác vụ video thất bại',
+    'Provider completed the task without a usable result; administrator review is required':
+      'Tác vụ đã hoàn tất nhưng không có kết quả dùng được; cần quản trị viên xem xét.',
+    'Provider returned an unknown task status; administrator review is required':
+      'Trạng thái tác vụ không xác định; cần quản trị viên xem xét.',
+    'Optional companion audio. Numbered as @音频1. MP3 or WAV; cannot be the only reference.':
+      'Audio kèm theo tùy chọn. Đánh số @音频1. MP3 hoặc WAV; không thể là tham chiếu duy nhất.',
+    'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
+      'Dùng @视频N / @图片N trong prompt. MP4 hoặc MOV; 1–3 clip; tổng thời lượng ≤{{seconds}} giây.',
   },
 }
 

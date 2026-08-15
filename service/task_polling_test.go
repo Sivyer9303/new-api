@@ -690,6 +690,16 @@ func TestSanitizeTaskFailureReasonRedactsProviderURLsAndBoundsLength(t *testing.
 	assert.Equal(t, "provider could not fetch [provider URL redacted]", sanitized)
 	assert.NotContains(t, sanitized, "X-Amz-Signature")
 
+	assert.Equal(t, "Provider task failed", sanitizeTaskFailureReason("Brioi task failed"))
+	assert.Equal(t, "Provider task failed", sanitizeTaskFailureReason("SilkRoad task failed"))
+	assert.Equal(
+		t,
+		"Provider returned an unknown task status; administrator review is required",
+		sanitizeTaskFailureReason("Brioi returned an unknown task status; administrator review is required"),
+	)
+	assert.NotContains(t, sanitizeTaskFailureReason("Silk Road poll failed"), "Silk")
+	assert.NotContains(t, sanitizeTaskFailureReason("silk_road task failed"), "silk")
+
 	longReason := strings.Repeat("故障", 600)
 	assert.LessOrEqual(t, len([]rune(sanitizeTaskFailureReason(longReason))), 515)
 }

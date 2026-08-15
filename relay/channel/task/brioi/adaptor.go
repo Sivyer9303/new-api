@@ -87,7 +87,7 @@ func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, req *http.Request, _ *r
 func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
 	stored, ok := getNormalizedRequest(c)
 	if !ok || stored.request.Duration == nil {
-		return nil, fmt.Errorf("validated Brioi request not found")
+		return nil, fmt.Errorf("validated video request not found")
 	}
 
 	stage := a.stageInput
@@ -102,11 +102,11 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	for index, media := range stored.request.Media {
 		stagedURL, err := stage(c.Request.Context(), channelID, media.Source)
 		if err != nil {
-			return nil, fmt.Errorf("stage Brioi media %d: %w", index, err)
+			return nil, fmt.Errorf("stage media %d: %w", index, err)
 		}
 		parsed, err := url.Parse(strings.TrimSpace(stagedURL))
 		if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" {
-			return nil, fmt.Errorf("stage Brioi media %d did not return an HTTPS URL", index)
+			return nil, fmt.Errorf("stage media %d did not return an HTTPS URL", index)
 		}
 		ref := upstreamRef{
 			URL:  stagedURL,
@@ -131,7 +131,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	}
 	data, err := common.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("marshal Brioi request: %w", err)
+		return nil, fmt.Errorf("marshal video request: %w", err)
 	}
 	return bytes.NewReader(data), nil
 }
@@ -150,7 +150,7 @@ func (a *TaskAdaptor) DoRequest(
 	}
 	_ = response.Body.Close()
 	response.Body = io.NopCloser(strings.NewReader(
-		`{"error":{"message":"Brioi task submission failed"}}`,
+		`{"error":{"message":"Video task submission failed"}}`,
 	))
 	response.ContentLength = -1
 	return response, nil
@@ -163,7 +163,7 @@ func (a *TaskAdaptor) DoResponse(
 ) (submitResult *channel.TaskSubmitResponse, taskErr *taskdto.TaskError) {
 	if response == nil || response.Body == nil {
 		taskErr = service.TaskErrorWrapper(
-			fmt.Errorf("Brioi response is empty"),
+			fmt.Errorf("video response is empty"),
 			"invalid_response",
 			http.StatusBadGateway,
 		)
@@ -177,7 +177,7 @@ func (a *TaskAdaptor) DoResponse(
 	}
 	if len(body) > maxProviderResponseSize {
 		taskErr = service.TaskErrorWrapper(
-			fmt.Errorf("Brioi response exceeds 4 MiB"),
+			fmt.Errorf("video response exceeds 4 MiB"),
 			"invalid_response",
 			http.StatusBadGateway,
 		)
@@ -186,7 +186,7 @@ func (a *TaskAdaptor) DoResponse(
 	upstreamID, err := videocommon.ExtractSubmitTaskID(body)
 	if err != nil {
 		taskErr = service.TaskErrorWrapper(
-			fmt.Errorf("Brioi response is missing a task identifier"),
+			fmt.Errorf("video response is missing a task identifier"),
 			"invalid_response",
 			http.StatusBadGateway,
 		)
@@ -250,7 +250,7 @@ func (a *TaskAdaptor) FetchTask(
 
 	client, err := service.GetHttpClientWithProxy(proxy)
 	if err != nil {
-		return nil, fmt.Errorf("create Brioi proxy client: %w", err)
+		return nil, fmt.Errorf("create video proxy client: %w", err)
 	}
 	response, err := client.Do(request)
 	if err != nil {
@@ -258,15 +258,15 @@ func (a *TaskAdaptor) FetchTask(
 	}
 	if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= http.StatusInternalServerError {
 		_ = response.Body.Close()
-		return nil, fmt.Errorf("Brioi poll returned retryable status %d", response.StatusCode)
+		return nil, fmt.Errorf("video poll returned retryable status %d", response.StatusCode)
 	}
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxProviderResponseSize+1))
 	_ = response.Body.Close()
 	if err != nil {
-		return nil, fmt.Errorf("read Brioi poll response: %w", err)
+		return nil, fmt.Errorf("read video poll response: %w", err)
 	}
 	if len(responseBody) > maxProviderResponseSize {
-		return nil, fmt.Errorf("Brioi poll response exceeds 4 MiB")
+		return nil, fmt.Errorf("video poll response exceeds 4 MiB")
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		// A non-retryable polling response must terminate safely without exposing
@@ -280,7 +280,7 @@ func (a *TaskAdaptor) FetchTask(
 			Status: "poll_http_" + strconv.Itoa(response.StatusCode),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("marshal Brioi poll error: %w", err)
+			return nil, fmt.Errorf("marshal video poll error: %w", err)
 		}
 	}
 	response.Body = io.NopCloser(bytes.NewReader(responseBody))
@@ -291,10 +291,10 @@ func (a *TaskAdaptor) FetchTask(
 func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error) {
 	result, err := videocommon.ParseProviderResult(body)
 	if err != nil {
-		return nil, fmt.Errorf("parse Brioi task result: %w", err)
+		return nil, fmt.Errorf("parse video task result: %w", err)
 	}
 	if strings.TrimSpace(result.RawStatus) == "" {
-		return nil, fmt.Errorf("Brioi task result is missing status")
+		return nil, fmt.Errorf("video task result is missing status")
 	}
 
 	taskResult := &relaycommon.TaskInfo{
@@ -315,7 +315,7 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		if strings.TrimSpace(result.ResultURL) == "" {
 			taskResult.Status = model.TaskStatusFailure
 			taskResult.Progress = taskcommon.ProgressComplete
-			taskResult.Reason = "Brioi completed the task without a result URL; administrator review is required"
+			taskResult.Reason = "Provider completed the task without a usable result; administrator review is required"
 			taskResult.NoRefund = true
 			return taskResult, nil
 		}
@@ -326,12 +326,12 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		taskResult.Progress = taskcommon.ProgressComplete
 		taskResult.NoRefund = result.NoRefund
 		if result.NoRefund {
-			taskResult.Reason = "Brioi returned an unknown task status; administrator review is required"
+			taskResult.Reason = "Provider returned an unknown task status; administrator review is required"
 		} else {
-			taskResult.Reason = "Brioi task failed"
+			taskResult.Reason = "Provider task failed"
 		}
 	default:
-		return nil, fmt.Errorf("unsupported Brioi task status %q", result.Status)
+		return nil, fmt.Errorf("unsupported video task status %q", result.Status)
 	}
 	return taskResult, nil
 }
@@ -351,13 +351,13 @@ func (a *TaskAdaptor) PreferDirectTaskResultParsing() bool {
 func normalizeBaseURL(raw string) (string, error) {
 	baseURL := strings.TrimRight(strings.TrimSpace(raw), "/")
 	if baseURL == "" {
-		return "", fmt.Errorf("Brioi base URL is required")
+		return "", fmt.Errorf("channel base URL is required")
 	}
 	parsed, err := url.Parse(baseURL)
 	if err != nil || parsed.Host == "" ||
 		parsed.RawQuery != "" || parsed.Fragment != "" ||
 		(!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https")) {
-		return "", fmt.Errorf("Brioi base URL must be an absolute HTTP(S) URL")
+		return "", fmt.Errorf("channel base URL must be an absolute HTTP(S) URL")
 	}
 	return baseURL, nil
 }

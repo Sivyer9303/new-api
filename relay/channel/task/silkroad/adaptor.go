@@ -81,7 +81,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 
 	var dResp taskResultResponse
 	if err := common.Unmarshal(responseBody, &dResp); err != nil {
-		taskErr = service.TaskErrorWrapper(errors.Wrap(err, "parse SilkRoad submit response"), "unmarshal_response_body_failed", http.StatusInternalServerError)
+		taskErr = service.TaskErrorWrapper(errors.Wrap(err, "parse video submit response"), "unmarshal_response_body_failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -168,9 +168,9 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		NoRefund: result.NoRefund,
 	}
 	if result.NoRefund {
-		taskResult.Reason = "SilkRoad returned an unknown task status; administrator review is required"
+		taskResult.Reason = "Provider returned an unknown task status; administrator review is required"
 	} else if result.Status == videocommon.ProviderTaskFailed {
-		taskResult.Reason = "SilkRoad task failed"
+		taskResult.Reason = "Provider task failed"
 	}
 	if result.Progress > 0 {
 		taskResult.Progress = strconv.Itoa(result.Progress)

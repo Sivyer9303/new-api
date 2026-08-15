@@ -174,7 +174,7 @@ export function useVideoTaskPolling() {
         if (cancelled) return
         setPollError(
           error instanceof Error
-            ? error.message
+            ? localizeTaskFailReason(error.message, t)
             : t('Failed to fetch video task')
         )
       }

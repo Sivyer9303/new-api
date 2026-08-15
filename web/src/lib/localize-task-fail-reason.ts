@@ -21,14 +21,42 @@ For commercial licensing, please contact support@quantumnous.com
 export const VIDEO_DELIVERY_FAILURE_I18N_KEY =
   'Video delivery failed after generation. Contact an administrator with task ID {{taskId}} for review.'
 
+export const PROVIDER_TASK_FAILED_I18N_KEY = 'Provider task failed'
+
+export const PROVIDER_NO_USABLE_RESULT_I18N_KEY =
+  'Provider completed the task without a usable result; administrator review is required'
+
+export const PROVIDER_UNKNOWN_STATUS_I18N_KEY =
+  'Provider returned an unknown task status; administrator review is required'
+
 const VIDEO_DELIVERY_FAILURE_PATTERN =
   /^Video delivery failed after generation\. Contact an administrator with task ID (.+) for review\.$/
+
+const VIDEO_UPSTREAM_BRAND_PATTERN = /\b(?:brioi|silk[\s_-]*road)\b/i
+
+const GENERIC_FAIL_REASON_KEYS: Record<string, string> = {
+  'Provider task failed': PROVIDER_TASK_FAILED_I18N_KEY,
+  'Brioi task failed': PROVIDER_TASK_FAILED_I18N_KEY,
+  'SilkRoad task failed': PROVIDER_TASK_FAILED_I18N_KEY,
+  'Provider completed the task without a usable result; administrator review is required':
+    PROVIDER_NO_USABLE_RESULT_I18N_KEY,
+  'Brioi completed the task without a result URL; administrator review is required':
+    PROVIDER_NO_USABLE_RESULT_I18N_KEY,
+  'Provider completed the task without a result URL; administrator review is required':
+    PROVIDER_NO_USABLE_RESULT_I18N_KEY,
+  'Provider returned an unknown task status; administrator review is required':
+    PROVIDER_UNKNOWN_STATUS_I18N_KEY,
+  'Brioi returned an unknown task status; administrator review is required':
+    PROVIDER_UNKNOWN_STATUS_I18N_KEY,
+  'SilkRoad returned an unknown task status; administrator review is required':
+    PROVIDER_UNKNOWN_STATUS_I18N_KEY,
+}
 
 type TranslateFn = (key: string, options?: Record<string, unknown>) => string
 
 /**
  * Localizes known machine-written task fail_reason strings for UI display.
- * Unknown upstream/admin messages pass through unchanged.
+ * Unknown messages pass through unless they still name a video upstream.
  */
 export function localizeTaskFailReason(
   failReason: string,
@@ -42,6 +70,15 @@ export function localizeTaskFailReason(
     return translate(VIDEO_DELIVERY_FAILURE_I18N_KEY, {
       taskId: deliveryMatch[1],
     })
+  }
+
+  const mappedKey = GENERIC_FAIL_REASON_KEYS[trimmed]
+  if (mappedKey) {
+    return translate(mappedKey)
+  }
+
+  if (VIDEO_UPSTREAM_BRAND_PATTERN.test(trimmed)) {
+    return translate('Video generation failed')
   }
 
   return failReason

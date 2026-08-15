@@ -49,21 +49,21 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	}
 	if c.Request.URL.Path != "/v1/video/generations" {
 		return service.TaskErrorWrapperLocal(
-			fmt.Errorf("Brioi supports only POST /v1/video/generations"),
+			fmt.Errorf("video generation requires POST /v1/video/generations"),
 			"unsupported_route",
 			http.StatusBadRequest,
 		)
 	}
 	if c.Request.Method != http.MethodPost {
 		return service.TaskErrorWrapperLocal(
-			fmt.Errorf("Brioi video generation requires POST"),
+			fmt.Errorf("video generation requires POST"),
 			"unsupported_method",
 			http.StatusMethodNotAllowed,
 		)
 	}
 	if !strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "application/json") {
 		return service.TaskErrorWrapperLocal(
-			fmt.Errorf("Brioi video generation requires application/json"),
+			fmt.Errorf("video generation requires application/json"),
 			"invalid_content_type",
 			http.StatusBadRequest,
 		)
@@ -160,14 +160,14 @@ func parseRequest(body []byte, info *relaycommon.RelayInfo) (videocommon.VideoGe
 	hardProfile, ok := modelProfiles[modelName]
 	if !ok {
 		return videocommon.VideoGenerateRequest{}, resolvedProfile{}, fmt.Errorf(
-			"model %q is not supported by Brioi",
+			"model %q is not supported for video generation",
 			modelName,
 		)
 	}
 	configuredProfile, ok := brioi_setting.ResolveProfile(modelName)
 	if !ok {
 		return videocommon.VideoGenerateRequest{}, resolvedProfile{}, fmt.Errorf(
-			"model %q is disabled or has no enabled Brioi profile",
+			"model %q is disabled or has no enabled video profile",
 			modelName,
 		)
 	}
@@ -707,7 +707,7 @@ func validateRequest(request videocommon.VideoGenerateRequest, profile resolvedP
 			)
 		}
 	default:
-		return fmt.Errorf("generation_type %q is not supported by Brioi", request.GenerationType)
+		return fmt.Errorf("generation_type %q is not supported", request.GenerationType)
 	}
 	return nil
 }

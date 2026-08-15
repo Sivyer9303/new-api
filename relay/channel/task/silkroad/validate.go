@@ -61,7 +61,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	profile, ok := silkroad_setting.MatchProfile(modelName)
 	if !ok {
 		return service.TaskErrorWrapperLocal(
-			fmt.Errorf("model %q does not match any silkroad profile", modelName),
+			fmt.Errorf("model %q is not available for video generation", modelName),
 			"unknown_model_profile",
 			http.StatusBadRequest,
 		)

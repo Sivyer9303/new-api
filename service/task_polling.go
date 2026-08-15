@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -630,8 +631,28 @@ func markTaskPollingProviderReview(
 	return nil
 }
 
+var videoUpstreamBrandPattern = regexp.MustCompile(`(?i)\b(?:brioi|silk[\s_-]*road)\b`)
+
+// SanitizeTaskFailureReason redacts provider URLs, data URLs, and video
+// upstream brand names from client-visible task failure text.
+func SanitizeTaskFailureReason(reason string) string {
+	return sanitizeTaskFailureReason(reason)
+}
+
+func redactVideoUpstreamBrands(text string) string {
+	if text == "" || !videoUpstreamBrandPattern.MatchString(text) {
+		return text
+	}
+	replaced := videoUpstreamBrandPattern.ReplaceAllString(text, "Provider")
+	return strings.Join(strings.Fields(replaced), " ")
+}
+
 func sanitizeTaskFailureReason(reason string) string {
 	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "Provider task failed"
+	}
+	reason = redactVideoUpstreamBrands(reason)
 	if reason == "" {
 		return "Provider task failed"
 	}

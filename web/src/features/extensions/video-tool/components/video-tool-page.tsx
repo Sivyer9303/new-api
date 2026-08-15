@@ -21,7 +21,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { SectionPageLayout } from '@/components/layout'
+import { localizeTaskFailReason } from '@/lib/localize-task-fail-reason'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
@@ -285,7 +285,7 @@ function referenceAudioHelp(
 ): string {
   if (isBrioi) {
     return translate(
-      'Optional companion audio. Brioi numbers it as @音频1. MP3 or WAV; cannot be the only reference.'
+      'Optional companion audio. Numbered as @音频1. MP3 or WAV; cannot be the only reference.'
     )
   }
   if (requireAudio) {
@@ -994,8 +994,9 @@ export function VideoToolPage() {
       })
       toast.success(t('Video task submitted'))
     } catch (err) {
-      const message =
+      const rawMessage =
         err instanceof Error ? err.message : t('Failed to submit video task')
+      const message = localizeTaskFailReason(rawMessage, t)
       toast.error(message)
       failSubmission(message)
     } finally {
@@ -1157,13 +1158,6 @@ export function VideoToolPage() {
               <Card>
                 <CardHeader className='pb-3'>
                   <CardTitle className='text-base'>{t('Model')}</CardTitle>
-                  {selectedProfile && activeProvider && (
-                    <CardDescription>
-                      {t('Provider')}: {activeProvider.label} · {t('Profile')}:{' '}
-                      {selectedProfile.label} · {t('Duration field')}:{' '}
-                      {durationFieldKey}
-                    </CardDescription>
-                  )}
                 </CardHeader>
                 <CardContent>
                   <Label htmlFor={`${controlId}-model`} className='sr-only'>
@@ -1631,7 +1625,7 @@ export function VideoToolPage() {
                       <p className='text-muted-foreground text-xs'>
                         {activeProvider?.id === 'brioi'
                           ? t(
-                              'Brioi sends these as ref type=video. Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.',
+                              'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.',
                               { seconds: MAX_REFERENCE_VIDEO_SECONDS }
                             )
                           : t(

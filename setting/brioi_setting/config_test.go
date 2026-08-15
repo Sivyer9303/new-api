@@ -241,6 +241,8 @@ func TestPublicBrioiConfigOmitsDisabledAndAdministrativeFields(t *testing.T) {
 	assert.Equal(t, ModelSeedance20Fast, public.Profiles[0].ID)
 	assert.Equal(t, []string{ModelSeedance20Fast}, public.Profiles[0].ExactModels)
 	assert.True(t, public.StrictModelMatching)
+	assert.Empty(t, public.Label)
+	assert.NotContains(t, public.Label, "Brioi")
 	assert.NotEmpty(t, public.GenerationTypes)
 	for _, mode := range public.GenerationTypes {
 		assert.False(t, mode.RequireRefModel)

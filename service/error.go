@@ -208,7 +208,7 @@ func TaskErrorWrapper(err error, code string, statusCode int) *taskdto.TaskError
 	//避免暴露内部错误
 	taskError := &taskdto.TaskError{
 		Code:       code,
-		Message:    text,
+		Message:    redactVideoUpstreamBrands(text),
 		StatusCode: statusCode,
 		Error:      err,
 	}
@@ -223,7 +223,7 @@ func TaskErrorFromAPIError(apiErr *types.NewAPIError) *taskdto.TaskError {
 	}
 	return &taskdto.TaskError{
 		Code:       string(apiErr.GetErrorCode()),
-		Message:    apiErr.Err.Error(),
+		Message:    redactVideoUpstreamBrands(apiErr.Err.Error()),
 		StatusCode: apiErr.StatusCode,
 		Error:      apiErr.Err,
 		LocalError: true,

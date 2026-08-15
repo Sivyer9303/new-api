@@ -32,7 +32,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	modelName := silkRoadProfileModelName(info, req.Model)
 	profile, ok := silkroad_setting.MatchProfile(modelName)
 	if !ok {
-		return nil, fmt.Errorf("model %q does not match any silkroad profile", modelName)
+		return nil, fmt.Errorf("model %q is not available for video generation", modelName)
 	}
 
 	upstreamModel := info.GetUpstreamModelName()

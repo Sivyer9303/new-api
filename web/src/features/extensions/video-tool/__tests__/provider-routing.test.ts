@@ -34,6 +34,7 @@ describe('video provider routing', () => {
       enabled: true,
       providers: {
         silkroad: {
+          label: 'SilkRoad',
           groups: ['silkroad-group'],
           default_profile_id: 'silkroad-default',
           generation_types: ['text2video'],
@@ -47,6 +48,7 @@ describe('video provider routing', () => {
           ],
         },
         brioi: {
+          label: 'Brioi',
           groups: ['brioi-group'],
           generation_types: ['text2video'],
           profiles: [
@@ -72,6 +74,8 @@ describe('video provider routing', () => {
 
     assert.equal(silkRoad?.id, 'silkroad')
     assert.equal(brioi?.id, 'brioi')
+    assert.equal(silkRoad?.label, '')
+    assert.equal(brioi?.label, '')
     assert.ok(silkRoad)
     assert.ok(brioi)
     assert.equal(

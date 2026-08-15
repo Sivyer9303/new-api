@@ -76,6 +76,14 @@ function integerValue(value: unknown, fallback: number): number {
   return Number.isInteger(number) ? number : fallback
 }
 
+function publicProviderLabel(value: unknown): string {
+  const label = asString(value)
+  if (!label || /^(?:brioi|silk[\s_-]*road)$/i.test(label)) {
+    return ''
+  }
+  return label
+}
+
 export function canonicalVideoProviderID(value: unknown): string {
   const normalized = asString(value)
     .toLowerCase()
@@ -468,16 +476,13 @@ function normalizeProvider(
     'strict_model_matching',
     'require_profile_match',
   ])
-  let providerLabel = providerID
-  if (providerID === 'silkroad') providerLabel = 'SilkRoad'
-  if (providerID === 'brioi') providerLabel = 'Brioi'
   const generationTypes = normalizeGenerationTypes(
     generationTypesValue,
     providerID
   )
   return {
     id: providerID,
-    label: asString(provider.label) || asString(provider.name) || providerLabel,
+    label: publicProviderLabel(provider.label) || publicProviderLabel(provider.name),
     groups: stringList(firstDefined(provider, ['groups', 'video_tool_groups'])),
     generation_types:
       generationTypes.length > 0
@@ -556,7 +561,6 @@ export function normalizeVideoToolConfig(value: unknown): VideoToolConfig {
       'silkroad',
       {
         id: 'silkroad',
-        label: 'SilkRoad',
         groups: root.video_tool_groups,
         generation_types: root.generation_types,
         profiles: root.profiles,

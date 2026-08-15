@@ -97,19 +97,19 @@ func TestParseTaskResultNormalizesStatusesAndResults(t *testing.T) {
 			body:       `{"id":"up-1","status":"completed","metadata":{}}`,
 			status:     model.TaskStatusFailure,
 			noRefund:   true,
-			reasonPart: "without a result URL",
+			reasonPart: "without a usable result",
 		},
 		{
 			name:       "failed",
 			body:       `{"id":"up-1","status":"failed","error":{"message":"provider detail"}}`,
 			status:     model.TaskStatusFailure,
-			reasonPart: "Brioi task failed",
+			reasonPart: "Provider task failed",
 		},
 		{
 			name:       "cancelled",
 			body:       `{"id":"up-1","status":"cancelled"}`,
 			status:     model.TaskStatusFailure,
-			reasonPart: "Brioi task failed",
+			reasonPart: "Provider task failed",
 		},
 		{
 			name:       "unknown status",
@@ -132,6 +132,8 @@ func TestParseTaskResultNormalizesStatusesAndResults(t *testing.T) {
 			if test.reasonPart != "" {
 				assert.Contains(t, result.Reason, test.reasonPart)
 			}
+			assert.NotContains(t, result.Reason, "Brioi")
+			assert.NotContains(t, result.Reason, "SilkRoad")
 		})
 	}
 }

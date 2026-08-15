@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -148,6 +149,18 @@ func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {
 	require.NotNil(t, newAPIError)
 	require.NotContains(t, logBuffer.String(), "[truncated")
 	require.Contains(t, logBuffer.String(), body)
+}
+
+func TestTaskErrorWrapperRedactsVideoUpstreamBrands(t *testing.T) {
+	taskErr := TaskErrorWrapper(fmt.Errorf("Brioi task submission failed"), "invalid_response", http.StatusBadGateway)
+	require.NotNil(t, taskErr)
+	assert.NotContains(t, taskErr.Message, "Brioi")
+	assert.Equal(t, "Provider task submission failed", taskErr.Message)
+
+	taskErr = TaskErrorWrapper(fmt.Errorf("parse SilkRoad submit response"), "unmarshal_response_body_failed", http.StatusInternalServerError)
+	require.NotNil(t, taskErr)
+	assert.NotContains(t, taskErr.Message, "SilkRoad")
+	assert.Equal(t, "parse Provider submit response", taskErr.Message)
 }
 
 func withDebugEnabled(t *testing.T, enabled bool) {

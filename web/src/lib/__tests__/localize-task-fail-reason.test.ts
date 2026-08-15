@@ -20,6 +20,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  PROVIDER_TASK_FAILED_I18N_KEY,
   VIDEO_DELIVERY_FAILURE_I18N_KEY,
   localizeTaskFailReason,
 } from '../localize-task-fail-reason'
@@ -35,6 +36,23 @@ describe('localizeTaskFailReason', () => {
       }
     )
     assert.equal(translated, 'localized:task_abc123')
+  })
+
+  test('hides video upstream brand names in fail reasons', () => {
+    assert.equal(
+      localizeTaskFailReason('Brioi task failed', (key) => `t:${key}`),
+      `t:${PROVIDER_TASK_FAILED_I18N_KEY}`
+    )
+    assert.equal(
+      localizeTaskFailReason('SilkRoad task failed', (key) => `t:${key}`),
+      `t:${PROVIDER_TASK_FAILED_I18N_KEY}`
+    )
+    assert.equal(
+      localizeTaskFailReason('Brioi poll returned retryable status 503', (key) =>
+        key === 'Video generation failed' ? 'generic-fail' : key
+      ),
+      'generic-fail'
+    )
   })
 
   test('leaves unknown fail reasons unchanged', () => {

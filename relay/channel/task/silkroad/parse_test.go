@@ -69,8 +69,9 @@ func TestParseTaskResultFailed(t *testing.T) {
 	))
 	require.NoError(t, err)
 	assert.Equal(t, model.TaskStatusFailure, info.Status)
-	assert.Equal(t, "SilkRoad task failed", info.Reason)
+	assert.Equal(t, "Provider task failed", info.Reason)
 	assert.NotContains(t, info.Reason, "X-Amz-Signature")
+	assert.NotContains(t, info.Reason, "SilkRoad")
 }
 
 func TestParseTaskResultWrappedTaskDtoWithNestedVideoURL(t *testing.T) {

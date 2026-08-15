@@ -58,7 +58,7 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 	setting := GetBrioiSetting()
 	public := PublicVideoToolConfig{
 		ID:                  "brioi",
-		Label:               "Brioi",
+		Label:               "",
 		Version:             1,
 		Enabled:             true,
 		VideoToolGroups:     []string{},

@@ -936,4 +936,5 @@ func TestValidateRequestRejectsDeferredVideosRoute(t *testing.T) {
 	require.NotNil(t, taskErr)
 	assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
 	assert.Contains(t, taskErr.Message, "/v1/video/generations")
+	assert.NotContains(t, taskErr.Message, "Brioi")
 }

@@ -939,13 +939,13 @@ func buildOpenAIVideoResponse(task *model.Task) ([]byte, error) {
 		response.Status = "failed"
 		response.Error = &relaykitdto.OpenAIVideoError{
 			Code:    "video_delivery_failed",
-			Message: task.FailReason,
+			Message: service.SanitizeTaskFailureReason(task.FailReason),
 		}
 	case task.Status == model.TaskStatusFailure:
 		response.Status = "failed"
 		response.Error = &relaykitdto.OpenAIVideoError{
 			Code:    "video_generation_failed",
-			Message: task.FailReason,
+			Message: service.SanitizeTaskFailureReason(task.FailReason),
 		}
 	case task.Status == model.TaskStatusSuccess && task.PrivateData.StorageStatus == "ready":
 		response.Status = "completed"
@@ -1016,7 +1016,7 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		Quota:      task.Quota,
 		Action:     task.Action,
 		Status:     publicTaskStatus(task),
-		FailReason: task.FailReason,
+		FailReason: service.SanitizeTaskFailureReason(task.FailReason),
 		ResultURL:  resultURL,
 		SubmitTime: task.SubmitTime,
 		StartTime:  task.StartTime,
