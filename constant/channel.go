@@ -60,9 +60,23 @@ const (
 	ChannelTypeNewAPI         = 60
 	ChannelTypeSilkRoad       = 61
 	ChannelTypeBrioi          = 62
-	ChannelTypeDummy          = 63 // this one is only for count, do not add any channel after this
+	ChannelTypeCompatVideo    = 63
+	ChannelTypeDummy          = 64 // this one is only for count, do not add any channel after this
 
 )
+
+func VideoGenerationChannelTypes() []int {
+	return []int{ChannelTypeSilkRoad, ChannelTypeBrioi, ChannelTypeCompatVideo}
+}
+
+func IsVideoGenerationChannelType(channelType int) bool {
+	switch channelType {
+	case ChannelTypeSilkRoad, ChannelTypeBrioi, ChannelTypeCompatVideo:
+		return true
+	default:
+		return false
+	}
+}
 
 var ChannelBaseURLs = []string{
 	"",                                    // 0
@@ -128,6 +142,7 @@ var ChannelBaseURLs = []string{
 	"",                                          //60
 	"",                                          //61
 	"",                                          //62
+	"",                                          //63
 }
 
 var ChannelTypeNames = map[int]string{
@@ -190,6 +205,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeNewAPI:         "New API",
 	ChannelTypeSilkRoad:       "SilkRoad",
 	ChannelTypeBrioi:          "Brioi",
+	ChannelTypeCompatVideo:    "Compatible Video",
 }
 
 func GetChannelTypeName(channelType int) string {

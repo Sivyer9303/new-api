@@ -229,7 +229,8 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 		if relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeGemini ||
 			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi ||
 			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeSilkRoad ||
-			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeBrioi {
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeBrioi ||
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeCompatVideo {
 			privateData.Key = relayInfo.ChannelMeta.ApiKey
 		}
 		if relayInfo.UpstreamModelName != "" {

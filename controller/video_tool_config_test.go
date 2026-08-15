@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/brioi_setting"
 	"github.com/QuantumNous/new-api/setting/silkroad_setting"
 	"github.com/QuantumNous/new-api/setting/video_setting"
@@ -48,13 +47,11 @@ func TestGetVideoToolConfigAggregatesSanitizedProviderCapabilities(t *testing.T)
 	}
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	require.True(t, response.Success)
-	assert.Equal(t, 2, response.Data.Version)
-	assert.Equal(t, setting.VideoProviderSilkRoad, response.Data.ProviderByGroup["silkroad"])
-	assert.Equal(t, setting.VideoProviderBrioi, response.Data.ProviderByGroup["brioi"])
-	assert.Equal(t, []string{"silkroad"}, response.Data.Providers.SilkRoad.VideoToolGroups)
-	assert.Equal(t, []string{"brioi"}, response.Data.Providers.Brioi.VideoToolGroups)
+	assert.Equal(t, 3, response.Data.Version)
+	assert.Empty(t, response.Data.ProviderByGroup)
 	assert.NotEmpty(t, response.Data.Providers.SilkRoad.Profiles)
 	assert.NotEmpty(t, response.Data.Providers.Brioi.Profiles)
+	assert.NotEmpty(t, response.Data.Providers.CompatVideo.Profiles)
 
 	payload := strings.ToLower(recorder.Body.String())
 	assert.NotContains(t, payload, "top-secret-r2")

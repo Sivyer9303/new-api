@@ -109,10 +109,10 @@ func TestDistributeConstrainsVideoProviderAcrossPriorityAndFailure(t *testing.T)
 	router.ServeHTTP(firstRecorder, firstRequest)
 
 	require.Equal(t, http.StatusNoContent, firstRecorder.Code)
-	assert.Equal(t, constant.ChannelTypeBrioi, selectedChannelType)
+	assert.Equal(t, constant.ChannelTypeSilkRoad, selectedChannelType)
 
 	require.NoError(t, db.Model(&model.Channel{}).
-		Where("id = ?", brioiChannel.Id).
+		Where("id = ?", silkRoadChannel.Id).
 		Update("status", common.ChannelStatusManuallyDisabled).Error)
 
 	selectedChannelType = 0
@@ -125,8 +125,8 @@ func TestDistributeConstrainsVideoProviderAcrossPriorityAndFailure(t *testing.T)
 	secondRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(secondRecorder, secondRequest)
 
-	assert.Equal(t, http.StatusServiceUnavailable, secondRecorder.Code)
-	assert.Zero(t, selectedChannelType)
+	require.Equal(t, http.StatusNoContent, secondRecorder.Code)
+	assert.Equal(t, constant.ChannelTypeBrioi, selectedChannelType)
 }
 
 func TestAutoAffinityGroupMustBelongToConstrainedVideoProvider(t *testing.T) {
@@ -151,6 +151,6 @@ func TestAutoAffinityGroupMustBelongToConstrainedVideoProvider(t *testing.T) {
 	)
 
 	assert.True(t, groupMatchesVideoProviderConstraint(context, "brioi-owned"))
-	assert.False(t, groupMatchesVideoProviderConstraint(context, "silkroad-owned"))
-	assert.False(t, groupMatchesVideoProviderConstraint(context, "unowned"))
+	assert.True(t, groupMatchesVideoProviderConstraint(context, "silkroad-owned"))
+	assert.True(t, groupMatchesVideoProviderConstraint(context, "unowned"))
 }

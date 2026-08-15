@@ -111,6 +111,7 @@ func TestTaskModel2DtoKeepsStoragePhaseProcessingAndHidesResult(t *testing.T) {
 
 	dto := TaskModel2Dto(task)
 	assert.Equal(t, string(model.TaskStatusInProgress), dto.Status)
+	assert.Empty(t, dto.FailReason)
 	assert.Empty(t, dto.ResultURL)
 	assert.Contains(t, string(dto.Data), task.TaskID)
 	assert.NotContains(t, string(dto.Data), "upstream-secret")

@@ -20,7 +20,7 @@ export type VideoRequestInput = {
   imageRoles?: VideoMediaRole[]
   audioURL?: string
   videos?: string[]
-  mediaFormat?: 'legacy' | 'normalized'
+  generateAudio?: boolean
 }
 
 export function buildVideoGenerationRequest(
@@ -38,19 +38,10 @@ export function buildVideoGenerationRequest(
   if (input.durationFieldKey === 'duration') {
     request.duration = Number(input.durationValue)
   } else {
-    request.seconds = input.durationValue
+    request.seconds = Number(input.durationValue)
   }
-  if (input.mediaFormat === 'legacy') {
-    if (input.images && input.images.length > 0) {
-      request.images = input.images
-    }
-    if (input.audioURL) {
-      request.audio_url = input.audioURL
-    }
-    if (input.videos && input.videos.length > 0) {
-      request.reference_videos = input.videos
-    }
-    return request
+  if (input.generateAudio !== undefined) {
+    request.generate_audio = input.generateAudio
   }
 
   const media: Array<Record<string, string>> = []

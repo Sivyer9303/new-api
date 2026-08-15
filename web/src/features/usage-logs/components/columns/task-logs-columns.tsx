@@ -255,7 +255,8 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
         const isSuccess = status === TASK_STATUS.SUCCESS
         const showRequest = hasTaskRequestSnapshot(log)
         const showRecovery = isAdmin && isVideoTask
-        const hasFailReason = Boolean(failReason)
+        const hasFailReason =
+          status === TASK_STATUS.FAILURE && Boolean(failReason?.trim())
 
         if (
           !sunoHasAudio &&

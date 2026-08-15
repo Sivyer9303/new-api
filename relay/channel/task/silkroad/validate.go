@@ -344,7 +344,48 @@ func parseFriendlyRequest(raw map[string]any) (FriendlyRequest, error) {
 		}
 	}
 
+	if mediaRaw, ok := raw["media"]; ok && mediaRaw != nil {
+		if err := applyNormalizedMedia(&req, mediaRaw); err != nil {
+			return req, err
+		}
+	}
+
 	return req, nil
+}
+
+func applyNormalizedMedia(req *FriendlyRequest, mediaRaw any) error {
+	if len(req.Images) > 0 || req.AudioURL != "" || len(req.ReferenceVideos) > 0 {
+		return fmt.Errorf("media cannot be combined with images, audio_url, or reference_videos")
+	}
+	items, ok := mediaRaw.([]any)
+	if !ok {
+		return fmt.Errorf("media must be an array of objects")
+	}
+	for i, item := range items {
+		record, ok := item.(map[string]any)
+		if !ok {
+			return fmt.Errorf("media[%d] must be an object", i)
+		}
+		mediaType, _ := record["type"].(string)
+		source, err := scalarToString(record["source"])
+		if err != nil || source == "" {
+			return fmt.Errorf("media[%d].source is required", i)
+		}
+		switch strings.ToLower(strings.TrimSpace(mediaType)) {
+		case "", "image":
+			req.Images = append(req.Images, source)
+		case "audio":
+			if req.AudioURL != "" {
+				return fmt.Errorf("media accepts at most one audio item")
+			}
+			req.AudioURL = source
+		case "video":
+			req.ReferenceVideos = append(req.ReferenceVideos, source)
+		default:
+			return fmt.Errorf("media[%d].type is not supported", i)
+		}
+	}
+	return nil
 }
 
 func scalarToString(v any) (string, error) {
@@ -503,6 +544,7 @@ func rejectUnknownTopLevelKeys(raw map[string]any) error {
 		"duration":         {},
 		"aspect_ratio":     {},
 		"images":           {},
+		"media":            {},
 		"audio_url":        {},
 		"reference_videos": {},
 	}

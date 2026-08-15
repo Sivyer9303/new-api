@@ -92,32 +92,40 @@ describe('video generation request construction', () => {
     )
   })
 
-  test('preserves SilkRoad legacy image and audio fields', () => {
+  test('always sends normalized media and numeric seconds', () => {
     assert.deepEqual(
       buildVideoGenerationRequest({
         model: 'seedance-ref',
-        prompt: 'Use legacy media fields',
+        prompt: 'Use normalized media fields',
         generationType: 'reference_audio',
         aspectRatio: '16:9',
         durationValue: '5',
         durationFieldKey: 'seconds',
         images: ['image-data-url'],
         audioURL: 'audio-data-url',
-        mediaFormat: 'legacy',
       }),
       {
         model: 'seedance-ref',
-        prompt: 'Use legacy media fields',
+        prompt: 'Use normalized media fields',
         generation_type: 'reference_audio',
         aspect_ratio: '16:9',
-        seconds: '5',
-        images: ['image-data-url'],
-        audio_url: 'audio-data-url',
+        seconds: 5,
+        media: [
+          {
+            type: 'image',
+            role: 'reference',
+            source: 'image-data-url',
+          },
+          {
+            type: 'audio',
+            source: 'audio-data-url',
+          },
+        ],
       }
     )
   })
 
-  test('preserves SilkRoad legacy reference_videos field', () => {
+  test('sends reference videos through normalized media', () => {
     assert.deepEqual(
       buildVideoGenerationRequest({
         model: 'seedance-ref',
@@ -128,16 +136,25 @@ describe('video generation request construction', () => {
         durationFieldKey: 'seconds',
         images: ['image-data-url'],
         videos: ['video-data-url'],
-        mediaFormat: 'legacy',
       }),
       {
         model: 'seedance-ref',
         prompt: 'Follow @Video1',
         generation_type: 'reference_videos',
         aspect_ratio: '16:9',
-        seconds: '5',
-        images: ['image-data-url'],
-        reference_videos: ['video-data-url'],
+        seconds: 5,
+        media: [
+          {
+            type: 'image',
+            role: 'reference',
+            source: 'image-data-url',
+          },
+          {
+            type: 'video',
+            role: 'reference',
+            source: 'video-data-url',
+          },
+        ],
       }
     )
   })
@@ -156,7 +173,6 @@ describe('video generation request construction', () => {
         imageRoles: ['reference'],
         audioURL: 'audio-data-url',
         videos: ['video-data-url'],
-        mediaFormat: 'normalized',
       }),
       {
         model: 'seedance-2-0',
@@ -181,6 +197,30 @@ describe('video generation request construction', () => {
             source: 'video-data-url',
           },
         ],
+      }
+    )
+  })
+
+  test('includes generate_audio when the profile allows it', () => {
+    assert.deepEqual(
+      buildVideoGenerationRequest({
+        model: 'seedance-2-0',
+        prompt: 'A cat walks',
+        generationType: 'text2video',
+        aspectRatio: '16:9',
+        durationValue: '8',
+        durationFieldKey: 'seconds',
+        resolution: '720p',
+        generateAudio: true,
+      }),
+      {
+        model: 'seedance-2-0',
+        prompt: 'A cat walks',
+        generation_type: 'text2video',
+        aspect_ratio: '16:9',
+        resolution: '720p',
+        seconds: 8,
+        generate_audio: true,
       }
     )
   })

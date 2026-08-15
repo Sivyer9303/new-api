@@ -127,6 +127,20 @@ func TestIsVideoTaskUsesMarkerStorageMetadataAndLegacyFallbacks(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "legacy Brioi platform",
+			task: &model.Task{
+				Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeBrioi)),
+			},
+			want: true,
+		},
+		{
+			name: "legacy Compatible Video platform",
+			task: &model.Task{
+				Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeCompatVideo)),
+			},
+			want: true,
+		},
+		{
 			name: "legacy named provider",
 			task: &model.Task{
 				Platform: constant.TaskPlatform("kling"),

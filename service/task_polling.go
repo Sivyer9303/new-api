@@ -650,9 +650,10 @@ func redactVideoUpstreamBrands(text string) string {
 func sanitizeTaskFailureReason(reason string) string {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
-		return "Provider task failed"
+		return ""
 	}
 	reason = redactVideoUpstreamBrands(reason)
+	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		return "Provider task failed"
 	}
@@ -706,6 +707,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	resp, err := adaptor.FetchTask(baseURL, key, map[string]any{
 		"task_id": task.GetUpstreamTaskID(),
 		"action":  task.Action,
+		"model":   task.Properties.UpstreamModelName,
 	}, proxy)
 	if err != nil {
 		return fmt.Errorf("fetchTask failed for task %s: %w", taskId, err)
@@ -856,7 +858,11 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		if task.FinishTime == 0 {
 			task.FinishTime = now
 		}
-		task.FailReason = sanitizeTaskFailureReason(taskResult.Reason)
+		failReason := sanitizeTaskFailureReason(taskResult.Reason)
+		if failReason == "" {
+			failReason = "Provider task failed"
+		}
+		task.FailReason = failReason
 		logger.LogInfo(ctx, fmt.Sprintf("Task %s reported a provider failure", task.TaskID))
 		taskResult.Progress = taskcommon.ProgressComplete
 		if taskResult.NoRefund {

@@ -36,6 +36,7 @@ type VideoGenerateRequest struct {
 	Resolution     string       `json:"resolution,omitempty"`
 	AspectRatio    string       `json:"aspect_ratio,omitempty"`
 	Media          []VideoMedia `json:"media,omitempty"`
+	GenerateAudio  *bool        `json:"generate_audio,omitempty"`
 }
 
 // ProviderTaskStatus is the normalized status returned by video providers.

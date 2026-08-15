@@ -14,8 +14,9 @@ import (
 type VideoProvider string
 
 const (
-	VideoProviderSilkRoad VideoProvider = "silkroad"
-	VideoProviderBrioi    VideoProvider = "brioi"
+	VideoProviderSilkRoad    VideoProvider = "silkroad"
+	VideoProviderBrioi       VideoProvider = "brioi"
+	VideoProviderCompatVideo VideoProvider = "compat_video"
 )
 
 type VideoProviderOwnership struct {
@@ -44,23 +45,7 @@ type VideoProviderResolutionError struct {
 }
 
 func IsVideoGenerationToolEnabled() bool {
-	return videoGenerationToolEnabled(
-		GetEffectiveVideoSetting().Enabled,
-		silkroad_setting.GetPublicVideoToolConfig().Enabled,
-		brioi_setting.GetPublicVideoToolConfig().Enabled,
-	)
-}
-
-func videoGenerationToolEnabled(globalEnabled bool, providerEnabled ...bool) bool {
-	if !globalEnabled {
-		return false
-	}
-	for _, enabled := range providerEnabled {
-		if enabled {
-			return true
-		}
-	}
-	return false
+	return GetEffectiveVideoSetting().Enabled
 }
 
 func (err *VideoProviderResolutionError) Error() string {
@@ -170,6 +155,8 @@ func VideoProviderSupportsUpstreamModel(provider VideoProvider, upstreamModel st
 	case VideoProviderBrioi:
 		_, ok := brioi_setting.ResolveProfile(upstreamModel)
 		return ok
+	case VideoProviderCompatVideo:
+		return strings.TrimSpace(upstreamModel) != ""
 	default:
 		return false
 	}
@@ -181,6 +168,8 @@ func VideoProviderFromChannelType(channelType int) (VideoProvider, bool) {
 		return VideoProviderSilkRoad, true
 	case constant.ChannelTypeBrioi:
 		return VideoProviderBrioi, true
+	case constant.ChannelTypeCompatVideo:
+		return VideoProviderCompatVideo, true
 	default:
 		return "", false
 	}

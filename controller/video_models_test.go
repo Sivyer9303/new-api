@@ -239,7 +239,7 @@ func TestGetVideoToolModelsAppliesProviderTokenBillingAndChannelEligibility(t *t
 	assert.Equal(t, brioi_setting.ModelSeedance25, profileByModel["mapped-public"])
 }
 
-func TestGetVideoToolModelsDoesNotFallBackToAnotherProvider(t *testing.T) {
+func TestGetVideoToolModelsListsEveryVideoChannelInTheKeyGroup(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Token{}))
 	configureVideoModelsTestSettings(t, []string{"brioi-empty"})
@@ -262,9 +262,11 @@ func TestGetVideoToolModelsDoesNotFallBackToAnotherProvider(t *testing.T) {
 
 	response := decodeVideoModelsResponse(t, callVideoModelsEndpoint(t, 102, 702))
 	require.True(t, response.Success)
-	assert.Equal(t, "brioi", string(response.Data.Provider))
-	assert.Empty(t, response.Data.Models)
-	assert.Equal(t, "no_eligible_provider_channel", response.Data.Reason)
+	assert.Equal(t, "silkroad", string(response.Data.Provider))
+	require.Len(t, response.Data.Models, 1)
+	assert.Equal(t, "shared-video", response.Data.Models[0].ID)
+	assert.Equal(t, "silkroad", string(response.Data.Models[0].ProviderID))
+	assert.Empty(t, response.Data.Reason)
 }
 
 func TestGetVideoToolModelsRequiresTokenOwnership(t *testing.T) {

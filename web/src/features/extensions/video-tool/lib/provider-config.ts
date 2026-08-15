@@ -78,7 +78,10 @@ function integerValue(value: unknown, fallback: number): number {
 
 function publicProviderLabel(value: unknown): string {
   const label = asString(value)
-  if (!label || /^(?:brioi|silk[\s_-]*road)$/i.test(label)) {
+  if (
+    !label ||
+    /^(?:brioi|silk[\s_-]*road|compat(?:ible)?[\s_-]*video)$/i.test(label)
+  ) {
     return ''
   }
   return label
@@ -101,6 +104,14 @@ export function canonicalVideoProviderID(value: unknown): string {
     normalized === 'channelbrioi'
   ) {
     return 'brioi'
+  }
+  if (
+    normalized === '63' ||
+    normalized === 'compatvideo' ||
+    normalized === 'compatiblevideo' ||
+    normalized === 'channelcompatvideo'
+  ) {
+    return 'compat_video'
   }
   return asString(value).toLowerCase()
 }
@@ -296,7 +307,7 @@ function normalizeGenerationType(
   }
 }
 
-function normalizeGenerationTypes(
+export function normalizeGenerationTypes(
   value: unknown,
   providerID: string
 ): PublicGenerationType[] {
@@ -366,7 +377,7 @@ function normalizeMediaLimitMap(
   )
 }
 
-function normalizeProfile(value: unknown, index: number): PublicProfile | null {
+export function normalizeProfile(value: unknown, index: number): PublicProfile | null {
   const profile = asRecord(value)
   if (!profile || profile.enabled === false) return null
   const capabilities =
@@ -424,6 +435,14 @@ function normalizeProfile(value: unknown, index: number): PublicProfile | null {
     aspect_ratios: normalizeOptions(capabilities.aspect_ratios, 'aspect_ratio'),
     generation_types: stringList(generationModes),
     require_ref_model_suffix: profile.require_ref_model_suffix !== false,
+    allow_generate_audio: profile.allow_generate_audio === true,
+    generate_audio_default: profile.generate_audio_default === true,
+    multi_image_max_duration: Math.max(
+      0,
+      integerValue(profile.multi_image_max_duration, 0)
+    ),
+    mention_dialect:
+      asString(profile.mention_dialect) === 'zh' ? 'zh' : 'latin',
     media: normalizeMediaLimits(mediaValue),
     media_limits: mediaLimits,
   }
@@ -589,13 +608,19 @@ export function normalizeVideoToolConfig(value: unknown): VideoToolConfig {
   const uploadLimitsRecord = asRecord(
     firstDefined(root, ['upload_limits', 'uploadLimits'])
   )
+  const explicitGroups = stringList(
+    firstDefined(root, ['video_tool_groups', 'groups'])
+  )
+  const derivedGroups = Object.keys(providerByGroup)
+  const videoToolGroups =
+    explicitGroups.length > 0 ? [...new Set(explicitGroups)] : derivedGroups
 
   return {
     version: rawVersion,
     enabled: root.enabled !== false,
     providers,
     provider_by_group: providerByGroup,
-    video_tool_groups: Object.keys(providerByGroup),
+    video_tool_groups: videoToolGroups,
     upload_limits: {
       max_image_mb: Math.max(
         1,
@@ -643,13 +668,15 @@ export function isVideoTokenGroupCandidate(
   } = {}
 ): boolean {
   const { selectableGroups, maxAutoGroups } = constraints
+  const videoGroups = new Set(
+    config.video_tool_groups.map((group) => group.trim()).filter(Boolean)
+  )
   const group = rawGroup.trim()
   if (!group) {
-    return resolveVideoProviderForGroup(config, inheritedGroup) !== null
+    const inherited = inheritedGroup.trim() || 'default'
+    return videoGroups.has(inherited)
   }
   if (group === 'auto') {
-    // Match the server's effective token groups: authorize and deduplicate
-    // first, then apply the current per-token cap before resolving ownership.
     let limit = Number.POSITIVE_INFINITY
     if (maxAutoGroups !== undefined) {
       limit =
@@ -657,7 +684,6 @@ export function isVideoTokenGroupCandidate(
     }
     if (limit === 0) return false
 
-    const providerIDs = new Set<string>()
     const seenGroups = new Set<string>()
     let acceptedGroups = 0
     for (const rawCandidate of autoGroups) {
@@ -672,12 +698,11 @@ export function isVideoTokenGroupCandidate(
       }
       seenGroups.add(candidate)
       acceptedGroups++
-      const provider = resolveVideoProviderForGroup(config, candidate)
-      if (provider) providerIDs.add(provider.id)
+      if (videoGroups.has(candidate)) return true
       if (acceptedGroups >= limit) break
     }
-    return providerIDs.size === 1
+    return false
   }
   if (selectableGroups && !selectableGroups.has(group)) return false
-  return resolveVideoProviderForGroup(config, group) !== null
+  return videoGroups.has(group)
 }

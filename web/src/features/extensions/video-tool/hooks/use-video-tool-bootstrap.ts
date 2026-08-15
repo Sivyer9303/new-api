@@ -29,7 +29,7 @@ export function useVideoToolBootstrap() {
       if (!response.success || !response.data) {
         throw new Error(response.message || 'Failed to load video tool config')
       }
-      if (response.data.version < 1 || response.data.version > 2) {
+      if (response.data.version < 1 || response.data.version > 3) {
         throw new Error(t('Unsupported video tool capability version'))
       }
       return response.data

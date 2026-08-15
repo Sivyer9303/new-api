@@ -493,6 +493,8 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 			return fmt.Errorf("SilkRoad channel base URL cannot be empty")
 		case constant.ChannelTypeBrioi:
 			return fmt.Errorf("Brioi channel base URL cannot be empty")
+		case constant.ChannelTypeCompatVideo:
+			return fmt.Errorf("Compatible Video channel base URL cannot be empty")
 		}
 	}
 

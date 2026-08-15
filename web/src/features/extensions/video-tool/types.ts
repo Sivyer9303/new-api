@@ -61,6 +61,10 @@ export type PublicProfile = {
   aspect_ratios: PublicOption[]
   generation_types: string[]
   require_ref_model_suffix: boolean
+  allow_generate_audio?: boolean
+  generate_audio_default?: boolean
+  multi_image_max_duration?: number
+  mention_dialect?: 'zh' | 'latin' | ''
   media: PublicMediaLimits
   media_limits: Record<string, PublicMediaLimits>
 }
@@ -94,6 +98,10 @@ export type VideoToolModel = {
   id: string
   profile_model: string
   provider_id?: string
+  channel_type?: number
+  profile?: PublicProfile
+  generation_types?: PublicGenerationType[]
+  allow_generate_audio?: boolean
 }
 
 export type VideoToolModelDiscovery = {

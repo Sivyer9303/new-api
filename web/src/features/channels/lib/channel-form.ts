@@ -20,6 +20,7 @@ import { z } from 'zod'
 
 import {
   CHANNEL_TYPE_BRIOI,
+  CHANNEL_TYPE_COMPAT_VIDEO,
   CHANNEL_TYPE_NEW_API,
   CHANNEL_TYPE_SILKROAD,
   CHANNEL_STATUS,
@@ -310,6 +311,7 @@ export const channelFormSchema = z
         CHANNEL_TYPE_NEW_API,
         CHANNEL_TYPE_SILKROAD,
         CHANNEL_TYPE_BRIOI,
+        CHANNEL_TYPE_COMPAT_VIDEO,
       ].includes(data.type) &&
       !data.base_url?.trim()
     ) {

@@ -24,6 +24,9 @@ type videoToolModel struct {
 	OwnedBy                string                  `json:"owned_by"`
 	ProfileModel           string                  `json:"profile_model"`
 	ProviderID             setting.VideoProvider   `json:"provider_id"`
+	ChannelType            int                     `json:"channel_type"`
+	Profile                any                     `json:"profile,omitempty"`
+	GenerationTypes        any                     `json:"generation_types,omitempty"`
 	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types"`
 }
 
@@ -89,64 +92,50 @@ func GetVideoToolModels(c *gin.Context) {
 		common.ApiSuccess(c, response)
 		return
 	}
+	response.ResolvedGroups = candidateGroups
 
-	owner, ownedGroups, err := setting.ResolveVideoProviderForGroups(candidateGroups)
-	if err != nil {
-		response.Reason = "ambiguous_video_provider"
-		common.ApiSuccess(c, response)
-		return
-	}
-	response.ResolvedGroups = ownedGroups
-	if owner.Provider == "" {
-		response.Reason = "video_provider_not_configured"
-		common.ApiSuccess(c, response)
-		return
-	}
-	response.Provider = owner.Provider
-
-	routes, err := model.GetEligibleVideoModelRoutes(ownedGroups, owner.ChannelType)
+	routes, err := model.GetEligibleVideoModelRoutes(candidateGroups)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	if len(routes) == 0 {
-		response.Reason = "no_eligible_provider_channel"
+		response.Reason = "no_eligible_video_channels"
 		common.ApiSuccess(c, response)
 		return
 	}
 
 	type modelCapability struct {
-		profileModel string
-		invalid      bool
+		hit     model.EligibleVideoModelRoute
+		invalid bool
+		seen    bool
 	}
 	capabilities := make(map[string]modelCapability, len(routes))
 	modelOrder := make([]string, 0, len(routes))
 	for _, route := range routes {
-		capability, seen := capabilities[route.Model]
-		if !seen {
+		capability := capabilities[route.Model]
+		if !capability.seen {
 			modelOrder = append(modelOrder, route.Model)
+			capability.seen = true
 		}
 		if route.InvalidMapping {
 			capability.invalid = true
 			capabilities[route.Model] = capability
 			continue
 		}
-		if !setting.VideoProviderSupportsUpstreamModel(owner.Provider, route.UpstreamModel) {
-			capability.invalid = true
-			capabilities[route.Model] = capability
-			continue
+		if !capability.invalid {
+			if hit, ok := model.PickVideoModelHitByName(routes, route.Model); ok {
+				capability.hit = hit
+			}
 		}
-		if capability.profileModel != "" && capability.profileModel != route.UpstreamModel {
-			capability.invalid = true
-		}
-		capability.profileModel = route.UpstreamModel
 		capabilities[route.Model] = capability
 	}
 
 	modelLimits := token.GetModelLimitsMap()
+	providers := make(map[setting.VideoProvider]struct{})
 	for _, modelName := range modelOrder {
 		capability := capabilities[modelName]
-		if capability.invalid || capability.profileModel == "" {
+		if capability.invalid || capability.hit.ChannelType <= 0 || capability.hit.UpstreamModel == "" {
 			continue
 		}
 		if token.ModelLimitsEnabled {
@@ -163,19 +152,35 @@ func GetVideoToolModels(c *gin.Context) {
 			continue
 		}
 
+		provider, profile, generationTypes, ok := attachVideoToolCapabilities(
+			capability.hit.ChannelType,
+			capability.hit.UpstreamModel,
+		)
+		if !ok {
+			continue
+		}
+
 		baseModel := buildOpenAIModel(modelName, nil)
 		response.Models = append(response.Models, videoToolModel{
 			ID:                     baseModel.Id,
 			Object:                 baseModel.Object,
 			Created:                baseModel.Created,
-			OwnedBy:                string(owner.Provider),
-			ProfileModel:           capability.profileModel,
-			ProviderID:             owner.Provider,
+			OwnedBy:                string(provider),
+			ProfileModel:           capability.hit.UpstreamModel,
+			ProviderID:             provider,
+			ChannelType:            capability.hit.ChannelType,
+			Profile:                profile,
+			GenerationTypes:        generationTypes,
 			SupportedEndpointTypes: baseModel.SupportedEndpointTypes,
 		})
+		providers[provider] = struct{}{}
 	}
 	if len(response.Models) == 0 {
 		response.Reason = "no_eligible_video_models"
+	} else if len(providers) == 1 {
+		for provider := range providers {
+			response.Provider = provider
+		}
 	}
 	common.ApiSuccess(c, response)
 }

@@ -36,6 +36,8 @@ const newKeys = {
       'Optional companion audio. Numbered as @音频1. MP3 or WAV; cannot be the only reference.',
     'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
       'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.',
+    'Compatible Video': 'Compatible Video',
+    'Generate audio': 'Generate audio',
   },
   zh: {
     'Provider task failed': '视频任务失败',
@@ -47,6 +49,8 @@ const newKeys = {
       '可选配套音频。按 @音频1 编号。支持 MP3 或 WAV；不能作为唯一参考。',
     'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
       '请在提示词中使用 @视频N / @图片N。支持 MP4 或 MOV；1–3 段；总时长 ≤{{seconds}} 秒。',
+    'Compatible Video': '兼容视频',
+    'Generate audio': '生成音频',
   },
   'zh-TW': {
     'Provider task failed': '影片任務失敗',
@@ -58,6 +62,8 @@ const newKeys = {
       '可選搭配音訊。以 @音频1 編號。支援 MP3 或 WAV；不能作為唯一參考。',
     'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
       '請在提示詞使用 @视频N / @图片N。支援 MP4 或 MOV；1–3 段；總時長 ≤{{seconds}} 秒。',
+    'Compatible Video': '相容影片',
+    'Generate audio': '產生音訊',
   },
   fr: {
     'Provider task failed': 'Échec de la tâche vidéo',
@@ -69,6 +75,8 @@ const newKeys = {
       'Audio d’accompagnement optionnel. Numéroté @音频1. MP3 ou WAV ; ne peut pas être la seule référence.',
     'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
       'Utilisez @视频N / @图片N dans le prompt. MP4 ou MOV ; 1–3 clips ; durée totale ≤{{seconds}} s.',
+    'Compatible Video': 'Vidéo compatible',
+    'Generate audio': 'Générer l’audio',
   },
   ja: {
     'Provider task failed': '動画タスクに失敗しました',
@@ -80,6 +88,8 @@ const newKeys = {
       '任意の補助音声です。@音频1 と番号付けされます。MP3 または WAV。音声だけでは参照にできません。',
     'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
       'プロンプトでは @视频N / @图片N を使ってください。MP4 または MOV、1–3 本、合計時間 ≤{{seconds}} 秒。',
+    'Compatible Video': '互換ビデオ',
+    'Generate audio': '音声を生成',
   },
   ru: {
     'Provider task failed': 'Ошибка видеозадачи',
@@ -91,6 +101,8 @@ const newKeys = {
       'Необязательное сопутствующее аудио. Нумерация: @音频1. MP3 или WAV; не может быть единственной ссылкой.',
     'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
       'Используйте @视频N / @图片N в запросе. MP4 или MOV; 1–3 клипа; общая длительность ≤{{seconds}} с.',
+    'Compatible Video': 'Совместимое видео',
+    'Generate audio': 'Создать аудио',
   },
   vi: {
     'Provider task failed': 'Tác vụ video thất bại',
@@ -102,6 +114,8 @@ const newKeys = {
       'Audio kèm theo tùy chọn. Đánh số @音频1. MP3 hoặc WAV; không thể là tham chiếu duy nhất.',
     'Use @视频N / @图片N in the prompt. MP4 or MOV; 1–3 clips; total duration ≤{{seconds}}s.':
       'Dùng @视频N / @图片N trong prompt. MP4 hoặc MOV; 1–3 clip; tổng thời lượng ≤{{seconds}} giây.',
+    'Compatible Video': 'Video tương thích',
+    'Generate audio': 'Tạo âm thanh',
   },
 }
 

@@ -21,7 +21,7 @@ import axios from 'axios'
 import { api } from '@/lib/api'
 import { resolveAuthenticatedVideoPlaybackUrl } from '@/lib/resolve-authenticated-video-playback-url'
 
-import { normalizeVideoToolConfig } from './lib/provider-config'
+import { normalizeGenerationTypes, normalizeProfile, normalizeVideoToolConfig } from './lib/provider-config'
 import type {
   VideoFetchResponse,
   VideoSubmitResponse,
@@ -31,6 +31,10 @@ import type {
 } from './types'
 
 export const VIDEO_TOOL_MODELS_ENDPOINT = '/api/video/models'
+
+function normalizeAttachedProfile(value: unknown): VideoToolModel['profile'] {
+  return normalizeProfile(value, 0) ?? undefined
+}
 
 function bearerKey(tokenKey: string): string {
   return tokenKey.startsWith('sk-') ? tokenKey : `sk-${tokenKey}`
@@ -91,12 +95,28 @@ export function normalizeVideoModelList(value: unknown): VideoToolModel[] {
             : id.trim()
         const rawProvider =
           model.provider_id ?? model.provider ?? model.owned_by
-        return {
+        const profile = normalizeAttachedProfile(model.profile)
+        const generationTypes = normalizeGenerationTypes(
+          model.generation_types ?? model.generation_modes,
+          typeof rawProvider === 'string' ? rawProvider.trim() : ''
+        )
+        const normalized: VideoToolModel = {
           id: id.trim(),
           profile_model: profileModel,
-          provider_id:
-            typeof rawProvider === 'string' ? rawProvider.trim() : undefined,
         }
+        if (typeof rawProvider === 'string' && rawProvider.trim()) {
+          normalized.provider_id = rawProvider.trim()
+        }
+        if (typeof model.channel_type === 'number') {
+          normalized.channel_type = model.channel_type
+        }
+        if (profile) {
+          normalized.profile = profile
+        }
+        if (generationTypes.length > 0) {
+          normalized.generation_types = generationTypes
+        }
+        return normalized
       })
       .filter((model): model is VideoToolModel => model !== null)
   }

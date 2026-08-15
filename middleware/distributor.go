@@ -19,7 +19,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -40,10 +39,10 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
-		if shouldSelectChannel &&
+		if !ok && shouldSelectChannel &&
 			c.Request.Method == http.MethodPost &&
-			c.Request.URL.Path == "/v1/video/generations" {
-			if err := applyVideoProviderConstraint(c); err != nil {
+			(c.Request.URL.Path == "/v1/video/generations" || c.Request.URL.Path == "/v1/videos") {
+			if err := applyVideoProviderConstraint(c, modelRequest.Model); err != nil {
 				abortWithOpenAiMessage(
 					c,
 					http.StatusServiceUnavailable,
@@ -211,7 +210,11 @@ func channelSupportsRequestPath(channel *model.Channel, requestPath string, requ
 	return config != nil && config.SupportsPathForModel(requestPath, requestModel)
 }
 
-func applyVideoProviderConstraint(c *gin.Context) error {
+func applyVideoProviderConstraint(c *gin.Context, modelName string) error {
+	modelName = strings.TrimSpace(modelName)
+	if modelName == "" {
+		return fmt.Errorf("model is required")
+	}
 	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	groups := []string{usingGroup}
 	if usingGroup == "auto" {
@@ -219,14 +222,15 @@ func applyVideoProviderConstraint(c *gin.Context) error {
 		groups = service.GetRequestAutoGroups(c, userGroup)
 	}
 
-	owner, _, err := setting.ResolveVideoProviderForGroups(groups)
+	routes, err := model.GetEligibleVideoModelRoutes(groups)
 	if err != nil {
-		return fmt.Errorf("video provider resolution failed: %w", err)
+		return fmt.Errorf("video channel lookup failed: %w", err)
 	}
-	if owner.Provider == "" || owner.ChannelType <= 0 {
-		return fmt.Errorf("no video provider is configured for token group %q", usingGroup)
+	hit, ok := model.PickVideoModelHitByName(routes, modelName)
+	if !ok || hit.ChannelType <= 0 {
+		return fmt.Errorf("no video channel is available for this model")
 	}
-	common.SetContextKey(c, constant.ContextKeyVideoProviderChannelType, owner.ChannelType)
+	common.SetContextKey(c, constant.ContextKeyVideoProviderChannelType, hit.ChannelType)
 	return nil
 }
 
@@ -243,8 +247,8 @@ func groupMatchesVideoProviderConstraint(c *gin.Context, group string) bool {
 	if requiredType == 0 {
 		return true
 	}
-	owner, owned := setting.ResolveVideoProviderGroup(group)
-	return owned && owner.ChannelType == requiredType
+	_ = group
+	return true
 }
 
 // getModelFromRequest 从请求中读取模型信息

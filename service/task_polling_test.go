@@ -692,6 +692,8 @@ func TestSanitizeTaskFailureReasonRedactsProviderURLsAndBoundsLength(t *testing.
 
 	assert.Equal(t, "Provider task failed", sanitizeTaskFailureReason("Brioi task failed"))
 	assert.Equal(t, "Provider task failed", sanitizeTaskFailureReason("SilkRoad task failed"))
+	assert.Equal(t, "", sanitizeTaskFailureReason(""))
+	assert.Equal(t, "", sanitizeTaskFailureReason("   "))
 	assert.Equal(
 		t,
 		"Provider returned an unknown task status; administrator review is required",

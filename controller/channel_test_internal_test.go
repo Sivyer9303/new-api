@@ -231,7 +231,8 @@ func TestBrioiChannelRegistration(t *testing.T) {
 	assert.False(t, ok)
 	assert.Equal(t, constant.APITypeOpenAI, apiType)
 	assert.Equal(t, 62, constant.ChannelTypeBrioi)
-	assert.Equal(t, constant.ChannelTypeBrioi+1, constant.ChannelTypeDummy)
+	assert.Equal(t, constant.ChannelTypeBrioi+1, constant.ChannelTypeCompatVideo)
+	assert.Equal(t, constant.ChannelTypeCompatVideo+1, constant.ChannelTypeDummy)
 	assert.Equal(t, "Brioi", constant.GetChannelTypeName(constant.ChannelTypeBrioi))
 	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeBrioi)
 	assert.Empty(t, constant.ChannelBaseURLs[constant.ChannelTypeBrioi])
@@ -250,6 +251,34 @@ func TestBrioiChannelRegistration(t *testing.T) {
 	))
 	assert.False(t, common.ChannelTypeSupportsRequestPath(
 		constant.ChannelTypeBrioi,
+		"/v1/chat/completions",
+	))
+}
+
+func TestCompatVideoChannelRegistration(t *testing.T) {
+	apiType, ok := common.ChannelType2APIType(constant.ChannelTypeCompatVideo)
+
+	assert.False(t, ok)
+	assert.Equal(t, constant.APITypeOpenAI, apiType)
+	assert.Equal(t, 63, constant.ChannelTypeCompatVideo)
+	assert.Equal(t, "Compatible Video", constant.GetChannelTypeName(constant.ChannelTypeCompatVideo))
+	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeCompatVideo)
+	assert.Empty(t, constant.ChannelBaseURLs[constant.ChannelTypeCompatVideo])
+	assert.Equal(
+		t,
+		[]constant.EndpointType{constant.EndpointTypeOpenAIVideo},
+		common.GetEndpointTypesByChannelType(constant.ChannelTypeCompatVideo, "grok-image-video"),
+	)
+	assert.True(t, common.ChannelTypeSupportsRequestPath(
+		constant.ChannelTypeCompatVideo,
+		"/v1/video/generations",
+	))
+	assert.True(t, common.ChannelTypeSupportsRequestPath(
+		constant.ChannelTypeCompatVideo,
+		"/v1/videos",
+	))
+	assert.False(t, common.ChannelTypeSupportsRequestPath(
+		constant.ChannelTypeCompatVideo,
 		"/v1/chat/completions",
 	))
 }

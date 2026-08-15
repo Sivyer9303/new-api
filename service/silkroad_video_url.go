@@ -58,8 +58,11 @@ func IsVideoTask(task *model.Task) bool {
 	case "kling", "jimeng", "sora", "vidu", "doubao":
 		return true
 	}
-	return task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeNewAPI)) ||
-		task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeSilkRoad))
+	if task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeNewAPI)) {
+		return true
+	}
+	platformType, err := strconv.Atoi(string(task.Platform))
+	return err == nil && constant.IsVideoGenerationChannelType(platformType)
 }
 
 // PublicVideoResultURL returns the only client-visible download URL for a

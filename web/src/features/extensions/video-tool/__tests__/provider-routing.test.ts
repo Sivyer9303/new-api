@@ -100,7 +100,7 @@ describe('video provider routing', () => {
     assert.deepEqual(config.video_tool_groups, [])
   })
 
-  test('keeps only currently selectable token groups with one effective owner', () => {
+  test('keeps currently selectable token groups that have video channels', () => {
     const config = normalizeVideoToolConfig({
       providers: {
         brioi: {
@@ -109,6 +109,10 @@ describe('video provider routing', () => {
         },
         silkroad: {
           groups: ['legacy-video'],
+          profiles: [],
+        },
+        compat_video: {
+          groups: [],
           profiles: [],
         },
       },
@@ -120,7 +124,7 @@ describe('video provider routing', () => {
     )
     assert.equal(
       isVideoTokenGroupCandidate(config, 'auto', '', ['video', 'legacy-video']),
-      false
+      true
     )
     assert.equal(isVideoTokenGroupCandidate(config, '', 'video'), true)
     assert.equal(isVideoTokenGroupCandidate(config, '', 'unowned'), false)
@@ -156,7 +160,7 @@ describe('video provider routing', () => {
           maxAutoGroups: 2,
         }
       ),
-      false
+      true
     )
     assert.equal(
       isVideoTokenGroupCandidate(
@@ -172,6 +176,15 @@ describe('video provider routing', () => {
       false
     )
     assert.equal(resolveVideoProviderByID(config, 62)?.id, 'brioi')
+    assert.equal(resolveVideoProviderByID(config, 63)?.id, 'compat_video')
+    assert.equal(
+      normalizeVideoToolConfig({
+        providers: {
+          compat_video: { label: 'Compatible Video', profiles: [] },
+        },
+      }).providers[0]?.label,
+      ''
+    )
   })
 
   test('adapts the legacy single-provider payload without exposing another provider', () => {

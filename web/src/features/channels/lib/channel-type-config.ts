@@ -184,6 +184,16 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'Brioi video models',
     },
   },
+  63: {
+    id: 63,
+    name: CHANNEL_TYPES[63],
+    icon: 'CompatibleVideo',
+    hints: {
+      baseUrl: 'Base URL is required for this channel type',
+      key: 'Enter API key for this channel',
+      models: 'Video models',
+    },
+  },
 }
 
 /**

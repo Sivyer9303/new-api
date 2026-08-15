@@ -34,7 +34,7 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse}
 	case constant.ChannelTypeSora:
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
-	case constant.ChannelTypeSilkRoad, constant.ChannelTypeBrioi:
+	case constant.ChannelTypeSilkRoad, constant.ChannelTypeBrioi, constant.ChannelTypeCompatVideo:
 		return []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
 	case constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI:
 		endpointTypes = []constant.EndpointType{
@@ -98,7 +98,7 @@ func ChannelTypeSupportsRequestPath(channelType int, requestPath string) bool {
 	}
 	isVideo := IsOpenAIVideoRequestPath(requestPath)
 	switch channelType {
-	case constant.ChannelTypeSilkRoad:
+	case constant.ChannelTypeSilkRoad, constant.ChannelTypeCompatVideo:
 		return isVideo
 	case constant.ChannelTypeBrioi:
 		return IsVideoGenerationRequestPath(requestPath)

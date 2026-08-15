@@ -32,7 +32,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -337,6 +337,7 @@ export function VideoToolPage() {
   const [durationValue, setDurationValue] = useState('')
   const [resolution, setResolution] = useState('')
   const [aspectRatio, setAspectRatio] = useState('')
+  const [generateAudio, setGenerateAudio] = useState(true)
   const [referenceImages, setReferenceImages] = useState<ReferenceImageItem[]>(
     []
   )
@@ -383,13 +384,17 @@ export function VideoToolPage() {
     () => keys.find((key) => String(key.id) === tokenId) ?? null,
     [keys, tokenId]
   )
+  const selectedModel = useMemo(
+    () => models.find((model) => model.id === modelId) ?? null,
+    [modelId, models]
+  )
   const activeProvider = useMemo(() => {
     if (!config || !selectedApiKey) return null
     return resolveVideoProviderByID(
       config,
-      modelProviderId || models[0]?.provider_id
+      selectedModel?.provider_id || modelProviderId || models[0]?.provider_id
     )
-  }, [config, modelProviderId, models, selectedApiKey])
+  }, [config, modelProviderId, models, selectedApiKey, selectedModel])
 
   useEffect(() => {
     if (!tokenId) return
@@ -450,6 +455,7 @@ export function VideoToolPage() {
           discovery.provider
         )
         const matched = discovery.models.filter((model) => {
+          if (model.profile) return true
           const modelProvider =
             resolveVideoProviderByID(currentConfig, model.provider_id) ??
             discoveredProvider
@@ -505,22 +511,22 @@ export function VideoToolPage() {
     }
   }, [config, modelLoadRevision, selectedApiKey, t, tokenId])
 
-  const selectedModel = useMemo(
-    () => models.find((model) => model.id === modelId) ?? null,
-    [modelId, models]
-  )
   const selectedProfile = useMemo(() => {
+    if (selectedModel?.profile) return selectedModel.profile
     return selectedModel && activeProvider
       ? resolveProviderVideoProfile(activeProvider, selectedModel.profile_model)
       : null
   }, [activeProvider, selectedModel])
 
   const generationTypes = useMemo(() => {
+    if (selectedModel?.generation_types?.length) {
+      return selectedModel.generation_types
+    }
     if (!activeProvider) return []
     return selectedProfile
       ? generationTypesForProfile(activeProvider, selectedProfile)
       : activeProvider.generation_types
-  }, [activeProvider, selectedProfile])
+  }, [activeProvider, selectedModel, selectedProfile])
 
   const selectedGenType = useMemo(() => {
     if (!generationType) return null
@@ -543,7 +549,11 @@ export function VideoToolPage() {
         previewUrl: referenceVideoPreviewUrls[index],
         fileName: file.name,
       })),
-      dialect: activeProvider?.id === 'brioi' ? 'zh' : 'latin',
+      dialect:
+        selectedProfile?.mention_dialect === 'zh' ||
+        activeProvider?.id === 'brioi'
+          ? 'zh'
+          : 'latin',
       labelFor,
     })
   }, [
@@ -552,10 +562,18 @@ export function VideoToolPage() {
     referenceImages,
     referenceVideoFiles,
     referenceVideoPreviewUrls,
+    selectedProfile?.mention_dialect,
     t,
   ])
 
-  const durationOptions = selectedProfile?.durations ?? []
+  const durationOptions = useMemo(() => {
+    const options = selectedProfile?.durations ?? []
+    const cap = selectedProfile?.multi_image_max_duration ?? 0
+    if (generationType === 'multi_image' && cap > 0) {
+      return options.filter((option) => Number(option.value) <= cap)
+    }
+    return options
+  }, [generationType, selectedProfile])
   // Brioi maps shared upstream models (e.g. seedance-2-0) and encodes tier in
   // the local alias; SilkRoad encodes resolution in the model name itself and
   // rejects a separate resolution field.
@@ -611,10 +629,7 @@ export function VideoToolPage() {
       activeProvider?.id === 'brioi'
         ? resolutionFromModelName(selectedModel?.id ?? '')
         : ''
-    const nextDuration = resolveSelectedOption(
-      durationValue,
-      selectedProfile.durations
-    )
+    const nextDuration = resolveSelectedOption(durationValue, durationOptions)
     const nextResolution = encodedResolution
       ? encodedResolution
       : resolveSelectedOption(resolution, selectedProfile.resolutions)
@@ -629,10 +644,15 @@ export function VideoToolPage() {
     activeProvider?.id,
     selectedProfile,
     selectedModel,
+    durationOptions,
     durationValue,
     resolution,
     aspectRatio,
   ])
+
+  useEffect(() => {
+    setGenerateAudio(selectedProfile?.generate_audio_default !== false)
+  }, [selectedProfile?.generate_audio_default, selectedProfile?.id])
 
   // Trim or clear reference images when the selected mode's image limit changes.
   useEffect(() => {
@@ -812,8 +832,9 @@ export function VideoToolPage() {
       imageRoles: selectedGenType?.image_roles,
       audioURL,
       videos,
-      mediaFormat:
-        activeProvider?.id === 'silkroad' ? 'legacy' : 'normalized',
+      generateAudio: selectedProfile?.allow_generate_audio
+        ? generateAudio
+        : undefined,
     })
     return JSON.stringify(body, null, 2)
   }, [
@@ -828,7 +849,8 @@ export function VideoToolPage() {
     referenceImages,
     audioFile,
     referenceVideoFiles,
-    activeProvider?.id,
+    generateAudio,
+    selectedProfile?.allow_generate_audio,
   ])
 
   let priceEstimateDescription = ''
@@ -979,8 +1001,9 @@ export function VideoToolPage() {
         imageRoles: selectedGenType.image_roles,
         audioURL,
         videos,
-        mediaFormat:
-          activeProvider?.id === 'silkroad' ? 'legacy' : 'normalized',
+        generateAudio: selectedProfile?.allow_generate_audio
+          ? generateAudio
+          : undefined,
       })
 
       const submitRes = await submitVideoGeneration(tokenKey, body)
@@ -1382,6 +1405,20 @@ export function VideoToolPage() {
                       </Select>
                     </div>
                   </div>
+
+                  {selectedProfile?.allow_generate_audio ? (
+                    <div className='flex items-center justify-between gap-4 rounded-lg border px-3 py-2'>
+                      <Label htmlFor={`${controlId}-generate-audio`}>
+                        {t('Generate audio')}
+                      </Label>
+                      <Switch
+                        id={`${controlId}-generate-audio`}
+                        checked={generateAudio}
+                        onCheckedChange={setGenerateAudio}
+                        disabled={submitting || isPolling}
+                      />
+                    </div>
+                  ) : null}
 
                   {(selectedGenType?.images_max ?? 0) > 0 && (
                     <div

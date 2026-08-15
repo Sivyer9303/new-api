@@ -78,8 +78,9 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if channel != nil && channel.Type == constant.ChannelTypeBrioi {
-		return testBrioiChannel(ctx, channel)
+	if channel != nil &&
+		(channel.Type == constant.ChannelTypeBrioi || channel.Type == constant.ChannelTypeCompatVideo) {
+		return testUpstreamModelsListChannel(ctx, channel)
 	}
 	tik := time.Now()
 	var unsupportedTestChannelTypes = []int{
@@ -532,9 +533,10 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 }
 
-// testBrioiChannel validates credentials through the non-billable model-list
-// endpoint. It intentionally bypasses relay pricing, quota, and consume logs.
-func testBrioiChannel(ctx context.Context, channel *model.Channel) testResult {
+// testUpstreamModelsListChannel validates credentials through the non-billable
+// model-list endpoint. It intentionally bypasses relay pricing, quota, and consume logs.
+func testUpstreamModelsListChannel(ctx context.Context, channel *model.Channel) testResult {
+	channelName := constant.GetChannelTypeName(channel.Type)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/models", nil)
@@ -543,7 +545,7 @@ func testBrioiChannel(ctx context.Context, channel *model.Channel) testResult {
 
 	baseURL := strings.TrimRight(strings.TrimSpace(channel.GetBaseURL()), "/")
 	if baseURL == "" {
-		err := errors.New("Brioi channel base URL cannot be empty")
+		err := fmt.Errorf("%s channel base URL cannot be empty", channelName)
 		return testResult{
 			context:     c,
 			localErr:    err,
@@ -552,7 +554,7 @@ func testBrioiChannel(ctx context.Context, channel *model.Channel) testResult {
 	}
 	if err := channel.ValidateSettings(); err != nil {
 		apiErr := types.NewOpenAIError(
-			fmt.Errorf("invalid Brioi channel settings: %w", err),
+			fmt.Errorf("invalid %s channel settings: %w", channelName, err),
 			types.ErrorCodeInvalidRequest,
 			http.StatusBadRequest,
 		)
@@ -599,7 +601,7 @@ func testBrioiChannel(ctx context.Context, channel *model.Channel) testResult {
 		if key != "" && strings.Contains(message, key) {
 			message = ""
 		}
-		err = fmt.Errorf("Brioi model-list request was rejected with status %d", statusCode)
+		err = fmt.Errorf("%s model-list request was rejected with status %d", channelName, statusCode)
 		if message != "" {
 			err = fmt.Errorf("%w: %s", err, message)
 		}
@@ -614,7 +616,7 @@ func testBrioiChannel(ctx context.Context, channel *model.Channel) testResult {
 		return testResult{context: c, localErr: err, newAPIError: apiErr}
 	}
 	if len(body) > 4<<20 {
-		err = errors.New("Brioi model-list response exceeds 4 MiB")
+		err = fmt.Errorf("%s model-list response exceeds 4 MiB", channelName)
 		apiErr := types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 		return testResult{context: c, localErr: err, newAPIError: apiErr}
 	}
@@ -629,7 +631,7 @@ func testBrioiChannel(ctx context.Context, channel *model.Channel) testResult {
 		return testResult{context: c, localErr: err, newAPIError: apiErr}
 	}
 	if payload.Data == nil {
-		err = errors.New("Brioi model-list response is missing data")
+		err = fmt.Errorf("%s model-list response is missing data", channelName)
 		apiErr := types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 		return testResult{context: c, localErr: err, newAPIError: apiErr}
 	}
