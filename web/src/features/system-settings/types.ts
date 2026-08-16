@@ -40,8 +40,7 @@ export type UpdateOptionResponse = {
 }
 
 export type UpdateVideoProviderOptionRequest = {
-  provider: 'silkroad' | 'brioi'
-  video_tool_groups: string[]
+  provider: 'silkroad' | 'brioi' | 'compatvideo'
   common?: unknown
   profiles: unknown[]
   default_profile_id?: string
@@ -220,10 +219,9 @@ export type VideoSettings = {
   'silkroad_setting.profiles': string
   'silkroad_setting.default_profile_id': string
   'brioi_setting.profiles': string
-  'brioi_setting.video_tool_groups': string
+  'compatvideo_setting.profiles': string
   // Compatibility values used until each new generic key is saved explicitly.
   'silkroad_setting.storage': string
-  'silkroad_setting.video_tool_groups': string
 }
 
 export type ModelSettings = {

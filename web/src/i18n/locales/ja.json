@@ -5387,6 +5387,8 @@
     "Upscale": "アップスケール",
     "Upstream": "アップストリーム",
     "Upstream did not return reset credit details.": "上流からリセット回数の詳細が返されませんでした。",
+    "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.": "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.",
+    "Upstream request dialect": "Upstream request dialect",
     "Upstream field mappings": "上流フィールド対応",
     "Upstream input link lifetime (seconds)": "上流入力リンクの有効期間（秒）",
     "Upstream key": "上流キー",

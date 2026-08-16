@@ -5387,6 +5387,8 @@
     "Upscale": "Upscale",
     "Upstream": "Upstream",
     "Upstream did not return reset credit details.": "Upstream did not return reset credit details.",
+    "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.": "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.",
+    "Upstream request dialect": "Upstream request dialect",
     "Upstream field mappings": "Upstream field mappings",
     "Upstream input link lifetime (seconds)": "Upstream input link lifetime (seconds)",
     "Upstream key": "Upstream key",

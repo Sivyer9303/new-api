@@ -5387,6 +5387,8 @@
     "Upscale": "Phóng to",
     "Upstream": "Thượng nguồn",
     "Upstream did not return reset credit details.": "Upstream không trả về chi tiết lượt đặt lại.",
+    "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.": "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.",
+    "Upstream request dialect": "Upstream request dialect",
     "Upstream field mappings": "Ánh xạ trường upstream",
     "Upstream input link lifetime (seconds)": "Thời hạn liên kết đầu vào cho nhà cung cấp (giây)",
     "Upstream key": "Khóa upstream",

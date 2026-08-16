@@ -81,7 +81,6 @@ export type BrioiProfileForm = {
 }
 
 export type BrioiSettingsValues = {
-  groups_text: string
   profiles: BrioiProfileForm[]
 }
 
@@ -303,7 +302,6 @@ export function createBrioiSettingsSchema(translate: Translate) {
 
   return z
     .object({
-      groups_text: z.string(),
       profiles: z.array(profileSchema).length(BRIOI_HARD_PROFILES.length),
     })
     .superRefine((values, context) => {

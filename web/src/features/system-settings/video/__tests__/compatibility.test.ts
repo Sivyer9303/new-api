@@ -38,10 +38,9 @@ const legacySettings: VideoSettings = {
   'silkroad_setting.profiles': '[{"id":"legacy"}]',
   'silkroad_setting.default_profile_id': 'legacy',
   'brioi_setting.profiles': '[]',
-  'brioi_setting.video_tool_groups': '[]',
+  'compatvideo_setting.profiles': '[]',
   'silkroad_setting.storage':
     '{"enabled":true,"driver":"local","local_dir":"legacy/videos","retention_days":7,"max_retry":9,"ingest_node_name":"legacy-node","public_download_base_url":"https://video.example.com"}',
-  'silkroad_setting.video_tool_groups': '["default","vip"]',
 }
 
 describe('video settings compatibility', () => {
@@ -49,10 +48,6 @@ describe('video settings compatibility', () => {
     const resolved = resolveVideoSettings(legacySettings, [])
 
     assert.equal(resolved['video_setting.enabled'], true)
-    assert.equal(
-      resolved['video_setting.video_tool_groups'],
-      '["default","vip"]'
-    )
     const storage = JSON.parse(resolved['video_setting.storage'])
     assert.equal(storage.driver, 'local')
     assert.equal(storage.local_dir, 'legacy/videos')
@@ -105,29 +100,6 @@ describe('video settings compatibility', () => {
       },
     ]
 
-    assert.deepEqual(resolveVideoSettings(explicit, raw), {
-      ...explicit,
-      'silkroad_setting.video_tool_groups': '["video"]',
-    })
-  })
-
-  test('hydrates SilkRoad provider groups from the legacy generic option', () => {
-    const settings = {
-      ...legacySettings,
-      'video_setting.video_tool_groups': '["legacy-video"]',
-      'silkroad_setting.video_tool_groups': '[]',
-    }
-    const raw: SystemOption[] = [
-      {
-        key: 'video_setting.video_tool_groups',
-        value: '["legacy-video"]',
-      },
-    ]
-
-    const resolved = resolveVideoSettings(settings, raw)
-    assert.equal(
-      resolved['silkroad_setting.video_tool_groups'],
-      '["legacy-video"]'
-    )
+    assert.deepEqual(resolveVideoSettings(explicit, raw), explicit)
   })
 })

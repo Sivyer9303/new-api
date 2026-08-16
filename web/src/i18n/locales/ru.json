@@ -5387,6 +5387,8 @@
     "Upscale": "Увеличение",
     "Upstream": "Источник",
     "Upstream did not return reset credit details.": "Вышестоящий сервис не вернул сведения о сбросах лимита.",
+    "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.": "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.",
+    "Upstream request dialect": "Upstream request dialect",
     "Upstream field mappings": "Сопоставление полей upstream",
     "Upstream input link lifetime (seconds)": "Срок действия входной ссылки для поставщика (сек.)",
     "Upstream key": "Ключ upstream",

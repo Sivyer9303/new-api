@@ -22,7 +22,6 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
-import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -35,10 +34,6 @@ import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateVideoProviderOption } from '../hooks/use-update-option'
-import {
-  normalizeProviderGroups,
-  parseProviderGroups,
-} from '../video/provider-groups'
 import {
   defaultProfileExists,
   optionItemSchema,
@@ -67,7 +62,6 @@ function createSilkRoadSettingsSchema(
 ) {
   return z
     .object({
-      groups_text: z.string(),
       default_profile_id: z.string().min(1),
       common_durations: z.array(optionItemSchema).min(1),
       common_aspect_ratios: z.array(optionItemSchema).min(1),
@@ -211,7 +205,6 @@ export function SilkRoadSettingsSection(props: {
     commonJson: string
     profilesJson: string
     defaultProfileID: string
-    groupsJson: string
   }
 }) {
   const { t } = useTranslation()
@@ -223,7 +216,6 @@ export function SilkRoadSettingsSection(props: {
   const defaults = useMemo<Values>(() => {
     const profiles = parseProfilesToForm(props.defaultValues.profilesJson)
     return {
-      groups_text: parseProviderGroups(props.defaultValues.groupsJson),
       default_profile_id:
         props.defaultValues.defaultProfileID || profiles[0]?.id || '',
       common_durations: parseOptions(
@@ -248,11 +240,9 @@ export function SilkRoadSettingsSection(props: {
 
   async function onSubmit(values: Values) {
     const profilePayload = profilesFormToApi(values.profiles)
-    const normalizedGroups = normalizeProviderGroups(values.groups_text)
     try {
       const result = await updateProvider.mutateAsync({
         provider: 'silkroad',
-        video_tool_groups: normalizedGroups,
         common: {
           durations: values.common_durations,
           aspect_ratios: values.common_aspect_ratios,
@@ -265,10 +255,7 @@ export function SilkRoadSettingsSection(props: {
         return
       }
       toast.success(t('Settings saved'))
-      form.reset({
-        ...values,
-        groups_text: normalizedGroups.join(', '),
-      })
+      form.reset(values)
     } catch {
       toast.error(t('Failed to save settings'))
     }
@@ -285,28 +272,6 @@ export function SilkRoadSettingsSection(props: {
             onSave={form.handleSubmit(onSubmit)}
             isSaving={busy}
             isSaveDisabled={!form.formState.isDirty}
-          />
-          <FormField
-            control={form.control}
-            name='groups_text'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('Provider groups')}</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder='default, silkroad'
-                    {...field}
-                    disabled={busy}
-                  />
-                </FormControl>
-                <FormDescription>
-                  {t(
-                    'Assign each group to only one video provider. Keys in these groups use this provider for models, capabilities, and task routing.'
-                  )}
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
           />
           <FormField
             control={form.control}

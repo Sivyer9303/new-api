@@ -19,5 +19,6 @@
   "Turnstile failed to load. Check that this domain is allowed in Cloudflare Turnstile hostnames.": "Turnstile failed to load. Check that this domain is allowed in Cloudflare Turnstile hostnames.",
   "Unable to enable Turnstile. Please fill in the Turnstile site key first.": "Unable to enable Turnstile. Please fill in the Turnstile site key first.",
   "Unable to load lottery": "Unable to load lottery",
+  "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.": "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.",
   "Users must have a quota upper limit (used + remaining) strictly greater than this USD value. Use this to require recharge (e.g. 5 if signup gift is $5 and min top-up is $10). Set 0 to disable.": "Users must have a quota upper limit (used + remaining) strictly greater than this USD value. Use this to require recharge (e.g. 5 if signup gift is $5 and min top-up is $10). Set 0 to disable."
 }

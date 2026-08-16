@@ -73,7 +73,7 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 	generationTypes := make([]PublicGenerationMode, 0)
 	seenModes := make(map[string]struct{})
 	for _, profile := range builtInProfiles {
-		public := PublicProfileFor(profile)
+		public := PublicProfileFor(applyProfileOverrides(cloneProfile(profile)))
 		profiles = append(profiles, public)
 		for _, mode := range public.GenerationModes {
 			if _, exists := seenModes[mode.Value]; exists {

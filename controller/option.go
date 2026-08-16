@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/brioi_setting"
+	"github.com/QuantumNous/new-api/setting/compatvideo_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
@@ -103,15 +104,7 @@ func validateSilkRoadSettingOption(key, value string) error {
 	if err := silkroad_setting.ValidateSilkRoadProviderSetting(&clone); err != nil {
 		return err
 	}
-	candidateGroups := clone.VideoToolGroups
-	if configKey != "video_tool_groups" &&
-		!config.GlobalConfig.IsExplicit("silkroad_setting.video_tool_groups") {
-		candidateGroups = setting.GetVideoProviderGroups(setting.VideoProviderSilkRoad)
-	}
-	return setting.ValidateVideoProviderGroups(
-		setting.VideoProviderSilkRoad,
-		candidateGroups,
-	)
+	return nil
 }
 
 func validateBrioiSettingOption(key, value string) error {
@@ -144,10 +137,7 @@ func validateBrioiSettingOption(key, value string) error {
 	if err := brioi_setting.ValidateBrioiSetting(&clone); err != nil {
 		return err
 	}
-	return setting.ValidateVideoProviderGroups(
-		setting.VideoProviderBrioi,
-		clone.VideoToolGroups,
-	)
+	return nil
 }
 
 func validateVideoSettingOption(key, value string) error {
@@ -195,13 +185,8 @@ func validateVideoSettingOption(key, value string) error {
 	case "upload_limits":
 		return video_setting.ValidateUploadLimitsSetting(&clone.UploadLimits)
 	case "video_tool_groups":
-		if config.GlobalConfig.IsExplicit("silkroad_setting.video_tool_groups") {
-			return nil
-		}
-		return setting.ValidateVideoProviderGroups(
-			setting.VideoProviderSilkRoad,
-			clone.VideoToolGroups,
-		)
+		clone.VideoToolGroups = video_setting.NormalizeVideoToolGroups(clone.VideoToolGroups)
+		return nil
 	default:
 		return fmt.Errorf("unsupported video_setting option key %q", configKey)
 	}
@@ -284,9 +269,6 @@ func GetOptions(c *gin.Context) {
 	effectiveVideoGroups, _ := common.Marshal(effectiveVideo.VideoToolGroups)
 	effectiveVideoStorage, _ := common.Marshal(effectiveVideo.Storage)
 	effectiveVideoUploadLimits, _ := common.Marshal(effectiveVideo.UploadLimits)
-	effectiveSilkRoadGroups, _ := common.Marshal(
-		setting.GetVideoProviderGroups(setting.VideoProviderSilkRoad),
-	)
 	common.OptionMapRWMutex.Lock()
 	for k, v := range common.OptionMap {
 		if k == "theme.frontend" {
@@ -306,9 +288,6 @@ func GetOptions(c *gin.Context) {
 		case k == "video_setting.upload_limits" &&
 			!config.GlobalConfig.IsExplicit(k):
 			value = string(effectiveVideoUploadLimits)
-		case k == "silkroad_setting.video_tool_groups" &&
-			!config.GlobalConfig.IsExplicit(k):
-			value = string(effectiveSilkRoadGroups)
 		}
 		// Turnstile Site Key is public (embedded in the frontend widget).
 		if k == "TurnstileSiteKey" {
@@ -363,7 +342,6 @@ type OptionUpdateRequest struct {
 
 type VideoProviderOptionUpdateRequest struct {
 	Provider         setting.VideoProvider           `json:"provider"`
-	VideoToolGroups  []string                        `json:"video_tool_groups"`
 	Common           *silkroad_setting.CommonSetting `json:"common,omitempty"`
 	Profiles         json.RawMessage                 `json:"profiles"`
 	DefaultProfileID string                          `json:"default_profile_id,omitempty"`
@@ -402,7 +380,10 @@ func UpdateVideoProviderOption(c *gin.Context) {
 
 func videoProviderOptionValues(request VideoProviderOptionUpdateRequest) (map[string]string, error) {
 	if len(request.Profiles) == 0 {
-		return nil, fmt.Errorf("video provider profiles are required")
+		// Compatible Video may save an empty override list (all built-in defaults).
+		if request.Provider != setting.VideoProviderCompatVideo {
+			return nil, fmt.Errorf("video provider profiles are required")
+		}
 	}
 
 	switch request.Provider {
@@ -419,17 +400,8 @@ func videoProviderOptionValues(request VideoProviderOptionUpdateRequest) (map[st
 			Profiles:         profiles,
 			DefaultProfileID: request.DefaultProfileID,
 			Storage:          silkroad_setting.GetSilkRoadSetting().Storage,
-			VideoToolGroups: silkroad_setting.NormalizeVideoToolGroups(
-				request.VideoToolGroups,
-			),
 		}
 		if err := silkroad_setting.ValidateSilkRoadProviderSetting(&candidate); err != nil {
-			return nil, err
-		}
-		if err := setting.ValidateVideoProviderGroups(
-			setting.VideoProviderSilkRoad,
-			candidate.VideoToolGroups,
-		); err != nil {
 			return nil, err
 		}
 		commonValue, err := common.Marshal(candidate.Common)
@@ -440,15 +412,10 @@ func videoProviderOptionValues(request VideoProviderOptionUpdateRequest) (map[st
 		if err != nil {
 			return nil, err
 		}
-		groupsValue, err := common.Marshal(candidate.VideoToolGroups)
-		if err != nil {
-			return nil, err
-		}
 		return map[string]string{
 			"silkroad_setting.common":             string(commonValue),
 			"silkroad_setting.profiles":           string(profilesValue),
 			"silkroad_setting.default_profile_id": candidate.DefaultProfileID,
-			"silkroad_setting.video_tool_groups":  string(groupsValue),
 		}, nil
 	case setting.VideoProviderBrioi:
 		var profiles []brioi_setting.Profile
@@ -457,30 +424,36 @@ func videoProviderOptionValues(request VideoProviderOptionUpdateRequest) (map[st
 		}
 		candidate := brioi_setting.BrioiSetting{
 			Profiles: profiles,
-			VideoToolGroups: brioi_setting.NormalizeVideoToolGroups(
-				request.VideoToolGroups,
-			),
 		}
 		if err := brioi_setting.ValidateBrioiSetting(&candidate); err != nil {
-			return nil, err
-		}
-		if err := setting.ValidateVideoProviderGroups(
-			setting.VideoProviderBrioi,
-			candidate.VideoToolGroups,
-		); err != nil {
 			return nil, err
 		}
 		profilesValue, err := common.Marshal(candidate.Profiles)
 		if err != nil {
 			return nil, err
 		}
-		groupsValue, err := common.Marshal(candidate.VideoToolGroups)
+		return map[string]string{
+			"brioi_setting.profiles": string(profilesValue),
+		}, nil
+	case setting.VideoProviderCompatVideo:
+		var profiles []compatvideo_setting.Profile
+		if len(request.Profiles) > 0 {
+			if err := common.Unmarshal(request.Profiles, &profiles); err != nil {
+				return nil, fmt.Errorf("invalid Compatible Video profiles: %w", err)
+			}
+		}
+		candidate := compatvideo_setting.CompatVideoSetting{
+			Profiles: profiles,
+		}
+		if err := compatvideo_setting.ValidateCompatVideoSetting(&candidate); err != nil {
+			return nil, err
+		}
+		profilesValue, err := common.Marshal(profiles)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]string{
-			"brioi_setting.profiles":          string(profilesValue),
-			"brioi_setting.video_tool_groups": string(groupsValue),
+			"compatvideo_setting.profiles": string(profilesValue),
 		}, nil
 
 	default:

@@ -1,4 +1,6 @@
 {
   "@Video{{index}}": "@Video{{index}}",
-  "Cloudflare R2": "Cloudflare R2"
+  "Cloudflare R2": "Cloudflare R2",
+  "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.": "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.",
+  "Upstream request dialect": "Upstream request dialect"
 }

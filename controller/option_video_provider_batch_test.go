@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/brioi_setting"
+	"github.com/QuantumNous/new-api/setting/compatvideo_setting"
 	"github.com/QuantumNous/new-api/setting/silkroad_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,13 +28,11 @@ func TestVideoProviderOptionValuesBuildsOneNormalizedBrioiRevision(t *testing.T)
 	profiles, err := common.Marshal(brioi.Profiles)
 	require.NoError(t, err)
 	values, err := videoProviderOptionValues(VideoProviderOptionUpdateRequest{
-		Provider:        setting.VideoProviderBrioi,
-		VideoToolGroups: []string{" brioi ", "brioi", ""},
-		Profiles:        json.RawMessage(profiles),
+		Provider: setting.VideoProviderBrioi,
+		Profiles: json.RawMessage(profiles),
 	})
 	require.NoError(t, err)
-	require.Len(t, values, 2)
-	assert.JSONEq(t, `["brioi"]`, values["brioi_setting.video_tool_groups"])
+	require.Len(t, values, 1)
 	assert.JSONEq(t, string(profiles), values["brioi_setting.profiles"])
 }
 
@@ -51,13 +50,55 @@ func TestVideoProviderOptionValuesDoesNotMutateLiveConfigOnValidationFailure(t *
 	require.NoError(t, err)
 
 	_, err = videoProviderOptionValues(VideoProviderOptionUpdateRequest{
-		Provider:        setting.VideoProviderBrioi,
-		VideoToolGroups: []string{"brioi"},
-		Profiles:        json.RawMessage(rawProfiles),
+		Provider: setting.VideoProviderBrioi,
+		Profiles: json.RawMessage(rawProfiles),
 	})
 	require.Error(t, err)
 
 	after, err := common.Marshal(brioi)
 	require.NoError(t, err)
 	assert.JSONEq(t, string(before), string(after))
+}
+
+func TestVideoProviderOptionValuesAcceptsEmptyCompatVideoOverrides(t *testing.T) {
+	values, err := videoProviderOptionValues(VideoProviderOptionUpdateRequest{
+		Provider: setting.VideoProviderCompatVideo,
+		Profiles: json.RawMessage(`[]`),
+	})
+	require.NoError(t, err)
+	require.Len(t, values, 1)
+	assert.JSONEq(t, `[]`, values["compatvideo_setting.profiles"])
+}
+
+func TestVideoProviderOptionValuesPersistsCompatVideoOverrides(t *testing.T) {
+	overrides, err := common.Marshal([]compatvideo_setting.Profile{
+		{
+			ID:          compatvideo_setting.ProfileSeedance2,
+			Durations:   []int{5, 10},
+			Resolutions: []string{"1080p"},
+			Dialect:     compatvideo_setting.DialectNewAPIGenerations,
+		},
+	})
+	require.NoError(t, err)
+
+	values, err := videoProviderOptionValues(VideoProviderOptionUpdateRequest{
+		Provider: setting.VideoProviderCompatVideo,
+		Profiles: json.RawMessage(overrides),
+	})
+	require.NoError(t, err)
+	require.Len(t, values, 1)
+	assert.JSONEq(t, string(overrides), values["compatvideo_setting.profiles"])
+}
+
+func TestVideoProviderOptionValuesRejectsUnknownCompatVideoProfile(t *testing.T) {
+	overrides, err := common.Marshal([]compatvideo_setting.Profile{
+		{ID: "not-a-profile"},
+	})
+	require.NoError(t, err)
+
+	_, err = videoProviderOptionValues(VideoProviderOptionUpdateRequest{
+		Provider: setting.VideoProviderCompatVideo,
+		Profiles: json.RawMessage(overrides),
+	})
+	require.ErrorContains(t, err, "unknown compat_video profile")
 }

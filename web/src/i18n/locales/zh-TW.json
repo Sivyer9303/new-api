@@ -5387,6 +5387,8 @@
     "Upscale": "放大",
     "Upstream": "上游",
     "Upstream did not return reset credit details.": "上游未返回重置次數詳情。",
+    "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.": "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.",
+    "Upstream request dialect": "Upstream request dialect",
     "Upstream field mappings": "上游欄位對應",
     "Upstream input link lifetime (seconds)": "上游輸入連結有效期（秒）",
     "Upstream key": "上游欄位名",

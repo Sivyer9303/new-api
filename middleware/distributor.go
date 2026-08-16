@@ -133,9 +133,6 @@ func Distribute() func(c *gin.Context) {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetRequestAutoGroups(c, userGroup)
 							for _, g := range autoGroups {
-								if !groupMatchesVideoProviderConstraint(c, g) {
-									continue
-								}
 								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) {
 									selectGroup = g
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
@@ -240,15 +237,6 @@ func channelMatchesVideoProviderConstraint(c *gin.Context, channel *model.Channe
 	}
 	requiredType := common.GetContextKeyInt(c, constant.ContextKeyVideoProviderChannelType)
 	return requiredType == 0 || channel.Type == requiredType
-}
-
-func groupMatchesVideoProviderConstraint(c *gin.Context, group string) bool {
-	requiredType := common.GetContextKeyInt(c, constant.ContextKeyVideoProviderChannelType)
-	if requiredType == 0 {
-		return true
-	}
-	_ = group
-	return true
 }
 
 // getModelFromRequest 从请求中读取模型信息

@@ -15,7 +15,6 @@ import {
   parseBrioiProfiles,
   serializeBrioiProfiles,
 } from '../../extensions/brioi-profile-schemas'
-import { normalizeProviderGroups } from '../provider-groups'
 
 describe('Brioi provider profiles', () => {
   test('uses the exact documented model duration and resolution bounds', () => {
@@ -85,7 +84,7 @@ describe('Brioi provider profiles', () => {
     const profiles = defaultBrioiProfiles()
     profiles[0].resolutions.push('8K')
     const schema = createBrioiSettingsSchema((key) => key)
-    const result = schema.safeParse({ groups_text: 'brioi', profiles })
+    const result = schema.safeParse({ profiles })
 
     assert.equal(result.success, false)
     if (!result.success) {
@@ -99,12 +98,5 @@ describe('Brioi provider profiles', () => {
         true
       )
     }
-  })
-
-  test('normalizes provider groups before independent section saves', () => {
-    assert.deepEqual(
-      normalizeProviderGroups(' brioi, premium\nbrioi，default '),
-      ['brioi', 'premium', 'default']
-    )
   })
 })

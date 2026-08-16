@@ -129,28 +129,3 @@ func TestDistributeConstrainsVideoProviderAcrossPriorityAndFailure(t *testing.T)
 	assert.Equal(t, constant.ChannelTypeBrioi, selectedChannelType)
 }
 
-func TestAutoAffinityGroupMustBelongToConstrainedVideoProvider(t *testing.T) {
-	brioi := brioi_setting.GetBrioiSetting()
-	previousBrioi := *brioi
-	silkRoad := silkroad_setting.GetSilkRoadSetting()
-	previousSilkRoadGroups := append([]string(nil), silkRoad.VideoToolGroups...)
-	t.Cleanup(func() {
-		*brioi = previousBrioi
-		silkRoad.VideoToolGroups = previousSilkRoadGroups
-	})
-
-	*brioi = brioi_setting.DefaultBrioiSetting()
-	brioi.VideoToolGroups = []string{"brioi-owned"}
-	silkRoad.VideoToolGroups = []string{"silkroad-owned"}
-
-	context, _ := gin.CreateTestContext(httptest.NewRecorder())
-	common.SetContextKey(
-		context,
-		constant.ContextKeyVideoProviderChannelType,
-		constant.ChannelTypeBrioi,
-	)
-
-	assert.True(t, groupMatchesVideoProviderConstraint(context, "brioi-owned"))
-	assert.True(t, groupMatchesVideoProviderConstraint(context, "silkroad-owned"))
-	assert.True(t, groupMatchesVideoProviderConstraint(context, "unowned"))
-}

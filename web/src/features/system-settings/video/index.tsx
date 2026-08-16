@@ -39,10 +39,9 @@ const defaultVideoSettings: VideoSettings = {
   'silkroad_setting.profiles': DEFAULT_PROFILES,
   'silkroad_setting.default_profile_id': 'seedance_reverse',
   'brioi_setting.profiles': serializeBrioiProfiles(defaultBrioiProfiles()),
-  'brioi_setting.video_tool_groups': '[]',
+  'compatvideo_setting.profiles': '[]',
   'silkroad_setting.storage':
     '{"enabled":false,"driver":"local","local_dir":"data/silkroad-videos","retention_days":7,"max_retry":5,"ingest_node_name":"","public_download_base_url":""}',
-  'silkroad_setting.video_tool_groups': '[]',
 }
 
 export function VideoSettingsPage() {

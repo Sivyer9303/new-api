@@ -1,15 +1,12 @@
 package controller
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/brioi_setting"
 	"github.com/QuantumNous/new-api/setting/silkroad_setting"
 	"github.com/QuantumNous/new-api/setting/video_setting"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,17 +66,13 @@ func TestProviderOptionValidationReportsGroupAndOwner(t *testing.T) {
 
 	groups, err := common.Marshal([]string{"brioi", " shared ", "brioi"})
 	require.NoError(t, err)
-	err = validateBrioiSettingOption(
-		"brioi_setting.video_tool_groups",
+	// A group may now span multiple video channel types, so overlapping group
+	// lists are accepted and normalized (they are decoupled from routing).
+	err = validateVideoSettingOption(
+		"video_setting.video_tool_groups",
 		string(groups),
 	)
-	require.Error(t, err)
-
-	var conflict *setting.VideoProviderGroupConflictError
-	require.True(t, errors.As(err, &conflict))
-	assert.Equal(t, "shared", conflict.Group)
-	assert.Equal(t, setting.VideoProviderSilkRoad, conflict.ExistingProvider)
-	assert.Equal(t, setting.VideoProviderBrioi, conflict.RequestedProvider)
+	require.NoError(t, err)
 }
 
 func TestVideoStorageOptionStillValidatesItsOwnSection(t *testing.T) {

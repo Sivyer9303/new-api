@@ -54,7 +54,7 @@ type Profile struct {
 func MatchProfile(upstreamModel string) Profile {
 	model := strings.ToLower(strings.TrimSpace(upstreamModel))
 	if model == "" {
-		return unknownProfile()
+		return applyProfileOverrides(unknownProfile())
 	}
 
 	var exact *Profile
@@ -68,7 +68,7 @@ func MatchProfile(upstreamModel string) Profile {
 		}
 	}
 	if exact != nil {
-		return cloneProfile(*exact)
+		return applyProfileOverrides(cloneProfile(*exact))
 	}
 
 	var prefixProfile *Profile
@@ -87,9 +87,9 @@ func MatchProfile(upstreamModel string) Profile {
 		}
 	}
 	if prefixProfile != nil {
-		return cloneProfile(*prefixProfile)
+		return applyProfileOverrides(cloneProfile(*prefixProfile))
 	}
-	return unknownProfile()
+	return applyProfileOverrides(unknownProfile())
 }
 
 func FindGenerationMode(profile Profile, value string) (GenerationMode, bool) {
@@ -124,6 +124,42 @@ func DurationAllowed(profile Profile, seconds int, mode GenerationMode) bool {
 		return false
 	}
 	return true
+}
+
+// applyProfileOverrides merges administrator overrides onto a built-in profile.
+// Only fields the administrator explicitly configured (non-empty) replace the
+// built-in defaults; empty fields keep the built-in capability. Generation-mode
+// level control is intentionally out of scope for this minimal first version and
+// is the natural next extension point.
+func applyProfileOverrides(profile Profile) Profile {
+	override, ok := overrideForProfile(profile.ID)
+	if !ok {
+		return profile
+	}
+	if len(override.Durations) > 0 {
+		profile.Durations = append([]int(nil), override.Durations...)
+	}
+	if len(override.Resolutions) > 0 {
+		profile.Resolutions = append([]string(nil), override.Resolutions...)
+	}
+	if len(override.AspectRatios) > 0 {
+		profile.AspectRatios = append([]string(nil), override.AspectRatios...)
+	}
+	if override.Dialect != "" {
+		profile.Dialect = override.Dialect
+	}
+	return profile
+}
+
+// overrideForProfile returns the administrator override targeting the built-in
+// profile with the given ID, if any.
+func overrideForProfile(id string) (Profile, bool) {
+	for _, override := range compatVideoSetting.Profiles {
+		if override.ID == id {
+			return override, true
+		}
+	}
+	return Profile{}, false
 }
 
 func cloneProfile(profile Profile) Profile {
