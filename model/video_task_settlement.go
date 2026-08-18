@@ -150,8 +150,12 @@ func SettleVideoTaskQuota(taskID int64, actualQuota int) (VideoTaskSettlementRes
 			common.SysError("failed to update settled user quota cache: " + err.Error())
 		}
 	}
-	if tokenKey != "" && common.RedisEnabled && result.QuotaDelta != 0 {
-		if err := cacheIncrTokenQuota(tokenKey, int64(-result.QuotaDelta)); err != nil {
+	if tokenKey != "" && common.RedisEnabled && result.QuotaDelta != 0 && result.Task != nil {
+		if _, err := cacheApplyTokenQuotaDelta(
+			result.Task.PrivateData.TokenId,
+			tokenKey,
+			int64(-result.QuotaDelta),
+		); err != nil {
 			common.SysError("failed to update settled token quota cache: " + err.Error())
 		}
 	}

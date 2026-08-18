@@ -139,8 +139,12 @@ func RefundTaskQuota(taskID int64) (TaskQuotaRefundResult, error) {
 			common.SysError("failed to update refunded user quota cache: " + err.Error())
 		}
 	}
-	if tokenKey != "" && common.RedisEnabled && result.RefundedQuota > 0 {
-		if err := cacheIncrTokenQuota(tokenKey, int64(result.RefundedQuota)); err != nil {
+	if tokenKey != "" && common.RedisEnabled && result.RefundedQuota > 0 && result.Task != nil {
+		if _, err := cacheApplyTokenQuotaDelta(
+			result.Task.PrivateData.TokenId,
+			tokenKey,
+			int64(result.RefundedQuota),
+		); err != nil {
 			common.SysError("failed to update refunded token quota cache: " + err.Error())
 		}
 	}
