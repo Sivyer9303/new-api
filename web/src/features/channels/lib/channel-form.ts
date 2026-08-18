@@ -108,6 +108,10 @@ export function normalizeVideoInputMediaDelivery(
   return VIDEO_INPUT_MEDIA_INLINE_BASE64
 }
 
+export function channelRequiresR2VideoInputMedia(type: number): boolean {
+  return type === CHANNEL_TYPE_BRIOI || type === CHANNEL_TYPE_AISTARSLAB
+}
+
 export function normalizeHttp2ConnectionShards(
   value: number | undefined | null
 ): number {
@@ -539,7 +543,7 @@ export function transformChannelToFormDefaults(
       console.error('Failed to parse channel setting:', error)
     }
   }
-  if (channel.type === CHANNEL_TYPE_BRIOI) {
+  if (channelRequiresR2VideoInputMedia(channel.type)) {
     extraSettings.video_input_media_delivery = VIDEO_INPUT_MEDIA_R2_PRESIGNED
   }
 
@@ -668,10 +672,9 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     settingObj.http2_connection_shards = shards
   }
 
-  const inputMediaDelivery =
-    formData.type === CHANNEL_TYPE_BRIOI
-      ? VIDEO_INPUT_MEDIA_R2_PRESIGNED
-      : normalizeVideoInputMediaDelivery(formData.video_input_media_delivery)
+  const inputMediaDelivery = channelRequiresR2VideoInputMedia(formData.type)
+    ? VIDEO_INPUT_MEDIA_R2_PRESIGNED
+    : normalizeVideoInputMediaDelivery(formData.video_input_media_delivery)
   if (inputMediaDelivery === VIDEO_INPUT_MEDIA_R2_PRESIGNED) {
     settingObj.video_input_media_delivery = VIDEO_INPUT_MEDIA_R2_PRESIGNED
   }

@@ -300,6 +300,7 @@
     "AIGC2D": "AIGC2D",
     "AILS": "AILS",
     "AIStarsLab": "AIStarsLab",
+    "AIStarsLab requires R2 signed URLs because the upstream does not accept Base64 media.": "AIStarsLab exige des URL R2 signées, car le fournisseur en amont n’accepte pas les médias en Base64.",
     "AK/SK mode: use AccessKey|SecretAccessKey|Region": "Mode AK/SK : utiliser AccessKey|SecretAccessKey|Region",
     "Ali": "Alibaba Bailian",
     "Alipay": "Alipay",

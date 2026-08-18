@@ -300,6 +300,7 @@
     "AIGC2D": "AIGC2D",
     "AILS": "AILS",
     "AIStarsLab": "AIStarsLab",
+    "AIStarsLab requires R2 signed URLs because the upstream does not accept Base64 media.": "AIStarsLab はアップストリームが Base64 メディアを受け付けないため、R2 署名付き URL が必要です。",
     "AK/SK mode: use AccessKey|SecretAccessKey|Region": "AK/SKモード: AccessKey | SecretAccessKey | Regionを使用",
     "Ali": "アリババ百炼",
     "Alipay": "Alipay",

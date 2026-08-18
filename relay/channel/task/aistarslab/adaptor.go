@@ -87,23 +87,19 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		stage = service.StageVideoInputMedia
 	}
 	channelID := 0
-	useR2 := false
 	if info != nil && info.ChannelMeta != nil {
 		channelID = info.ChannelId
-		useR2 = info.ChannelSetting.UsesR2VideoInputMedia()
 	}
 
 	mediaSources := make([]string, 0, len(stored.request.Media))
 	stagedMedia := make([]videocommon.VideoMedia, 0, len(stored.request.Media))
 	for index, media := range stored.request.Media {
 		source := strings.TrimSpace(media.Source)
-		if useR2 {
-			staged, err := stage(c.Request.Context(), channelID, source)
-			if err != nil {
-				return nil, fmt.Errorf("stage media %d: %w", index, err)
-			}
-			source = staged
+		staged, err := stage(c.Request.Context(), channelID, source)
+		if err != nil {
+			return nil, fmt.Errorf("stage media %d: %w", index, err)
 		}
+		source = staged
 		mediaSources = append(mediaSources, source)
 		item := media
 		item.Source = source

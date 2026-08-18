@@ -15,7 +15,11 @@ import {
   CHANNEL_TYPE_OPTIONS,
   MODEL_FETCHABLE_TYPES,
 } from '../../constants'
-import { CHANNEL_FORM_DEFAULT_VALUES, channelFormSchema } from '../channel-form'
+import {
+  buildSettingJSON,
+  CHANNEL_FORM_DEFAULT_VALUES,
+  channelFormSchema,
+} from '../channel-form'
 import { getChannelTypeConfig } from '../channel-type-config'
 import { getChannelTypeIcon, getKeyPromptForType } from '../channel-utils'
 
@@ -67,5 +71,16 @@ describe('AIStarsLab channel', () => {
       ).success,
       true
     )
+  })
+
+  test('forces R2 signed URL delivery when serializing channel settings', () => {
+    const setting = JSON.parse(
+      buildSettingJSON({
+        ...aiStarsLabForm('https://api.video.aistarslab.com/openai'),
+        video_input_media_delivery: 'inline_base64',
+      })
+    ) as Record<string, unknown>
+
+    assert.equal(setting.video_input_media_delivery, 'r2_presigned_url')
   })
 })

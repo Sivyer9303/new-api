@@ -174,6 +174,7 @@ import {
   hasAdvancedSettingsErrors,
   VIDEO_INPUT_MEDIA_INLINE_BASE64,
   VIDEO_INPUT_MEDIA_R2_PRESIGNED,
+  channelRequiresR2VideoInputMedia,
 } from '../../lib'
 import {
   collectInvalidStatusCodeEntries,
@@ -651,7 +652,7 @@ export function ChannelMutateDrawer({
   >(null)
   const channelFormRef = useRef<HTMLFormElement>(null)
   const advancedNavScrollPendingRef = useRef(false)
-  const preBrioiInputDeliveryRef = useRef<
+  const preForcedR2InputDeliveryRef = useRef<
     ChannelFormValues['video_input_media_delivery'] | null
   >(null)
   const [activeEditorSectionId, setActiveEditorSectionId] = useState<string>(
@@ -2025,18 +2026,23 @@ export function ChannelMutateDrawer({
                                               field.value
                                             )
                                             if (
-                                              previousType !==
-                                                CHANNEL_TYPE_BRIOI &&
-                                              nextType === CHANNEL_TYPE_BRIOI
+                                              !channelRequiresR2VideoInputMedia(
+                                                previousType
+                                              ) &&
+                                              channelRequiresR2VideoInputMedia(
+                                                nextType
+                                              )
                                             ) {
-                                              preBrioiInputDeliveryRef.current =
+                                              preForcedR2InputDeliveryRef.current =
                                                 form.getValues(
                                                   'video_input_media_delivery'
                                                 )
                                             }
                                             field.onChange(nextType)
                                             if (
-                                              nextType === CHANNEL_TYPE_BRIOI
+                                              channelRequiresR2VideoInputMedia(
+                                                nextType
+                                              )
                                             ) {
                                               form.setValue(
                                                 'video_input_media_delivery',
@@ -2047,12 +2053,13 @@ export function ChannelMutateDrawer({
                                                 }
                                               )
                                             } else if (
-                                              previousType ===
-                                              CHANNEL_TYPE_BRIOI
+                                              channelRequiresR2VideoInputMedia(
+                                                previousType
+                                              )
                                             ) {
                                               form.setValue(
                                                 'video_input_media_delivery',
-                                                preBrioiInputDeliveryRef.current ??
+                                                preForcedR2InputDeliveryRef.current ??
                                                   VIDEO_INPUT_MEDIA_INLINE_BASE64,
                                                 {
                                                   shouldDirty: true,
@@ -4400,9 +4407,9 @@ export function ChannelMutateDrawer({
                                       },
                                     ]}
                                     value={field.value || 'inline_base64'}
-                                    disabled={
-                                      currentType === CHANNEL_TYPE_BRIOI
-                                    }
+                                    disabled={channelRequiresR2VideoInputMedia(
+                                      currentType
+                                    )}
                                     onValueChange={(value) => {
                                       field.onChange(
                                         value === 'r2_presigned_url'
@@ -4413,9 +4420,9 @@ export function ChannelMutateDrawer({
                                   >
                                     <FormControl>
                                       <SelectTrigger
-                                        disabled={
-                                          currentType === CHANNEL_TYPE_BRIOI
-                                        }
+                                        disabled={channelRequiresR2VideoInputMedia(
+                                          currentType
+                                        )}
                                       >
                                         <SelectValue />
                                       </SelectTrigger>
@@ -4436,6 +4443,10 @@ export function ChannelMutateDrawer({
                                       ? t(
                                           'Brioi requires R2 signed URLs because the upstream does not accept Base64 media.'
                                         )
+                                      : currentType === CHANNEL_TYPE_AISTARSLAB
+                                        ? t(
+                                            'AIStarsLab requires R2 signed URLs because the upstream does not accept Base64 media.'
+                                          )
                                       : t(
                                           'Keep Base64 when the upstream accepts inline media. Choose R2 only when it requires a public URL; this needs Cloudflare R2 configured under Video Storage.'
                                         )}

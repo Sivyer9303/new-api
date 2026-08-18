@@ -994,6 +994,9 @@ func (channel *Channel) ValidateSettings() error {
 	if channel.Type == constant.ChannelTypeBrioi && !channelParams.UsesR2VideoInputMedia() {
 		return errors.New("Brioi requires R2 presigned URL input delivery")
 	}
+	if channel.Type == constant.ChannelTypeAIStarsLab && !channelParams.UsesR2VideoInputMedia() {
+		return errors.New("AIStarsLab requires R2 presigned URL input delivery")
+	}
 	if channelParams.UsesR2VideoInputMedia() {
 		if validateVideoR2StorageFunc == nil {
 			return errors.New("video_input_media_delivery requires the R2 video storage validator")

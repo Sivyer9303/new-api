@@ -193,6 +193,39 @@ func TestValidateChannelRequiresBrioiR2DeliveryAndStorage(t *testing.T) {
 	require.ErrorContains(t, err, "R2 unavailable")
 }
 
+func TestValidateChannelRequiresAIStarsLabR2DeliveryAndStorage(t *testing.T) {
+	baseURL := "https://api.video.aistarslab.com/openai"
+	inlineSetting, err := common.Marshal(dto.ChannelSettings{
+		VideoInputMediaDelivery: dto.VideoInputMediaInlineBase64,
+	})
+	require.NoError(t, err)
+	inlineSettingValue := string(inlineSetting)
+
+	allowBrioiR2Validation(t)
+	err = validateChannel(&model.Channel{
+		Type:    constant.ChannelTypeAIStarsLab,
+		BaseURL: &baseURL,
+		Setting: &inlineSettingValue,
+	}, false)
+	require.ErrorContains(t, err, "AIStarsLab requires R2 presigned URL input delivery")
+
+	model.RegisterVideoR2StorageValidator(func() error {
+		return errors.New("R2 unavailable")
+	})
+	r2Setting, err := common.Marshal(dto.ChannelSettings{
+		VideoInputMediaDelivery: dto.VideoInputMediaR2Presigned,
+	})
+	require.NoError(t, err)
+	r2SettingValue := string(r2Setting)
+	err = validateChannel(&model.Channel{
+		Type:    constant.ChannelTypeAIStarsLab,
+		BaseURL: &baseURL,
+		Setting: &r2SettingValue,
+	}, false)
+	require.ErrorContains(t, err, "video_input_media_delivery requires R2 video storage")
+	require.ErrorContains(t, err, "R2 unavailable")
+}
+
 func TestNewAPIChannelRegistration(t *testing.T) {
 	apiType, ok := common.ChannelType2APIType(constant.ChannelTypeNewAPI)
 
