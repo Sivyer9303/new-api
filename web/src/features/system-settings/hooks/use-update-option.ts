@@ -55,7 +55,8 @@ function isVideoToolRelatedKey(key: string) {
     key === 'video_setting.enabled' ||
     key.startsWith('silkroad_setting.') ||
     key.startsWith('brioi_setting.') ||
-    key.startsWith('compatvideo_setting.')
+    key.startsWith('compatvideo_setting.') ||
+    key.startsWith('aistarslab_setting.')
   )
 }
 

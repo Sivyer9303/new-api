@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	taskdto "github.com/QuantumNous/new-api/dto"
@@ -39,9 +40,13 @@ type TaskAdaptor struct {
 }
 
 type publicSubmitResponse struct {
-	ID     string `json:"id"`
-	TaskID string `json:"task_id"`
-	Status string `json:"status"`
+	ID        string `json:"id"`
+	TaskID    string `json:"task_id,omitempty"`
+	Object    string `json:"object,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Status    string `json:"status"`
+	Progress  int    `json:"progress"`
+	CreatedAt int64  `json:"created_at,omitempty"`
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
@@ -137,7 +142,7 @@ func (a *TaskAdaptor) DoRequest(
 }
 
 func (a *TaskAdaptor) DoResponse(
-	_ *gin.Context,
+	c *gin.Context,
 	response *http.Response,
 	info *relaycommon.RelayInfo,
 ) (submitResult *channel.TaskSubmitResponse, taskErr *taskdto.TaskError) {
@@ -189,6 +194,18 @@ func (a *TaskAdaptor) DoResponse(
 		ID:     publicID,
 		TaskID: publicID,
 		Status: "queued",
+	}
+	if c != nil && c.Request != nil && c.Request.URL != nil && c.Request.URL.Path == "/v1/videos" {
+		publicResponse = publicSubmitResponse{
+			ID:        publicID,
+			Object:    "video",
+			Status:    "queued",
+			Progress:  0,
+			CreatedAt: time.Now().Unix(),
+		}
+		if info != nil {
+			publicResponse.Model = info.OriginModelName
+		}
 	}
 	responseData, err := common.Marshal(publicResponse)
 	if err != nil {

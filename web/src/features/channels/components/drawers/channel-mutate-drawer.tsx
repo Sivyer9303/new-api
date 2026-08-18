@@ -139,6 +139,7 @@ import {
 import {
   ADD_MODE_OPTIONS,
   CHANNEL_STATUS_LABELS,
+  CHANNEL_TYPE_AISTARSLAB,
   CHANNEL_TYPE_BRIOI,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_WARNINGS,
@@ -163,6 +164,7 @@ import {
   formatModelsArray,
   extractRedirectModels,
   extractMappingSourceModels,
+  getDefaultBaseUrl,
   hasModelConfigChanged,
   findMissingModelsInMapping,
   validateModelMappingJson,
@@ -1285,6 +1287,13 @@ export function ChannelMutateDrawer({
       const currentBaseUrlValue = form.getValues('base_url')
       if (!currentBaseUrlValue || currentBaseUrlValue === '') {
         form.setValue('base_url', 'https://ark.cn-beijing.volces.com')
+      }
+    }
+
+    if (currentType === CHANNEL_TYPE_AISTARSLAB) {
+      const currentBaseUrlValue = form.getValues('base_url')
+      if (!currentBaseUrlValue || currentBaseUrlValue === '') {
+        form.setValue('base_url', getDefaultBaseUrl(CHANNEL_TYPE_AISTARSLAB))
       }
     }
 

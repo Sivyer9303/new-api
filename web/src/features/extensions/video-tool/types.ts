@@ -96,6 +96,7 @@ export type VideoToolConfig = {
 
 export type VideoToolModel = {
   id: string
+  channel_id?: number
   profile_model: string
   provider_id?: string
   channel_type?: number

@@ -157,9 +157,7 @@ export function useVideoTaskPolling() {
         }
         if (isTerminalFailure(status)) {
           const rawMessage =
-            statusResponse.error?.message ||
-            statusResponse.fail_reason ||
-            ''
+            statusResponse.error?.message || statusResponse.fail_reason || ''
           const message = rawMessage
             ? localizeTaskFailReason(rawMessage, t)
             : t('Video generation failed')

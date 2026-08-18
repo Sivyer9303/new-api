@@ -36,17 +36,22 @@ func ParseProviderResult(raw []byte) (VideoProviderResult, error) {
 	nodes := orderedResponseNodes(payload, 0, false, false)
 
 	result := VideoProviderResult{UpstreamTaskID: extractUpstreamTaskID(nodes)}
-	for _, node := range nodes {
-		if result.RawStatus == "" {
-			if value, ok := node.values["status"].(string); ok {
-				result.RawStatus = strings.TrimSpace(value)
+	for pass := 0; pass < 2; pass++ {
+		for _, node := range nodes {
+			if node.metadataContext || !isPreferredResponseNode(node, pass) {
+				continue
 			}
-		}
-		if result.Progress == 0 {
-			result.Progress = parseProgress(node.values["progress"])
-		}
-		if result.FailureReason == "" {
-			result.FailureReason = extractFailureReason(node.values)
+			if result.RawStatus == "" {
+				if value, ok := node.values["status"].(string); ok {
+					result.RawStatus = strings.TrimSpace(value)
+				}
+			}
+			if result.Progress == 0 {
+				result.Progress = parseProgress(node.values["progress"])
+			}
+			if result.FailureReason == "" {
+				result.FailureReason = extractFailureReason(node.values)
+			}
 		}
 	}
 
@@ -113,6 +118,7 @@ func decodeProviderResponse(raw []byte) (any, error) {
 
 type responseNode struct {
 	values          map[string]any
+	depth           int
 	resultContext   bool
 	metadataContext bool
 }
@@ -125,6 +131,7 @@ func orderedResponseNodes(node any, depth int, resultContext, metadataContext bo
 	case map[string]any:
 		out := []responseNode{{
 			values:          typed,
+			depth:           depth,
 			resultContext:   resultContext,
 			metadataContext: metadataContext,
 		}}
@@ -151,16 +158,25 @@ func orderedResponseNodes(node any, depth int, resultContext, metadataContext bo
 
 func extractUpstreamTaskID(nodes []responseNode) string {
 	for _, key := range []string{"task_id", "id"} {
-		for _, node := range nodes {
-			if node.metadataContext {
-				continue
-			}
-			if value, ok := node.values[key].(string); ok && strings.TrimSpace(value) != "" {
-				return strings.TrimSpace(value)
+		for pass := 0; pass < 2; pass++ {
+			for _, node := range nodes {
+				if node.metadataContext || !isPreferredResponseNode(node, pass) {
+					continue
+				}
+				if value, ok := node.values[key].(string); ok && strings.TrimSpace(value) != "" {
+					return strings.TrimSpace(value)
+				}
 			}
 		}
 	}
 	return ""
+}
+
+func isPreferredResponseNode(node responseNode, pass int) bool {
+	if pass == 0 {
+		return node.depth > 0
+	}
+	return node.depth == 0
 }
 
 func extractResultURL(nodes []responseNode) string {

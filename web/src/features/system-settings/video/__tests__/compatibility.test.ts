@@ -39,6 +39,7 @@ const legacySettings: VideoSettings = {
   'silkroad_setting.default_profile_id': 'legacy',
   'brioi_setting.profiles': '[]',
   'compatvideo_setting.profiles': '[]',
+  'aistarslab_setting.profiles': '[]',
   'silkroad_setting.storage':
     '{"enabled":true,"driver":"local","local_dir":"legacy/videos","retention_days":7,"max_retry":9,"ingest_node_name":"legacy-node","public_download_base_url":"https://video.example.com"}',
 }

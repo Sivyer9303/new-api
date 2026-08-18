@@ -129,3 +129,154 @@ func TestDistributeConstrainsVideoProviderAcrossPriorityAndFailure(t *testing.T)
 	assert.Equal(t, constant.ChannelTypeBrioi, selectedChannelType)
 }
 
+func TestDistributeSelectsPathCompatibleVideoChannel(t *testing.T) {
+	require.NoError(t, appi18n.Init())
+	gin.SetMode(gin.TestMode)
+
+	previousDB := model.DB
+	previousMemoryCache := common.MemoryCacheEnabled
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.MemoryCacheEnabled = previousMemoryCache
+	})
+
+	common.MemoryCacheEnabled = false
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	model.DB = db
+
+	highPriority := int64(100)
+	lowPriority := int64(10)
+	require.NoError(t, db.Create(&[]model.Channel{
+		{
+			Id:       911,
+			Type:     constant.ChannelTypeBrioi,
+			Name:     "brioi-generic-only",
+			Key:      "brioi-key",
+			Status:   common.ChannelStatusEnabled,
+			Group:    "video",
+			Models:   "shared-video-model",
+			Priority: &highPriority,
+		},
+		{
+			Id:       912,
+			Type:     constant.ChannelTypeSilkRoad,
+			Name:     "silkroad-openai-videos",
+			Key:      "silkroad-key",
+			Status:   common.ChannelStatusEnabled,
+			Group:    "video",
+			Models:   "shared-video-model",
+			Priority: &lowPriority,
+		},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "video", Model: "shared-video-model", ChannelId: 911, Enabled: true, Priority: &highPriority},
+		{Group: "video", Model: "shared-video-model", ChannelId: 912, Enabled: true, Priority: &lowPriority},
+	}).Error)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		common.SetContextKey(c, constant.ContextKeyUsingGroup, "video")
+		common.SetContextKey(c, constant.ContextKeyTokenGroup, "video")
+		c.Next()
+	})
+	router.Use(Distribute())
+	selectedChannelID := 0
+	router.POST("/v1/videos", func(c *gin.Context) {
+		selectedChannelID = common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+		c.Status(http.StatusNoContent)
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/videos",
+		bytes.NewBufferString(`{"model":"shared-video-model"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusNoContent, recorder.Code)
+	assert.Equal(t, 912, selectedChannelID)
+}
+
+func TestDistributeUsesResolvedVideoRouteChannelAndMapping(t *testing.T) {
+	require.NoError(t, appi18n.Init())
+	gin.SetMode(gin.TestMode)
+
+	previousDB := model.DB
+	previousMemoryCache := common.MemoryCacheEnabled
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.MemoryCacheEnabled = previousMemoryCache
+	})
+
+	common.MemoryCacheEnabled = false
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	model.DB = db
+
+	decisionPriority := int64(100)
+	fallbackPriority := int64(10)
+	decisionWeight := uint(100)
+	fallbackWeight := uint(0)
+	decisionMapping := `{"shared-video-model":"selected-upstream-model"}`
+	fallbackMapping := `{"shared-video-model":"other-upstream-model"}`
+	require.NoError(t, db.Create(&[]model.Channel{
+		{
+			Id:           921,
+			Type:         constant.ChannelTypeSilkRoad,
+			Name:         "resolved-channel",
+			Key:          "selected-key",
+			Status:       common.ChannelStatusEnabled,
+			Group:        "video",
+			Models:       "shared-video-model",
+			ModelMapping: &decisionMapping,
+		},
+		{
+			Id:           922,
+			Type:         constant.ChannelTypeSilkRoad,
+			Name:         "other-channel",
+			Key:          "other-key",
+			Status:       common.ChannelStatusEnabled,
+			Group:        "video",
+			Models:       "shared-video-model",
+			ModelMapping: &fallbackMapping,
+		},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "video", Model: "shared-video-model", ChannelId: 921, Enabled: true, Priority: &decisionPriority, Weight: decisionWeight},
+		{Group: "video", Model: "shared-video-model", ChannelId: 922, Enabled: true, Priority: &fallbackPriority, Weight: fallbackWeight},
+	}).Error)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		common.SetContextKey(c, constant.ContextKeyUsingGroup, "video")
+		common.SetContextKey(c, constant.ContextKeyTokenGroup, "video")
+		c.Next()
+	})
+	router.Use(Distribute())
+	router.POST("/v1/videos", func(c *gin.Context) {
+		decision, ok := common.GetContextKey(c, constant.ContextKeyVideoRouteDecision)
+		require.True(t, ok)
+		route, ok := decision.(model.VideoRouteDecision)
+		require.True(t, ok)
+		assert.Equal(t, 921, route.ChannelID)
+		assert.Equal(t, "selected-upstream-model", route.UpstreamModel)
+		assert.Equal(t, route.ChannelID, common.GetContextKeyInt(c, constant.ContextKeyChannelId))
+		c.Status(http.StatusNoContent)
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/videos",
+		bytes.NewBufferString(`{"model":"shared-video-model"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusNoContent, recorder.Code)
+}

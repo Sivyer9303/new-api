@@ -232,7 +232,6 @@ func TestBrioiChannelRegistration(t *testing.T) {
 	assert.Equal(t, constant.APITypeOpenAI, apiType)
 	assert.Equal(t, 62, constant.ChannelTypeBrioi)
 	assert.Equal(t, constant.ChannelTypeBrioi+1, constant.ChannelTypeCompatVideo)
-	assert.Equal(t, constant.ChannelTypeCompatVideo+1, constant.ChannelTypeDummy)
 	assert.Equal(t, "Brioi", constant.GetChannelTypeName(constant.ChannelTypeBrioi))
 	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeBrioi)
 	assert.Empty(t, constant.ChannelBaseURLs[constant.ChannelTypeBrioi])
@@ -261,7 +260,7 @@ func TestCompatVideoChannelRegistration(t *testing.T) {
 	assert.False(t, ok)
 	assert.Equal(t, constant.APITypeOpenAI, apiType)
 	assert.Equal(t, 63, constant.ChannelTypeCompatVideo)
-	assert.Equal(t, "Compatible Video", constant.GetChannelTypeName(constant.ChannelTypeCompatVideo))
+	assert.Equal(t, "xtoken", constant.GetChannelTypeName(constant.ChannelTypeCompatVideo))
 	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeCompatVideo)
 	assert.Empty(t, constant.ChannelBaseURLs[constant.ChannelTypeCompatVideo])
 	assert.Equal(
@@ -279,6 +278,36 @@ func TestCompatVideoChannelRegistration(t *testing.T) {
 	))
 	assert.False(t, common.ChannelTypeSupportsRequestPath(
 		constant.ChannelTypeCompatVideo,
+		"/v1/chat/completions",
+	))
+}
+
+func TestAIStarsLabChannelRegistration(t *testing.T) {
+	apiType, ok := common.ChannelType2APIType(constant.ChannelTypeAIStarsLab)
+
+	assert.False(t, ok)
+	assert.Equal(t, constant.APITypeOpenAI, apiType)
+	assert.Equal(t, 64, constant.ChannelTypeAIStarsLab)
+	assert.Equal(t, constant.ChannelTypeCompatVideo+1, constant.ChannelTypeAIStarsLab)
+	assert.Equal(t, constant.ChannelTypeAIStarsLab+1, constant.ChannelTypeDummy)
+	assert.Equal(t, "AIStarsLab", constant.GetChannelTypeName(constant.ChannelTypeAIStarsLab))
+	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeAIStarsLab)
+	assert.Equal(t, "https://api.video.aistarslab.com/openai", constant.ChannelBaseURLs[constant.ChannelTypeAIStarsLab])
+	assert.Equal(
+		t,
+		[]constant.EndpointType{constant.EndpointTypeOpenAIVideo},
+		common.GetEndpointTypesByChannelType(constant.ChannelTypeAIStarsLab, "test:test-video"),
+	)
+	assert.True(t, common.ChannelTypeSupportsRequestPath(
+		constant.ChannelTypeAIStarsLab,
+		"/v1/video/generations",
+	))
+	assert.True(t, common.ChannelTypeSupportsRequestPath(
+		constant.ChannelTypeAIStarsLab,
+		"/v1/videos",
+	))
+	assert.False(t, common.ChannelTypeSupportsRequestPath(
+		constant.ChannelTypeAIStarsLab,
 		"/v1/chat/completions",
 	))
 }

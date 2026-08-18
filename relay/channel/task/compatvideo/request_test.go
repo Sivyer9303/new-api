@@ -2,6 +2,10 @@ package compatvideo
 
 import (
 	"bytes"
+	"image"
+	"image/color"
+	"image/png"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,7 +32,7 @@ func TestParseRequestAcceptsNormalizedGrokPayload(t *testing.T) {
 		"duration":8,
 		"aspect_ratio":"16:9",
 		"resolution":"720p",
-		"media":[{"type":"image","role":"reference","source":"data:image/png;base64,abc"}]
+		"media":[{"type":"image","role":"reference","source":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL9uAAAAABJRU5ErkJggg=="}]
 	}`), info)
 	require.NoError(t, err)
 	assert.Equal(t, compatvideo_setting.ProfileGrokImageVideo, profile.ID)
@@ -121,4 +125,42 @@ func TestValidateRequestAndSetActionStoresDialect(t *testing.T) {
 	err := adaptor.ValidateRequestAndSetAction(context, info)
 	require.Nil(t, err)
 	assert.Equal(t, compatvideo_setting.DialectOpenAIVideos, adaptor.dialect)
+}
+
+func TestValidateRequestAndSetActionNormalizesOpenAIVideosMultipartInput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("model", "seedance-2-0"))
+	require.NoError(t, writer.WriteField("prompt", "animate this image"))
+	require.NoError(t, writer.WriteField("seconds", "8"))
+	require.NoError(t, writer.WriteField("size", "1280x720"))
+	file, err := writer.CreateFormFile("input_reference", "reference.png")
+	require.NoError(t, err)
+	imageData := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	imageData.Set(0, 0, color.RGBA{R: 255, A: 255})
+	require.NoError(t, png.Encode(file, imageData))
+	require.NoError(t, writer.Close())
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", &body)
+	context.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	info := &relaycommon.RelayInfo{
+		ChannelMeta:   &relaycommon.ChannelMeta{UpstreamModelName: "seedance-2-0"},
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_test"},
+	}
+
+	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(context, info)
+	require.Nil(t, taskErr)
+	normalized, ok := getNormalizedRequest(context)
+	require.True(t, ok)
+	assert.Equal(t, compatvideo_setting.GenerationImage2Video, normalized.request.GenerationType)
+	assert.Equal(t, "16:9", normalized.request.AspectRatio)
+	assert.Equal(t, "720p", normalized.request.Resolution)
+	require.NotNil(t, normalized.request.Duration)
+	assert.Equal(t, 8, *normalized.request.Duration)
+	require.Len(t, normalized.request.Media, 1)
+	assert.Equal(t, videocommon.VideoMediaImage, normalized.request.Media[0].Type)
+	assert.Equal(t, videocommon.VideoMediaRoleReference, normalized.request.Media[0].Role)
 }

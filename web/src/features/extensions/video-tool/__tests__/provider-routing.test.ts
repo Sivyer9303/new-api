@@ -115,6 +115,10 @@ describe('video provider routing', () => {
           groups: [],
           profiles: [],
         },
+        aistarslab: {
+          groups: [],
+          profiles: [],
+        },
       },
     })
 
@@ -177,10 +181,25 @@ describe('video provider routing', () => {
     )
     assert.equal(resolveVideoProviderByID(config, 62)?.id, 'brioi')
     assert.equal(resolveVideoProviderByID(config, 63)?.id, 'compat_video')
+    assert.equal(resolveVideoProviderByID(config, 'xtoken')?.id, 'compat_video')
+    assert.equal(resolveVideoProviderByID(config, 64)?.id, 'aistarslab')
+    assert.equal(
+      resolveVideoProviderByID(config, 'aistarslab')?.id,
+      'aistarslab'
+    )
     assert.equal(
       normalizeVideoToolConfig({
         providers: {
-          compat_video: { label: 'Compatible Video', profiles: [] },
+          compat_video: { label: 'xtoken', profiles: [] },
+          aistarslab: { label: 'AIStarsLab', profiles: [] },
+        },
+      }).providers.find((provider) => provider.id === 'aistarslab')?.label,
+      ''
+    )
+    assert.equal(
+      normalizeVideoToolConfig({
+        providers: {
+          compat_video: { label: 'xtoken', profiles: [] },
         },
       }).providers[0]?.label,
       ''

@@ -77,7 +77,7 @@ export function PrizeResultDialog(props: PrizeResultDialogProps) {
           )}
         >
           <div className='text-lg font-bold'>{result.prize_name}</div>
-          <div className='mt-2 text-3xl font-black tabular-nums tracking-tight'>
+          <div className='mt-2 text-3xl font-black tracking-tight tabular-nums'>
             {amountText}
           </div>
           {result.is_pity ? (

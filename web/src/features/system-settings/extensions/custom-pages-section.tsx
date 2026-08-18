@@ -217,20 +217,15 @@ export function CustomPagesSection(props: CustomPagesSectionProps) {
     if (deleteTarget === 'single' && editingPage) {
       setPages((prev) => prev.filter((item) => item.id !== editingPage.id))
       setHasChanges(true)
-      toast.success(
-        t('Custom page deleted. Click "Save Settings" to apply.')
-      )
+      toast.success(t('Custom page deleted. Click "Save Settings" to apply.'))
     } else if (deleteTarget === 'batch') {
-      setPages((prev) =>
-        prev.filter((item) => !selectedIds.includes(item.id))
-      )
+      setPages((prev) => prev.filter((item) => !selectedIds.includes(item.id)))
       setSelectedIds([])
       setHasChanges(true)
       toast.success(
-        t(
-          '{{count}} custom pages deleted. Click "Save Settings" to apply.',
-          { count: selectedIds.length }
-        )
+        t('{{count}} custom pages deleted. Click "Save Settings" to apply.', {
+          count: selectedIds.length,
+        })
       )
     }
     setShowDeleteDialog(false)
@@ -244,9 +239,7 @@ export function CustomPagesSection(props: CustomPagesSectionProps) {
           item.id === editingPage.id ? { ...item, ...values } : item
         )
       )
-      toast.success(
-        t('Custom page updated. Click "Save Settings" to apply.')
-      )
+      toast.success(t('Custom page updated. Click "Save Settings" to apply.'))
     } else {
       setPages((prev) => [
         ...prev,
@@ -383,9 +376,7 @@ export function CustomPagesSection(props: CustomPagesSectionProps) {
               header: t('Visibility'),
               className: 'w-32',
               cell: (page) =>
-                page.visibility === 'admin'
-                  ? t('Admins only')
-                  : t('Everyone'),
+                page.visibility === 'admin' ? t('Admins only') : t('Everyone'),
             },
             {
               id: 'sort',
@@ -520,10 +511,7 @@ export function CustomPagesSection(props: CustomPagesSectionProps) {
                 <FormItem>
                   <FormLabel>{t('URL')}</FormLabel>
                   <FormControl>
-                    <Input
-                      placeholder='https://example.com/docs'
-                      {...field}
-                    />
+                    <Input placeholder='https://example.com/docs' {...field} />
                   </FormControl>
                   <FormDescription>
                     {t(
@@ -666,10 +654,9 @@ export function CustomPagesSection(props: CustomPagesSectionProps) {
             <AlertDialogDescription>
               {deleteTarget === 'single'
                 ? t('This custom page will be removed from the list.')
-                : t(
-                    '{{count}} custom pages will be removed from the list.',
-                    { count: selectedIds.length }
-                  )}
+                : t('{{count}} custom pages will be removed from the list.', {
+                    count: selectedIds.length,
+                  })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

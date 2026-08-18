@@ -8,6 +8,7 @@ License, or (at your option) any later version.
 */
 import { createElement } from 'react'
 
+import { AIStarsLabSettingsSection } from '../extensions/aistarslab-settings-section'
 import { BrioiSettingsSection } from '../extensions/brioi-settings-section'
 import { CompatVideoSettingsSection } from '../extensions/compatvideo-settings-section'
 import { SilkRoadSettingsSection } from '../extensions/silkroad-settings-section'
@@ -60,11 +61,21 @@ const VIDEO_SECTIONS = [
   },
   {
     id: 'compatvideo',
-    titleKey: 'Compatible Video',
+    titleKey: 'xtoken',
     build: (settings: VideoSettings) =>
       createElement(CompatVideoSettingsSection, {
         defaultValues: {
           profilesJson: settings['compatvideo_setting.profiles'],
+        },
+      }),
+  },
+  {
+    id: 'aistarslab',
+    titleKey: 'AIStarsLab',
+    build: (settings: VideoSettings) =>
+      createElement(AIStarsLabSettingsSection, {
+        defaultValues: {
+          profilesJson: settings['aistarslab_setting.profiles'],
         },
       }),
   },

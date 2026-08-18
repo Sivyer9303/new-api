@@ -340,7 +340,7 @@ func TestGetVideoToolModelsRejectsStaleUnauthorizedTokenGroup(t *testing.T) {
 	assert.Equal(t, "token_group_unavailable", response.Data.Reason)
 }
 
-func TestGetVideoToolModelsFailsClosedWhenAnyRouteHasInvalidMapping(t *testing.T) {
+func TestGetVideoToolModelsUsesValidRouteWhenAnotherMappingIsInvalid(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Token{}))
 	configureVideoModelsTestSettings(t, []string{"brioi-group"})
@@ -376,8 +376,10 @@ func TestGetVideoToolModelsFailsClosedWhenAnyRouteHasInvalidMapping(t *testing.T
 
 	response := decodeVideoModelsResponse(t, callVideoModelsEndpoint(t, 106, 705))
 	require.True(t, response.Success)
-	assert.Empty(t, response.Data.Models)
-	assert.Equal(t, "no_eligible_video_models", response.Data.Reason)
+	require.Len(t, response.Data.Models, 1)
+	assert.Equal(t, "mapping-conflict", response.Data.Models[0].ID)
+	assert.Equal(t, brioi_setting.ModelSeedance20, response.Data.Models[0].ProfileModel)
+	assert.Empty(t, response.Data.Reason)
 }
 
 func TestGetVideoToolModelsRequiresPerCallModelPrice(t *testing.T) {
@@ -410,6 +412,73 @@ func TestGetVideoToolModelsRequiresPerCallModelPrice(t *testing.T) {
 	require.True(t, response.Success)
 	assert.Empty(t, response.Data.Models)
 	assert.Equal(t, "no_eligible_video_models", response.Data.Reason)
+}
+
+func TestGetVideoToolModelsKeepsAutoGroupOrderWhenResolvingProfiles(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Token{}))
+	configureVideoModelsTestSettings(t, []string{"first"})
+
+	previousAutoGroups := setting.AutoGroups2JsonString()
+	previousUsableGroups := setting.UserUsableGroups2JSONString()
+	previousGroupRatios := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateAutoGroupsByJsonString(previousAutoGroups))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsableGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroupRatios))
+	})
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["first","second"]`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","first":"First","second":"Second"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"first":1,"second":1}`))
+	prices, err := common.Marshal(map[string]float64{"ordered-video-model": 0.2})
+	require.NoError(t, err)
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(prices)))
+
+	require.NoError(t, db.Create(&model.Token{
+		Id:         709,
+		UserId:     109,
+		Key:        "ordered-auto-video-token",
+		Status:     common.TokenStatusEnabled,
+		Group:      "auto",
+		AutoGroups: `["first","second"]`,
+	}).Error)
+
+	createVideoModelsChannel(
+		t,
+		809,
+		constant.ChannelTypeBrioi,
+		common.ChannelStatusEnabled,
+		"first",
+		[]string{"ordered-video-model"},
+		map[string]string{"ordered-video-model": brioi_setting.ModelSeedance20},
+	)
+	createVideoModelsChannel(
+		t,
+		810,
+		constant.ChannelTypeSilkRoad,
+		common.ChannelStatusEnabled,
+		"second",
+		[]string{"ordered-video-model"},
+		map[string]string{"ordered-video-model": "second-upstream-model"},
+	)
+	firstPriority := int64(10)
+	secondPriority := int64(100)
+	require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", 809).Update("priority", firstPriority).Error)
+	require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", 810).Update("priority", secondPriority).Error)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/video/models?token_id=709", nil)
+	context.Set("id", 109)
+	context.Set("user_group", "default")
+	GetVideoToolModels(context)
+
+	response := decodeVideoModelsResponse(t, recorder)
+	require.True(t, response.Success)
+	require.Len(t, response.Data.Models, 1)
+	assert.Equal(t, "brioi", string(response.Data.Models[0].ProviderID))
+	assert.Equal(t, brioi_setting.ModelSeedance20, response.Data.Models[0].ProfileModel)
+	assert.Equal(t, 809, response.Data.Models[0].ChannelID)
 }
 
 func TestVideoTokenGroupsTreatsStoredEmptyAutoListAsInherited(t *testing.T) {

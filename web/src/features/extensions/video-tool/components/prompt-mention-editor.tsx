@@ -137,12 +137,14 @@ function serializeEditor(root: HTMLElement): string {
 }
 
 function createMentionChip(
-  option: PromptMentionOption | {
-    token: string
-    label: string
-    previewUrl?: string
-    kind?: PromptMentionOption['kind']
-  },
+  option:
+    | PromptMentionOption
+    | {
+        token: string
+        label: string
+        previewUrl?: string
+        kind?: PromptMentionOption['kind']
+      },
   missing: boolean
 ): HTMLSpanElement {
   const chip = document.createElement('span')
@@ -290,10 +292,7 @@ export function PromptMentionEditor({
     if (!menu) return [] as PromptMentionOption[]
     return filterPromptMentionOptions(options, menu.query)
   }, [menu, options])
-  const grouped = useMemo(
-    () => groupPromptMentionOptions(filtered),
-    [filtered]
-  )
+  const grouped = useMemo(() => groupPromptMentionOptions(filtered), [filtered])
   const flatFiltered = useMemo(
     () => [...grouped.images, ...grouped.audios, ...grouped.videos],
     [grouped]
@@ -308,19 +307,21 @@ export function PromptMentionEditor({
     }
     if (serializeEditor(root) === value) {
       // Refresh chip previews/labels when media list changes.
-      root.querySelectorAll<HTMLElement>('[data-mention-token]').forEach((chip) => {
-        const token = chip.dataset.mentionToken
-        if (!token) return
-        const option = optionsByToken.get(token)
-        const next = createMentionChip(
-          option ?? {
-            token,
-            label: token.replace(/^@/, ''),
-          },
-          !option
-        )
-        chip.replaceWith(next)
-      })
+      root
+        .querySelectorAll<HTMLElement>('[data-mention-token]')
+        .forEach((chip) => {
+          const token = chip.dataset.mentionToken
+          if (!token) return
+          const option = optionsByToken.get(token)
+          const next = createMentionChip(
+            option ?? {
+              token,
+              label: token.replace(/^@/, ''),
+            },
+            !option
+          )
+          chip.replaceWith(next)
+        })
       return
     }
     renderPlainValue(root, value, optionsByToken)

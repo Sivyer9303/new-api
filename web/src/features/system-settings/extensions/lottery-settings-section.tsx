@@ -293,9 +293,7 @@ export function LotterySettingsSection({
               name='displayDailyPoolUsd'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>
-                    {t('Display daily prize pool (USD)')}
-                  </FormLabel>
+                  <FormLabel>{t('Display daily prize pool (USD)')}</FormLabel>
                   <FormControl>
                     <Input type='number' step='0.01' {...field} />
                   </FormControl>
@@ -512,9 +510,7 @@ export function LotterySettingsSection({
                     {t('Bet mode prizes')}
                   </h3>
                   <p className='text-muted-foreground text-xs'>
-                    {t(
-                      'Multiplier is relative to bet amount. Range: -1 to 2.'
-                    )}
+                    {t('Multiplier is relative to bet amount. Range: -1 to 2.')}
                   </p>
                 </div>
                 <Button

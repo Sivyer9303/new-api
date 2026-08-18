@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/aistarslab_setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/brioi_setting"
 	"github.com/QuantumNous/new-api/setting/compatvideo_setting"
@@ -138,6 +139,19 @@ func validateBrioiSettingOption(key, value string) error {
 		return err
 	}
 	return nil
+}
+
+func validateAIStarsLabSettingOption(key, value string) error {
+	configKey := strings.TrimPrefix(key, "aistarslab_setting.")
+	if configKey != "profiles" {
+		return fmt.Errorf("unsupported aistarslab_setting option key %q", configKey)
+	}
+	var profiles []aistarslab_setting.ModelOverride
+	if err := common.UnmarshalJsonStr(value, &profiles); err != nil {
+		return fmt.Errorf("invalid AIStarsLab profiles: %w", err)
+	}
+	candidate := aistarslab_setting.AIStarsLabSetting{Profiles: profiles}
+	return aistarslab_setting.ValidateAIStarsLabSetting(&candidate)
 }
 
 func validateVideoSettingOption(key, value string) error {
@@ -380,8 +394,9 @@ func UpdateVideoProviderOption(c *gin.Context) {
 
 func videoProviderOptionValues(request VideoProviderOptionUpdateRequest) (map[string]string, error) {
 	if len(request.Profiles) == 0 {
-		// Compatible Video may save an empty override list (all built-in defaults).
-		if request.Provider != setting.VideoProviderCompatVideo {
+		// Compatible Video and AIStarsLab may save an empty override list.
+		if request.Provider != setting.VideoProviderCompatVideo &&
+			request.Provider != setting.VideoProviderAIStarsLab {
 			return nil, fmt.Errorf("video provider profiles are required")
 		}
 	}
@@ -439,7 +454,7 @@ func videoProviderOptionValues(request VideoProviderOptionUpdateRequest) (map[st
 		var profiles []compatvideo_setting.Profile
 		if len(request.Profiles) > 0 {
 			if err := common.Unmarshal(request.Profiles, &profiles); err != nil {
-				return nil, fmt.Errorf("invalid Compatible Video profiles: %w", err)
+				return nil, fmt.Errorf("invalid xtoken profiles: %w", err)
 			}
 		}
 		candidate := compatvideo_setting.CompatVideoSetting{
@@ -454,6 +469,26 @@ func videoProviderOptionValues(request VideoProviderOptionUpdateRequest) (map[st
 		}
 		return map[string]string{
 			"compatvideo_setting.profiles": string(profilesValue),
+		}, nil
+	case setting.VideoProviderAIStarsLab:
+		var profiles []aistarslab_setting.ModelOverride
+		if len(request.Profiles) > 0 {
+			if err := common.Unmarshal(request.Profiles, &profiles); err != nil {
+				return nil, fmt.Errorf("invalid AIStarsLab profiles: %w", err)
+			}
+		}
+		candidate := aistarslab_setting.AIStarsLabSetting{
+			Profiles: profiles,
+		}
+		if err := aistarslab_setting.ValidateAIStarsLabSetting(&candidate); err != nil {
+			return nil, err
+		}
+		profilesValue, err := common.Marshal(candidate.Profiles)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{
+			"aistarslab_setting.profiles": string(profilesValue),
 		}, nil
 
 	default:
@@ -760,6 +795,15 @@ func UpdateOption(c *gin.Context) {
 		}
 	case "brioi_setting.profiles", "brioi_setting.video_tool_groups":
 		err = validateBrioiSettingOption(option.Key, option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+	case "aistarslab_setting.profiles":
+		err = validateAIStarsLabSettingOption(option.Key, option.Value.(string))
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,

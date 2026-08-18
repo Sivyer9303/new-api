@@ -166,6 +166,42 @@ func getProviderConstrainedChannel(
 	group string,
 	retry int,
 ) (*model.Channel, error) {
+	if value, ok := common.GetContextKey(param.Ctx, constant.ContextKeyVideoRouteDecision); ok {
+		if decision, ok := value.(model.VideoRouteDecision); ok {
+			if group == decision.Group {
+				channel, err := model.GetRandomSatisfiedChannelForVideoRoute(
+					group,
+					param.ModelName,
+					retry,
+					param.RequestPath,
+					decision,
+				)
+				if err != nil || channel != nil {
+					return channel, err
+				}
+			}
+
+			// The selected profile has no usable retry candidate. Resolve the
+			// current auto-group afresh before the caller advances further, so
+			// a fallback never drifts to an arbitrary same-type channel.
+			fallback, err := model.ResolveVideoRoute(
+				[]string{group},
+				param.ModelName,
+				param.RequestPath,
+			)
+			if err != nil {
+				return nil, nil
+			}
+			channel, err := model.CacheGetChannel(fallback.ChannelID)
+			if err != nil || !model.ChannelMatchesVideoRoute(channel, fallback) {
+				return nil, err
+			}
+			common.SetContextKey(param.Ctx, constant.ContextKeyVideoRouteDecision, fallback)
+			common.SetContextKey(param.Ctx, constant.ContextKeyVideoProviderChannelType, fallback.ChannelType)
+			return channel, nil
+		}
+	}
+
 	requiredType := common.GetContextKeyInt(
 		param.Ctx,
 		constant.ContextKeyVideoProviderChannelType,

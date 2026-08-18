@@ -3,6 +3,7 @@ package compatvideo_setting
 import (
 	"testing"
 
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -104,4 +105,41 @@ func TestValidateCompatVideoSettingAcceptsEmptyProfiles(t *testing.T) {
 	require.NoError(t, ValidateCompatVideoSetting(&CompatVideoSetting{Profiles: []Profile{}}))
 	profile := MatchProfile("seedance-2-0")
 	assert.NotEmpty(t, profile.Durations)
+}
+
+func TestValidateCompatVideoSettingNormalizesOverridesBeforePersistence(t *testing.T) {
+	setting := &CompatVideoSetting{Profiles: []Profile{{
+		ID:           "  seedance2  ",
+		Durations:    []int{10, 4, 10},
+		Resolutions:  []string{" 720p ", "480p", "720p"},
+		AspectRatios: []string{" 16:9 ", "9:16", "16:9"},
+		Dialect:      " openai_videos ",
+	}}}
+
+	require.NoError(t, ValidateCompatVideoSetting(setting))
+	require.Len(t, setting.Profiles, 1)
+	assert.Equal(t, ProfileSeedance2, setting.Profiles[0].ID)
+	assert.Equal(t, []int{4, 10}, setting.Profiles[0].Durations)
+	assert.Equal(t, []string{"480p", "720p"}, setting.Profiles[0].Resolutions)
+	assert.Equal(t, []string{"16:9", "9:16"}, setting.Profiles[0].AspectRatios)
+	assert.Equal(t, DialectOpenAIVideos, setting.Profiles[0].Dialect)
+}
+
+func TestValidateCompatVideoSettingRejectsDurationAboveTaskLimit(t *testing.T) {
+	err := ValidateCompatVideoSetting(&CompatVideoSetting{Profiles: []Profile{{
+		ID:        ProfileSeedance2,
+		Durations: []int{relaycommon.MaxTaskDurationSeconds + 1},
+	}}})
+	require.ErrorContains(t, err, "invalid duration")
+}
+
+func TestPublicProfileMediaOptionsAreDeterministic(t *testing.T) {
+	profile := PublicProfileFor(Profile{
+		ID: "deterministic",
+		GenerationModes: []GenerationMode{
+			{Value: "mode", ImagesMax: 1, AllowAudio: true, AllowVideo: true, ImageRoles: []string{"reference"}},
+		},
+	})
+	assert.Equal(t, []string{"audio", "image", "video"}, profile.Media.AcceptedTypes)
+	assert.Equal(t, []string{"reference"}, profile.Media.AllowedRoles)
 }

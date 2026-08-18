@@ -16,6 +16,7 @@ func TestTaskActionFromGenerationType(t *testing.T) {
 		{generationType: "multi_image", want: TaskActionGenerate},
 		{generationType: "first_frame", want: TaskActionFirstTailGenerate},
 		{generationType: "start_end", want: TaskActionFirstTailGenerate},
+		{generationType: "frames2video", want: TaskActionFirstTailGenerate},
 		{generationType: "reference_videos", want: TaskActionReferenceGenerate},
 		{generationType: "reference_audio", want: TaskActionReferenceGenerate},
 		{generationType: "", want: TaskActionGenerate},

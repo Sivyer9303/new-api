@@ -46,6 +46,8 @@ export const COMPAT_VIDEO_PROFILES = [
   },
 ] as const
 
+export const COMPAT_VIDEO_PROVIDER = 'compat_video'
+
 export type ProfileOverrideForm = {
   durations: string
   resolutions: string
@@ -68,7 +70,9 @@ function splitList(value: string): string[] {
   ]
 }
 
-function toText(values: readonly number[] | readonly string[] | undefined): string {
+function toText(
+  values: readonly number[] | readonly string[] | undefined
+): string {
   if (!values?.length) return ''
   return values.join(', ')
 }
@@ -102,8 +106,12 @@ export function parseCompatibleVideoProfiles(
     const id = typeof record.id === 'string' ? record.id : ''
     const form = values.profiles[id]
     if (!form) continue
-    if (Array.isArray(record.durations)) form.durations = toText(record.durations as number[])
-    if (Array.isArray(record.resolutions)) form.resolutions = toText(record.resolutions as string[])
+    if (Array.isArray(record.durations)) {
+      form.durations = toText(record.durations as number[])
+    }
+    if (Array.isArray(record.resolutions)) {
+      form.resolutions = toText(record.resolutions as string[])
+    }
     if (Array.isArray(record.aspect_ratios)) {
       form.aspect_ratios = toText(record.aspect_ratios as string[])
     }

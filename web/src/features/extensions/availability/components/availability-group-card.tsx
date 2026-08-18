@@ -19,18 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 import type { AvailabilityGroup } from '../api'
-import {
-  formatSuccessRatePercent,
-  formatUseTimeSeconds,
-} from '../lib/status'
+import { formatSuccessRatePercent, formatUseTimeSeconds } from '../lib/status'
 import { HeartbeatBars } from './heartbeat-bars'
 
 type AvailabilityGroupCardProps = {
@@ -78,9 +70,7 @@ export function AvailabilityGroupCard(props: AvailabilityGroupCardProps) {
       <CardContent className='space-y-4'>
         <div className='grid grid-cols-2 gap-3'>
           <div className='bg-muted/40 rounded-lg px-3 py-2'>
-            <p className='text-muted-foreground text-xs'>
-              {t('Avg latency')}
-            </p>
+            <p className='text-muted-foreground text-xs'>{t('Avg latency')}</p>
             <p className='text-lg font-semibold tabular-nums'>
               {props.group.success_count > 0
                 ? formatUseTimeSeconds(props.group.avg_use_time)
@@ -88,9 +78,7 @@ export function AvailabilityGroupCard(props: AvailabilityGroupCardProps) {
             </p>
           </div>
           <div className='bg-muted/40 rounded-lg px-3 py-2'>
-            <p className='text-muted-foreground text-xs'>
-              {t('Availability')}
-            </p>
+            <p className='text-muted-foreground text-xs'>{t('Availability')}</p>
             <p className='text-lg font-semibold tabular-nums'>
               {formatSuccessRatePercent(
                 props.group.success_rate,

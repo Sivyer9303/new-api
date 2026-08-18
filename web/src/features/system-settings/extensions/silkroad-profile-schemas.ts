@@ -130,9 +130,7 @@ export function profilesFormToApi(profiles: ProfileForm[]): ProfileApi[] {
       .split(/[,，\n]/)
       .map((s) => s.trim())
       .filter(Boolean),
-    ...(p.require_ref_model_suffix
-      ? {}
-      : { require_ref_model_suffix: false }),
+    ...(p.require_ref_model_suffix ? {} : { require_ref_model_suffix: false }),
     ...(p.durations.length > 0
       ? {
           durations: p.durations.map((d) => ({

@@ -87,6 +87,30 @@ func TestChannelSupportsRequestPathKeepsCompatVideoOnVideoRoutes(t *testing.T) {
 	}
 }
 
+func TestChannelSupportsRequestPathKeepsAIStarsLabOnVideoRoutes(t *testing.T) {
+	channel := &model.Channel{Type: constant.ChannelTypeAIStarsLab}
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "/v1/videos", want: true},
+		{path: "/v1/videos/task-id", want: true},
+		{path: "/v1/video/generations", want: true},
+		{path: "/v1/video/generations/task-id", want: true},
+		{path: "/v1/chat/completions", want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			assert.Equal(
+				t,
+				test.want,
+				channelSupportsRequestPath(channel, test.path, "test:test-video"),
+			)
+		})
+	}
+}
+
 func TestChannelSupportsRequestPathRejectsNewAPIVideoSubmissions(t *testing.T) {
 	newAPI := &model.Channel{Type: constant.ChannelTypeNewAPI}
 

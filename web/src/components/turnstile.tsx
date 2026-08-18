@@ -54,7 +54,9 @@ function loadTurnstileScript(): Promise<void> {
     return Promise.resolve()
   }
 
-  const existing = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null
+  const existing = document.querySelector(
+    `#${SCRIPT_ID}`
+  ) as HTMLScriptElement | null
   if (existing) {
     return new Promise((resolve, reject) => {
       if (window.turnstile) {

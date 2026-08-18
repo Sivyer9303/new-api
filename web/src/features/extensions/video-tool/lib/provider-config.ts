@@ -80,7 +80,9 @@ function publicProviderLabel(value: unknown): string {
   const label = asString(value)
   if (
     !label ||
-    /^(?:brioi|silk[\s_-]*road|compat(?:ible)?[\s_-]*video)$/i.test(label)
+    /^(?:brioi|silk[\s_-]*road|compat(?:ible)?[\s_-]*video|xtoken|aistarslab)$/i.test(
+      label
+    )
   ) {
     return ''
   }
@@ -109,9 +111,17 @@ export function canonicalVideoProviderID(value: unknown): string {
     normalized === '63' ||
     normalized === 'compatvideo' ||
     normalized === 'compatiblevideo' ||
-    normalized === 'channelcompatvideo'
+    normalized === 'channelcompatvideo' ||
+    normalized === 'xtoken'
   ) {
     return 'compat_video'
+  }
+  if (
+    normalized === '64' ||
+    normalized === 'aistarslab' ||
+    normalized === 'channelaistarslab'
+  ) {
+    return 'aistarslab'
   }
   return asString(value).toLowerCase()
 }
@@ -189,6 +199,7 @@ function inferredImageRoles(value: string): VideoMediaRole[] {
     case 'start_end':
     case 'first_last':
     case 'first_last_frame':
+    case 'frames2video':
       return ['first_frame', 'last_frame']
     case 'first_frame':
     case 'start_frame':
@@ -217,6 +228,7 @@ function defaultImageBounds(value: string): {
     case 'start_end':
     case 'first_last':
     case 'first_last_frame':
+    case 'frames2video':
       return { min: 2, max: 2 }
     case 'multi_image':
       return { min: 2, max: 30 }
@@ -268,10 +280,16 @@ function normalizeGenerationType(
       )
     : bounds.max
   const videosMin = record
-    ? integerValue(firstDefined(record, ['videos_min', 'min_videos']), videoBounds.min)
+    ? integerValue(
+        firstDefined(record, ['videos_min', 'min_videos']),
+        videoBounds.min
+      )
     : videoBounds.min
   const videosMax = record
-    ? integerValue(firstDefined(record, ['videos_max', 'max_videos']), videoBounds.max)
+    ? integerValue(
+        firstDefined(record, ['videos_max', 'max_videos']),
+        videoBounds.max
+      )
     : videoBounds.max
   const explicitRoles = mediaRoleList(
     record &&
@@ -377,7 +395,10 @@ function normalizeMediaLimitMap(
   )
 }
 
-export function normalizeProfile(value: unknown, index: number): PublicProfile | null {
+export function normalizeProfile(
+  value: unknown,
+  index: number
+): PublicProfile | null {
   const profile = asRecord(value)
   if (!profile || profile.enabled === false) return null
   const capabilities =
@@ -501,7 +522,8 @@ function normalizeProvider(
   )
   return {
     id: providerID,
-    label: publicProviderLabel(provider.label) || publicProviderLabel(provider.name),
+    label:
+      publicProviderLabel(provider.label) || publicProviderLabel(provider.name),
     groups: stringList(firstDefined(provider, ['groups', 'video_tool_groups'])),
     generation_types:
       generationTypes.length > 0

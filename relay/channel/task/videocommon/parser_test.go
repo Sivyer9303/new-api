@@ -104,6 +104,25 @@ func TestExtractSubmitTaskIDPrefersExplicitTaskIDAndIgnoresMetadataID(t *testing
 	assert.Equal(t, "upstream-task-id", result.UpstreamTaskID)
 }
 
+func TestExtractSubmitTaskIDPrefersNestedResultIDOverEnvelopeID(t *testing.T) {
+	id, err := ExtractSubmitTaskID([]byte(`{
+		"id":"request-id",
+		"data":{"id":"upstream-video-id","status":"queued"}
+	}`))
+	require.NoError(t, err)
+	assert.Equal(t, "upstream-video-id", id)
+}
+
+func TestParseProviderResultPrefersNestedStatusOverEnvelopeStatus(t *testing.T) {
+	result, err := ParseProviderResult([]byte(`{
+		"status":"processing",
+		"data":{"id":"upstream-video-id","status":"success","progress":100}
+	}`))
+	require.NoError(t, err)
+	assert.Equal(t, "upstream-video-id", result.UpstreamTaskID)
+	assert.Equal(t, ProviderTaskSucceeded, result.Status)
+}
+
 func TestParseProviderResultPrefersOutputURLOverEchoedInputURL(t *testing.T) {
 	result, err := ParseProviderResult([]byte(`{
 		"status":"completed",

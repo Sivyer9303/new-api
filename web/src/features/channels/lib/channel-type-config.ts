@@ -194,6 +194,17 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'Video models',
     },
   },
+  64: {
+    id: 64,
+    name: CHANNEL_TYPES[64],
+    icon: 'AIStarsLab',
+    defaultBaseUrl: 'https://api.video.aistarslab.com/openai',
+    hints: {
+      baseUrl: 'Default: https://api.video.aistarslab.com/openai',
+      key: 'Enter API key for this channel',
+      models: 'test:test-video or {channelCode}:{model}',
+    },
+  },
 }
 
 /**

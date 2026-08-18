@@ -20,7 +20,9 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  CHANNEL_TYPE_AISTARSLAB,
   CHANNEL_TYPE_BRIOI,
+  CHANNEL_TYPE_COMPAT_VIDEO,
   CHANNEL_TYPE_NEW_API,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_SILKROAD,
@@ -70,6 +72,22 @@ describe('New API channel', () => {
     assert.equal(
       CHANNEL_TYPE_OPTIONS.findIndex(
         (item) => item.value === CHANNEL_TYPE_BRIOI
+      ) + 1,
+      CHANNEL_TYPE_OPTIONS.findIndex(
+        (item) => item.value === CHANNEL_TYPE_COMPAT_VIDEO
+      )
+    )
+    assert.equal(
+      CHANNEL_TYPE_OPTIONS.findIndex(
+        (item) => item.value === CHANNEL_TYPE_COMPAT_VIDEO
+      ) + 1,
+      CHANNEL_TYPE_OPTIONS.findIndex(
+        (item) => item.value === CHANNEL_TYPE_AISTARSLAB
+      )
+    )
+    assert.equal(
+      CHANNEL_TYPE_OPTIONS.findIndex(
+        (item) => item.value === CHANNEL_TYPE_AISTARSLAB
       ) + 1,
       CHANNEL_TYPE_OPTIONS.findIndex((item) => item.value === 58)
     )

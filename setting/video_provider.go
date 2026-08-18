@@ -14,6 +14,7 @@ const (
 	VideoProviderSilkRoad    VideoProvider = "silkroad"
 	VideoProviderBrioi       VideoProvider = "brioi"
 	VideoProviderCompatVideo VideoProvider = "compat_video"
+	VideoProviderAIStarsLab  VideoProvider = "aistarslab"
 )
 
 func IsVideoGenerationToolEnabled() bool {
@@ -30,7 +31,7 @@ func VideoProviderSupportsUpstreamModel(provider VideoProvider, upstreamModel st
 	case VideoProviderBrioi:
 		_, ok := brioi_setting.ResolveProfile(upstreamModel)
 		return ok
-	case VideoProviderCompatVideo:
+	case VideoProviderCompatVideo, VideoProviderAIStarsLab:
 		return strings.TrimSpace(upstreamModel) != ""
 	default:
 		return false
@@ -45,6 +46,8 @@ func VideoProviderFromChannelType(channelType int) (VideoProvider, bool) {
 		return VideoProviderBrioi, true
 	case constant.ChannelTypeCompatVideo:
 		return VideoProviderCompatVideo, true
+	case constant.ChannelTypeAIStarsLab:
+		return VideoProviderAIStarsLab, true
 	default:
 		return "", false
 	}

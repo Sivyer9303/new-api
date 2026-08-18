@@ -113,8 +113,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               key={entry.key}
               className='text-muted-foreground whitespace-nowrap'
             >
-              {t(entry.shortLabel)}{' '}
-              <PriceWithRatio value={entry.formatted} />
+              {t(entry.shortLabel)} <PriceWithRatio value={entry.formatted} />
             </span>
           ))}
         </>

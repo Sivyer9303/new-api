@@ -3,6 +3,7 @@
   "0 means no IP limit.": "0 means no IP limit.",
   "Actual daily pool limit (USD)": "Actual daily pool limit (USD)",
   "Add prize": "Add prize",
+  "AIStarsLab": "AIStarsLab",
   "Allowed: {{min}} – {{max}}": "Allowed: {{min}} – {{max}}",
   "Allowed: ${{min}} – ${{max}}": "Allowed: ${{min}} – ${{max}}",
   "Already spun today": "Already spun today",
@@ -81,9 +82,9 @@
   "Unable to enable Turnstile. Please fill in the Turnstile site key first.": "Unable to enable Turnstile. Please fill in the Turnstile site key first.",
   "Unable to load lottery": "Unable to load lottery",
   "Unit is USD. Internally converted by QuotaPerUnit (default 500000 quota = $1). Doubled on Thursdays.": "Unit is USD. Internally converted by QuotaPerUnit (default 500000 quota = $1). Doubled on Thursdays.",
-  "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.": "Override capability defaults per built-in model profile. Leave a field empty to keep the built-in default.",
   "Upstream request dialect": "Upstream request dialect",
   "Users must have a quota upper limit (used + remaining) strictly greater than this USD value. Use this to require recharge (e.g. 5 if signup gift is $5 and min top-up is $10). Set 0 to disable.": "Users must have a quota upper limit (used + remaining) strictly greater than this USD value. Use this to require recharge (e.g. 5 if signup gift is $5 and min top-up is $10). Set 0 to disable.",
+  "xtoken": "xtoken",
   "You got {{name}} ({{delta}})": "You got {{name}} ({{delta}})",
   "Your balance": "Your balance",
   "Your quota": "Your quota"

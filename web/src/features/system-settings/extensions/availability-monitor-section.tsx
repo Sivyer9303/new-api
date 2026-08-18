@@ -131,8 +131,7 @@ export function AvailabilityMonitorSection(
     const flatValues = flattenFormValues(values)
     const updates = Object.entries(flatValues).filter(
       ([key, value]) =>
-        value !==
-        props.defaultValues[key as keyof FlatAvailabilityDefaults]
+        value !== props.defaultValues[key as keyof FlatAvailabilityDefaults]
     )
 
     if (updates.length === 0) {
@@ -145,9 +144,7 @@ export function AvailabilityMonitorSection(
     }
   }
 
-  const isEnabled = form.watch(
-    'console_setting.availability_monitor_enabled'
-  )
+  const isEnabled = form.watch('console_setting.availability_monitor_enabled')
 
   return (
     <SettingsSection title={t('Availability Monitor')}>

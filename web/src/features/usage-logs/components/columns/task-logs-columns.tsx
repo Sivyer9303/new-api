@@ -256,7 +256,9 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
         const showRequest = hasTaskRequestSnapshot(log)
         const showRecovery = isAdmin && isVideoTask
         const hasFailReason =
-          status === TASK_STATUS.FAILURE && Boolean(failReason?.trim())
+          isAdmin &&
+          status === TASK_STATUS.FAILURE &&
+          Boolean(failReason?.trim())
 
         if (
           !sunoHasAudio &&
@@ -265,7 +267,11 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           !showRequest &&
           !showRecovery
         ) {
-          return <span className='text-muted-foreground/60 text-xs'>-</span>
+          return (
+            <span className='text-muted-foreground/60 block text-center text-xs'>
+              -
+            </span>
+          )
         }
 
         let preview: ReactNode = null
@@ -310,17 +316,17 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           : ''
 
         return (
-          <div className='flex max-w-[220px] flex-col gap-1 text-xs'>
+          <div className='flex max-w-[220px] flex-col items-center gap-1 text-center text-xs'>
             {preview}
             {hasFailReason ? (
               <>
                 <button
                   type='button'
-                  className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
+                  className='max-w-full text-red-600 hover:underline dark:text-red-400'
                   onClick={() => setDialogOpen(true)}
                   title={t('Click to view full error message')}
                 >
-                  <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
+                  <span className='line-clamp-2 leading-snug'>
                     {displayReason}
                   </span>
                 </button>

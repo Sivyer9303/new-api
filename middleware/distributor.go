@@ -155,13 +155,31 @@ func Distribute() func(c *gin.Context) {
 				}
 
 				if channel == nil {
-					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-						Ctx:         c,
-						ModelName:   modelRequest.Model,
-						TokenGroup:  usingGroup,
-						RequestPath: c.Request.URL.Path,
-						Retry:       common.GetPointer(0),
-					})
+					if decision, ok := getVideoRouteDecision(c); ok {
+						channel, err = model.CacheGetChannel(decision.ChannelID)
+						if err == nil && !model.ChannelMatchesVideoRoute(channel, decision) {
+							channel = nil
+						}
+						selectGroup = decision.Group
+						if usingGroup == "auto" {
+							autoGroups := service.GetRequestAutoGroups(c, common.GetContextKeyString(c, constant.ContextKeyUserGroup))
+							for index, group := range autoGroups {
+								if group == decision.Group {
+									common.SetContextKey(c, constant.ContextKeyAutoGroup, group)
+									common.SetContextKey(c, constant.ContextKeyAutoGroupIndex, index)
+									break
+								}
+							}
+						}
+					} else {
+						channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+							Ctx:         c,
+							ModelName:   modelRequest.Model,
+							TokenGroup:  usingGroup,
+							RequestPath: c.Request.URL.Path,
+							Retry:       common.GetPointer(0),
+						})
+					}
 					if err != nil {
 						showGroup := usingGroup
 						if usingGroup == "auto" {
@@ -219,21 +237,33 @@ func applyVideoProviderConstraint(c *gin.Context, modelName string) error {
 		groups = service.GetRequestAutoGroups(c, userGroup)
 	}
 
-	routes, err := model.GetEligibleVideoModelRoutes(groups)
+	decision, err := model.ResolveVideoRoute(groups, modelName, c.Request.URL.Path)
 	if err != nil {
 		return fmt.Errorf("video channel lookup failed: %w", err)
 	}
-	hit, ok := model.PickVideoModelHitByName(routes, modelName)
-	if !ok || hit.ChannelType <= 0 {
+	if decision.ChannelType <= 0 {
 		return fmt.Errorf("no video channel is available for this model")
 	}
-	common.SetContextKey(c, constant.ContextKeyVideoProviderChannelType, hit.ChannelType)
+	common.SetContextKey(c, constant.ContextKeyVideoRouteDecision, decision)
+	common.SetContextKey(c, constant.ContextKeyVideoProviderChannelType, decision.ChannelType)
 	return nil
+}
+
+func getVideoRouteDecision(c *gin.Context) (model.VideoRouteDecision, bool) {
+	value, ok := common.GetContextKey(c, constant.ContextKeyVideoRouteDecision)
+	if !ok {
+		return model.VideoRouteDecision{}, false
+	}
+	decision, ok := value.(model.VideoRouteDecision)
+	return decision, ok
 }
 
 func channelMatchesVideoProviderConstraint(c *gin.Context, channel *model.Channel) bool {
 	if channel == nil {
 		return false
+	}
+	if decision, ok := getVideoRouteDecision(c); ok {
+		return model.ChannelMatchesVideoRoute(channel, decision)
 	}
 	requiredType := common.GetContextKeyInt(c, constant.ContextKeyVideoProviderChannelType)
 	return requiredType == 0 || channel.Type == requiredType

@@ -15,10 +15,7 @@ import {
   CHANNEL_TYPE_OPTIONS,
   MODEL_FETCHABLE_TYPES,
 } from '../../constants'
-import {
-  CHANNEL_FORM_DEFAULT_VALUES,
-  channelFormSchema,
-} from '../channel-form'
+import { CHANNEL_FORM_DEFAULT_VALUES, channelFormSchema } from '../channel-form'
 import { getChannelTypeConfig } from '../channel-type-config'
 import { getChannelTypeIcon, getKeyPromptForType } from '../channel-utils'
 
@@ -39,7 +36,7 @@ describe('Compatible Video channel', () => {
       CHANNEL_TYPE_OPTIONS.find(
         (item) => item.value === CHANNEL_TYPE_COMPAT_VIDEO
       ),
-      { value: CHANNEL_TYPE_COMPAT_VIDEO, label: 'Compatible Video' }
+      { value: CHANNEL_TYPE_COMPAT_VIDEO, label: 'xtoken' }
     )
     assert.equal(
       CHANNEL_TYPE_OPTIONS.findIndex(
@@ -50,7 +47,10 @@ describe('Compatible Video channel', () => {
       )
     )
     assert.equal(MODEL_FETCHABLE_TYPES.has(CHANNEL_TYPE_COMPAT_VIDEO), true)
-    assert.equal(getChannelTypeIcon(CHANNEL_TYPE_COMPAT_VIDEO), 'CompatibleVideo')
+    assert.equal(
+      getChannelTypeIcon(CHANNEL_TYPE_COMPAT_VIDEO),
+      'Xtoken'
+    )
     assert.equal(
       getKeyPromptForType(CHANNEL_TYPE_COMPAT_VIDEO),
       'Enter API key for this channel'
@@ -65,9 +65,9 @@ describe('Compatible Video channel', () => {
     const blankResult = channelFormSchema.safeParse(compatForm('  '))
     assert.equal(blankResult.success, false)
     assert.equal(
-      channelFormSchema.safeParse(compatForm('https://gateway.example')).success,
+      channelFormSchema.safeParse(compatForm('https://gateway.example'))
+        .success,
       true
     )
   })
 })
-

@@ -83,6 +83,10 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 			}
 		}
 		result[i] = relay.TaskModel2Dto(task)
+		if !fillUser {
+			// User-facing task logs omit provider failure details.
+			result[i].FailReason = ""
+		}
 	}
 	return result
 }

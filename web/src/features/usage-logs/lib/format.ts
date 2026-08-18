@@ -438,8 +438,7 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'channel.upstream_apply_all':
     'Applied upstream model changes to {{count}} channels',
   // Video recovery / delivery audits
-  'video.preview':
-    'Viewed video {{task_id}} owned by user {{target_user_id}}',
+  'video.preview': 'Viewed video {{task_id}} owned by user {{target_user_id}}',
   'video.diagnostics':
     'Viewed diagnostics for video {{task_id}} owned by user {{target_user_id}}',
   'video.storage_retry':

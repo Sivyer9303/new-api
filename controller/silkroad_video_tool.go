@@ -4,6 +4,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/aistarslab_setting"
 	"github.com/QuantumNous/new-api/setting/brioi_setting"
 	"github.com/QuantumNous/new-api/setting/compatvideo_setting"
 	"github.com/QuantumNous/new-api/setting/silkroad_setting"
@@ -16,6 +17,7 @@ type publicVideoProviderConfigs struct {
 	SilkRoad    silkroad_setting.PublicVideoToolConfig    `json:"silkroad"`
 	Brioi       brioi_setting.PublicVideoToolConfig       `json:"brioi"`
 	CompatVideo compatvideo_setting.PublicVideoToolConfig `json:"compat_video"`
+	AIStarsLab  aistarslab_setting.PublicVideoToolConfig  `json:"aistarslab"`
 }
 
 type publicVideoToolConfig struct {
@@ -35,6 +37,7 @@ func GetVideoToolConfig(c *gin.Context) {
 	brioi := brioi_setting.GetPublicVideoToolConfig()
 	brioi.VideoToolGroups = []string{}
 	compatVideo := compatvideo_setting.GetPublicVideoToolConfig()
+	aiStarsLab := aistarslab_setting.GetPublicVideoToolConfig()
 
 	groups, err := model.ListEnabledVideoToolGroups()
 	if err != nil {
@@ -53,6 +56,7 @@ func GetVideoToolConfig(c *gin.Context) {
 			SilkRoad:    silkRoad,
 			Brioi:       brioi,
 			CompatVideo: compatVideo,
+			AIStarsLab:  aiStarsLab,
 		},
 		UploadLimits: uploadLimits,
 	})

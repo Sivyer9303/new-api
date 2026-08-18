@@ -39,8 +39,9 @@ function CustomPageRouteComponent() {
   const autoOpenedRef = useRef(false)
 
   const page = useMemo(() => {
-    const pages = (status?.custom_pages ??
-      status?.data?.custom_pages) as CustomPageStatusItem[] | undefined
+    const pages = (status?.custom_pages ?? status?.data?.custom_pages) as
+      | CustomPageStatusItem[]
+      | undefined
     if (!Array.isArray(pages)) return undefined
     return pages.find((item) => item.id === pageId)
   }, [pageId, status])

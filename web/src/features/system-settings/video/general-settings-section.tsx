@@ -46,7 +46,8 @@ const schema = z.object({
   upload_limits: videoUploadLimitsSchema,
 })
 
-type Values = z.infer<typeof schema>
+type FormValues = z.input<typeof schema>
+type Values = z.output<typeof schema>
 
 export function VideoGeneralSettingsSection(props: {
   defaultValues: {
@@ -56,7 +57,7 @@ export function VideoGeneralSettingsSection(props: {
 }) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const form = useForm<Values>({
+  const form = useForm<FormValues, unknown, Values>({
     resolver: zodResolver(schema),
     defaultValues: {
       enabled: props.defaultValues.enabled,
@@ -141,7 +142,11 @@ export function VideoGeneralSettingsSection(props: {
                       min={MIN_UPLOAD_LIMIT_MB}
                       max={MAX_UPLOAD_LIMIT_MB}
                       disabled={busy}
-                      {...field}
+                      name={field.name}
+                      ref={field.ref}
+                      onBlur={field.onBlur}
+                      value={typeof field.value === 'number' ? field.value : ''}
+                      onChange={(event) => field.onChange(event.target.value)}
                     />
                   </FormControl>
                   <FormDescription>
@@ -165,7 +170,11 @@ export function VideoGeneralSettingsSection(props: {
                       min={MIN_UPLOAD_LIMIT_MB}
                       max={MAX_UPLOAD_LIMIT_MB}
                       disabled={busy}
-                      {...field}
+                      name={field.name}
+                      ref={field.ref}
+                      onBlur={field.onBlur}
+                      value={typeof field.value === 'number' ? field.value : ''}
+                      onChange={(event) => field.onChange(event.target.value)}
                     />
                   </FormControl>
                   <FormDescription>
@@ -189,7 +198,11 @@ export function VideoGeneralSettingsSection(props: {
                       min={MIN_UPLOAD_LIMIT_MB}
                       max={MAX_UPLOAD_LIMIT_MB}
                       disabled={busy}
-                      {...field}
+                      name={field.name}
+                      ref={field.ref}
+                      onBlur={field.onBlur}
+                      value={typeof field.value === 'number' ? field.value : ''}
+                      onChange={(event) => field.onChange(event.target.value)}
                     />
                   </FormControl>
                   <FormDescription>

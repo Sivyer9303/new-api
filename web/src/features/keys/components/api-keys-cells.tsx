@@ -159,12 +159,7 @@ export function SubscriptionAllowLabel(props: SubscriptionAllowLabelProps) {
     )
   }
   return (
-    <span
-      className={cn(
-        'text-destructive text-sm font-bold',
-        props.className
-      )}
-    >
+    <span className={cn('text-destructive text-sm font-bold', props.className)}>
       {t('Not allowed')}
     </span>
   )

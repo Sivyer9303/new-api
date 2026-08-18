@@ -36,10 +36,7 @@ import { drawLottery, getLotteryStatus } from './api'
 import { LuckyPrizeBoard } from './components/lucky-prize-board'
 import { PrizeResultDialog } from './components/prize-result-dialog'
 import { useMarqueeSpin } from './hooks/use-marquee-spin'
-import {
-  buildWeightedPrizeSlots,
-  pickCellForPrize,
-} from './lib/grid-layout'
+import { buildWeightedPrizeSlots, pickCellForPrize } from './lib/grid-layout'
 import { buildBetSymbols, buildFreeSymbols } from './lib/symbols'
 import type { LotteryDrawResult } from './types'
 
@@ -221,7 +218,7 @@ export function LotteryPage() {
                 )}
               >
                 <div className='pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.28),transparent_45%)]' />
-                <div className='pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-yellow-300/25 blur-2xl' />
+                <div className='pointer-events-none absolute -top-8 -right-8 h-28 w-28 rounded-full bg-yellow-300/25 blur-2xl' />
                 <div className='relative flex flex-col items-center justify-center gap-2 text-center'>
                   <AlertTitle className='flex items-center justify-center gap-2 text-xl font-black tracking-wide text-white drop-shadow sm:gap-3 sm:text-2xl'>
                     <span
@@ -242,7 +239,7 @@ export function LotteryPage() {
                       🔥
                     </span>
                   </AlertTitle>
-                  <AlertDescription className='animate-bounce text-base font-semibold leading-relaxed text-red-50 [animation-delay:80ms] [animation-duration:1.05s] sm:text-lg'>
+                  <AlertDescription className='animate-bounce text-base leading-relaxed font-semibold text-red-50 [animation-delay:80ms] [animation-duration:1.05s] sm:text-lg'>
                     {t(
                       'Prize pool and free prize amounts are doubled today. V me 50!'
                     )}
@@ -286,8 +283,7 @@ export function LotteryPage() {
               canDraw={canDraw}
               drawing={drawing}
               activeIndex={
-                marquee.activeIndex ??
-                (!canDraw ? settledCellIndex : null)
+                marquee.activeIndex ?? (!canDraw ? settledCellIndex : null)
               }
               blinkOn={marquee.blinkOn}
               phase={
@@ -298,7 +294,7 @@ export function LotteryPage() {
               onRequestStart={() => void runDraw()}
             />
 
-            <div className='mx-auto max-w-3xl space-y-4 rounded-2xl border bg-card p-4 sm:p-5'>
+            <div className='bg-card mx-auto max-w-3xl space-y-4 rounded-2xl border p-4 sm:p-5'>
               <div className='flex items-center justify-between gap-3'>
                 <div>
                   <Label>{t('Bet with USD')}</Label>
@@ -378,7 +374,7 @@ export function LotteryPage() {
 
 function StatCard(props: { label: string; value: string }) {
   return (
-    <div className='rounded-xl border bg-card px-4 py-3'>
+    <div className='bg-card rounded-xl border px-4 py-3'>
       <div className='text-muted-foreground text-xs'>{props.label}</div>
       <div className='mt-1 text-lg font-semibold tabular-nums'>
         {props.value}

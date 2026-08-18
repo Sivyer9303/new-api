@@ -17,12 +17,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  type ChangeEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { SectionPageLayout } from '@/components/layout'
-import { localizeTaskFailReason } from '@/lib/localize-task-fail-reason'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
@@ -32,7 +38,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -41,6 +47,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import {
   Tooltip,
   TooltipContent,
@@ -52,6 +59,7 @@ import type { ApiKey } from '@/features/keys/types'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
 import { getConfiguredGroupRatio } from '@/features/pricing/lib/model-helpers'
 import { formatCurrencyFromUSD } from '@/lib/currency'
+import { localizeTaskFailReason } from '@/lib/localize-task-fail-reason'
 import { cn } from '@/lib/utils'
 
 import { fetchVideoModelsForToken, submitVideoGeneration } from '../api'
@@ -102,6 +110,7 @@ function generationTypeDisplayLabel(
     case 'start_end':
     case 'first_last':
     case 'first_last_frame':
+    case 'frames2video':
       return translate('First & last frame')
     case 'reference_audio':
       return translate('Reference audio')
@@ -519,14 +528,11 @@ export function VideoToolPage() {
   }, [activeProvider, selectedModel])
 
   const generationTypes = useMemo(() => {
-    if (selectedModel?.generation_types?.length) {
-      return selectedModel.generation_types
-    }
     if (!activeProvider) return []
     return selectedProfile
       ? generationTypesForProfile(activeProvider, selectedProfile)
       : activeProvider.generation_types
-  }, [activeProvider, selectedModel, selectedProfile])
+  }, [activeProvider, selectedProfile])
 
   const selectedGenType = useMemo(() => {
     if (!generationType) return null
@@ -1464,13 +1470,18 @@ export function VideoToolPage() {
                             : 'audio/mpeg,audio/mp3,.mp3'
                         }
                         disabled={submitting || isPolling}
-                        onChange={(e) => {
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => {
                           const file = e.target.files?.[0] ?? null
                           const allowWav = activeProvider?.id === 'brioi'
-                          if (file && !isAllowedReferenceAudioFile(file, allowWav)) {
+                          if (
+                            file &&
+                            !isAllowedReferenceAudioFile(file, allowWav)
+                          ) {
                             toast.error(
                               allowWav
-                                ? t('Reference audio must be an MP3 or WAV file')
+                                ? t(
+                                    'Reference audio must be an MP3 or WAV file'
+                                  )
                                 : t('Reference audio must be an MP3 file')
                             )
                             e.target.value = ''
@@ -1556,15 +1567,15 @@ export function VideoToolPage() {
                         }
                         multiple
                         disabled={submitting || isPolling}
-                        onChange={async (e) => {
+                        onChange={async (e: ChangeEvent<HTMLInputElement>) => {
                           const picked = [...(e.target.files ?? [])]
                           e.target.value = ''
                           if (picked.length === 0) return
                           const maxCount = selectedGenType.videos_max || 3
-                          const next = [...referenceVideoFiles, ...picked].slice(
-                            0,
-                            maxCount
-                          )
+                          const next = [
+                            ...referenceVideoFiles,
+                            ...picked,
+                          ].slice(0, maxCount)
                           const maxVideoBytes =
                             (config?.upload_limits.max_video_mb ?? 50) *
                             1024 *
@@ -1574,7 +1585,9 @@ export function VideoToolPage() {
                             if (!isAllowedReferenceVideoFile(file, allowMov)) {
                               toast.error(
                                 allowMov
-                                  ? t('Reference video must be an MP4 or MOV file')
+                                  ? t(
+                                      'Reference video must be an MP4 or MOV file'
+                                    )
                                   : t('Reference video must be an MP4 file')
                               )
                               return
@@ -1630,7 +1643,9 @@ export function VideoToolPage() {
                                 {mentionToken(
                                   'video',
                                   index + 1,
-                                  activeProvider?.id === 'brioi' ? 'zh' : 'latin'
+                                  activeProvider?.id === 'brioi'
+                                    ? 'zh'
+                                    : 'latin'
                                 )}
                                 : {file.name}
                               </p>

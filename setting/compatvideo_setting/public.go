@@ -1,6 +1,7 @@
 package compatvideo_setting
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -230,6 +231,7 @@ func publicProfileLabel(label string) string {
 	}
 	if strings.Contains(normalized, "grok") ||
 		strings.Contains(normalized, "compatible video") ||
+		strings.Contains(normalized, "xtoken") ||
 		strings.Contains(normalized, "brioi") ||
 		strings.Contains(normalized, "silkroad") ||
 		strings.Contains(normalized, "silk road") {
@@ -243,5 +245,6 @@ func setValues(values map[string]struct{}) []string {
 	for value := range values {
 		out = append(out, value)
 	}
+	sort.Strings(out)
 	return out
 }

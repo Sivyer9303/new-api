@@ -391,8 +391,7 @@ export function RatioSettingsCard({
       const apiKeyMap: Record<string, string> = {
         GroupSpecialUsableGroup:
           'group_ratio_setting.group_special_usable_group',
-        GroupAllowSubscription:
-          'group_ratio_setting.group_allow_subscription',
+        GroupAllowSubscription: 'group_ratio_setting.group_allow_subscription',
       }
 
       const updates = (

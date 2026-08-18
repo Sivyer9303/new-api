@@ -41,6 +41,7 @@ import { SettingsSection } from '../components/settings-section'
 import { useUpdateVideoProviderOption } from '../hooks/use-update-option'
 import {
   COMPAT_VIDEO_PROFILES,
+  COMPAT_VIDEO_PROVIDER,
   emptyCompatVideoProfiles,
   parseCompatibleVideoProfiles,
   serializeCompatibleVideoProfiles,
@@ -52,7 +53,9 @@ const dialectOptions = [
   { value: 'openai_videos', label: 'POST /v1/videos' },
 ] as const
 
-function toText(values: readonly number[] | readonly string[] | undefined): string {
+function toText(
+  values: readonly number[] | readonly string[] | undefined
+): string {
   if (!values?.length) return ''
   return values.join(', ')
 }
@@ -87,7 +90,7 @@ export function CompatVideoSettingsSection(props: {
     const payload = serializeCompatibleVideoProfiles(values)
     try {
       const result = await updateProvider.mutateAsync({
-        provider: 'compatvideo',
+        provider: COMPAT_VIDEO_PROVIDER,
         profiles: payload,
       })
       if (!result.success) {
@@ -103,7 +106,7 @@ export function CompatVideoSettingsSection(props: {
   const busy = updateProvider.isPending || form.formState.isSubmitting
 
   return (
-    <SettingsSection title={t('Compatible Video')}>
+    <SettingsSection title={t('xtoken')}>
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)} autoComplete='off'>
           <SettingsPageFormActions
@@ -176,8 +179,10 @@ export function CompatVideoSettingsSection(props: {
                         <FormItem>
                           <FormLabel>{t('Upstream request dialect')}</FormLabel>
                           <Select
-                            value={field.value || profile.dialect}
-                            onValueChange={field.onChange}
+                            value={field.value || 'inherit'}
+                            onValueChange={(value) =>
+                              field.onChange(value === 'inherit' ? '' : value)
+                            }
                             disabled={busy}
                           >
                             <FormControl>
@@ -188,6 +193,9 @@ export function CompatVideoSettingsSection(props: {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
+                              <SelectItem value='inherit'>
+                                {t('Inherit built-in default')}
+                              </SelectItem>
                               {dialectOptions.map((option) => (
                                 <SelectItem
                                   key={option.value}

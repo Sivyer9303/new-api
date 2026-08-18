@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/aistarslab_setting"
 	"github.com/QuantumNous/new-api/setting/brioi_setting"
 	"github.com/QuantumNous/new-api/setting/compatvideo_setting"
 	"github.com/QuantumNous/new-api/setting/silkroad_setting"
@@ -10,6 +11,7 @@ import (
 
 func attachVideoToolCapabilities(
 	channelType int,
+	publicModel string,
 	upstreamModel string,
 ) (setting.VideoProvider, any, any, bool) {
 	provider, ok := setting.VideoProviderFromChannelType(channelType)
@@ -25,6 +27,9 @@ func attachVideoToolCapabilities(
 		return provider, profile, genTypes, found
 	case constant.ChannelTypeCompatVideo:
 		public := compatvideo_setting.PublicProfileFor(compatvideo_setting.MatchProfile(upstreamModel))
+		return provider, public, public.GenerationModes, true
+	case constant.ChannelTypeAIStarsLab:
+		public := aistarslab_setting.PublicProfileForModel(publicModel)
 		return provider, public, public.GenerationModes, true
 	default:
 		return provider, nil, nil, false

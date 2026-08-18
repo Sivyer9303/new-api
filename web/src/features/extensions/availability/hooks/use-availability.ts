@@ -26,15 +26,13 @@ const DEFAULT_REFRESH_SECONDS = 10
 const MIN_REFRESH_SECONDS = 5
 const MAX_REFRESH_SECONDS = 3600
 
-export function resolveAvailabilityRefreshSeconds(
-  raw: unknown
-): number {
+export function resolveAvailabilityRefreshSeconds(raw: unknown): number {
   const value =
     typeof raw === 'number'
       ? raw
       : typeof raw === 'string'
         ? Number(raw)
-        : NaN
+        : Number.NaN
   if (!Number.isFinite(value)) {
     return DEFAULT_REFRESH_SECONDS
   }

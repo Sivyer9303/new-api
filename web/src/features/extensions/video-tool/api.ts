@@ -21,7 +21,11 @@ import axios from 'axios'
 import { api } from '@/lib/api'
 import { resolveAuthenticatedVideoPlaybackUrl } from '@/lib/resolve-authenticated-video-playback-url'
 
-import { normalizeGenerationTypes, normalizeProfile, normalizeVideoToolConfig } from './lib/provider-config'
+import {
+  normalizeGenerationTypes,
+  normalizeProfile,
+  normalizeVideoToolConfig,
+} from './lib/provider-config'
 import type {
   VideoFetchResponse,
   VideoSubmitResponse,

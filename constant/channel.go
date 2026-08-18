@@ -61,17 +61,18 @@ const (
 	ChannelTypeSilkRoad       = 61
 	ChannelTypeBrioi          = 62
 	ChannelTypeCompatVideo    = 63
-	ChannelTypeDummy          = 64 // this one is only for count, do not add any channel after this
+	ChannelTypeAIStarsLab     = 64
+	ChannelTypeDummy          = 65 // this one is only for count, do not add any channel after this
 
 )
 
 func VideoGenerationChannelTypes() []int {
-	return []int{ChannelTypeSilkRoad, ChannelTypeBrioi, ChannelTypeCompatVideo}
+	return []int{ChannelTypeSilkRoad, ChannelTypeBrioi, ChannelTypeCompatVideo, ChannelTypeAIStarsLab}
 }
 
 func IsVideoGenerationChannelType(channelType int) bool {
 	switch channelType {
-	case ChannelTypeSilkRoad, ChannelTypeBrioi, ChannelTypeCompatVideo:
+	case ChannelTypeSilkRoad, ChannelTypeBrioi, ChannelTypeCompatVideo, ChannelTypeAIStarsLab:
 		return true
 	default:
 		return false
@@ -143,6 +144,7 @@ var ChannelBaseURLs = []string{
 	"",                                          //61
 	"",                                          //62
 	"",                                          //63
+	"https://api.video.aistarslab.com/openai", //64
 }
 
 var ChannelTypeNames = map[int]string{
@@ -205,7 +207,8 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeNewAPI:         "New API",
 	ChannelTypeSilkRoad:       "SilkRoad",
 	ChannelTypeBrioi:          "Brioi",
-	ChannelTypeCompatVideo:    "Compatible Video",
+	ChannelTypeCompatVideo:    "xtoken",
+	ChannelTypeAIStarsLab:     "AIStarsLab",
 }
 
 func GetChannelTypeName(channelType int) string {

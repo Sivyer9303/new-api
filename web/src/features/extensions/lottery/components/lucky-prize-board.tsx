@@ -17,11 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Gift, Sparkles, Star } from 'lucide-react'
-import {
-  forwardRef,
-  useImperativeHandle,
-  useMemo,
-} from 'react'
+import { forwardRef, useImperativeHandle, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils'
@@ -55,7 +51,9 @@ function toneVisual(tone: LotterySymbol['tone']) {
   if (tone === 'jackpot') {
     return {
       cell: 'from-[#FFF7D6] via-[#FBBF24] to-[#D97706] text-amber-950',
-      icon: <Star className='h-5 w-5 fill-amber-100 text-amber-100 sm:h-6 sm:w-6' />,
+      icon: (
+        <Star className='h-5 w-5 fill-amber-100 text-amber-100 sm:h-6 sm:w-6' />
+      ),
       iconBg: 'bg-amber-700/30',
     }
   }
@@ -69,13 +67,17 @@ function toneVisual(tone: LotterySymbol['tone']) {
   if (tone === 'lose') {
     return {
       cell: 'from-[#FFF1F2] via-[#FECDD3] to-[#FB7185] text-rose-950',
-      icon: <span className='text-base font-black text-rose-700 sm:text-lg'>−</span>,
+      icon: (
+        <span className='text-base font-black text-rose-700 sm:text-lg'>−</span>
+      ),
       iconBg: 'bg-rose-900/10',
     }
   }
   return {
     cell: 'from-[#FAFAFA] via-[#F4F4F5] to-[#D4D4D8] text-zinc-800',
-    icon: <span className='text-sm font-black text-zinc-500 sm:text-base'>∅</span>,
+    icon: (
+      <span className='text-sm font-black text-zinc-500 sm:text-base'>∅</span>
+    ),
     iconBg: 'bg-zinc-900/10',
   }
 }
@@ -151,8 +153,7 @@ export const LuckyPrizeBoard = forwardRef<
               const symbol = props.symbols[slot.prizeIndex]
               if (!symbol) return null
               const visual = toneVisual(symbol.tone)
-              const isActive =
-                selected && props.activeIndex === slot.cellIndex
+              const isActive = selected && props.activeIndex === slot.cellIndex
 
               return (
                 <div
@@ -182,7 +183,7 @@ export const LuckyPrizeBoard = forwardRef<
                     >
                       {visual.icon}
                     </div>
-                    <span className='line-clamp-2 text-xs font-extrabold leading-tight sm:text-sm'>
+                    <span className='line-clamp-2 text-xs leading-tight font-extrabold sm:text-sm'>
                       {symbol.name}
                     </span>
                     <span className='mt-0.5 text-[11px] font-semibold opacity-80 sm:text-xs'>

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { z } from 'zod'
 
 import {
+  CHANNEL_TYPE_AISTARSLAB,
   CHANNEL_TYPE_BRIOI,
   CHANNEL_TYPE_COMPAT_VIDEO,
   CHANNEL_TYPE_NEW_API,
@@ -312,6 +313,7 @@ export const channelFormSchema = z
         CHANNEL_TYPE_SILKROAD,
         CHANNEL_TYPE_BRIOI,
         CHANNEL_TYPE_COMPAT_VIDEO,
+        CHANNEL_TYPE_AISTARSLAB,
       ].includes(data.type) &&
       !data.base_url?.trim()
     ) {

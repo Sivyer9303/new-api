@@ -1,8 +1,10 @@
 package compatvideo
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -16,6 +18,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/compatvideo_setting"
+	"github.com/QuantumNous/new-api/setting/video_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -56,24 +59,33 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 			http.StatusMethodNotAllowed,
 		)
 	}
-	if !strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "application/json") {
+	contentType := strings.ToLower(c.GetHeader("Content-Type"))
+	isJSON := strings.HasPrefix(contentType, "application/json")
+	isMultipart := strings.HasPrefix(contentType, "multipart/form-data")
+	if !isJSON && (path != "/v1/videos" || !isMultipart) {
 		return service.TaskErrorWrapperLocal(
-			fmt.Errorf("video generation requires application/json"),
+			fmt.Errorf("video generation requires application/json%s", map[bool]string{true: " or multipart/form-data", false: ""}[path == "/v1/videos"]),
 			"invalid_content_type",
 			http.StatusBadRequest,
 		)
 	}
 
-	storage, err := common.GetBodyStorage(c)
-	if err != nil {
-		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
+	var body []byte
+	var err error
+	if isMultipart {
+		body, err = parseOpenAIVideosMultipart(c)
+	} else {
+		storage, storageErr := common.GetBodyStorage(c)
+		if storageErr != nil {
+			return service.TaskErrorWrapperLocal(storageErr, "invalid_request", http.StatusBadRequest)
+		}
+		body, err = storage.Bytes()
 	}
-	body, err := storage.Bytes()
 	if err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
 
-	request, profile, err := parseRequest(body, info)
+	request, profile, err := parseRequestForPath(path, body, info)
 	if err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
@@ -87,12 +99,25 @@ func parseRequest(body []byte, info *relaycommon.RelayInfo) (
 	compatvideo_setting.Profile,
 	error,
 ) {
+	return parseRequestForPath("/v1/video/generations", body, info)
+}
+
+func parseRequestForPath(path string, body []byte, info *relaycommon.RelayInfo) (
+	videocommon.VideoGenerateRequest,
+	compatvideo_setting.Profile,
+	error,
+) {
 	var raw map[string]json.RawMessage
 	if err := common.Unmarshal(body, &raw); err != nil {
 		return videocommon.VideoGenerateRequest{}, compatvideo_setting.Profile{}, fmt.Errorf("invalid JSON request: %w", err)
 	}
 	if raw == nil {
 		return videocommon.VideoGenerateRequest{}, compatvideo_setting.Profile{}, fmt.Errorf("request body must be a JSON object")
+	}
+	if path == "/v1/videos" {
+		if err := normalizeOpenAIVideosFields(raw); err != nil {
+			return videocommon.VideoGenerateRequest{}, compatvideo_setting.Profile{}, err
+		}
 	}
 	if err := rejectUnknownFields(raw); err != nil {
 		return videocommon.VideoGenerateRequest{}, compatvideo_setting.Profile{}, err
@@ -122,7 +147,10 @@ func parseRequest(body []byte, info *relaycommon.RelayInfo) (
 	if err != nil {
 		return videocommon.VideoGenerateRequest{}, compatvideo_setting.Profile{}, err
 	}
-	resolution, _ := requestString(raw, "resolution")
+	resolution, err := requestString(raw, "resolution")
+	if err != nil {
+		return videocommon.VideoGenerateRequest{}, compatvideo_setting.Profile{}, err
+	}
 
 	duration, durationSet, err := requestDuration(raw["duration"])
 	if err != nil {
@@ -172,6 +200,127 @@ func parseRequest(body []byte, info *relaycommon.RelayInfo) (
 	return request, profile, nil
 }
 
+func parseOpenAIVideosMultipart(c *gin.Context) ([]byte, error) {
+	form, err := common.ParseMultipartFormReusable(c)
+	if err != nil {
+		return nil, err
+	}
+	raw := make(map[string]any, len(form.Value)+1)
+	for key, values := range form.Value {
+		if len(values) > 0 {
+			raw[key] = values[len(values)-1]
+		}
+	}
+	files := form.File["input_reference"]
+	if len(files) > 1 {
+		return nil, fmt.Errorf("input_reference accepts at most one file")
+	}
+	if len(files) == 1 {
+		fileHeader := files[0]
+		file, err := fileHeader.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		contentType := strings.TrimSpace(fileHeader.Header.Get("Content-Type"))
+		limits := video_setting.GetVideoSetting().UploadLimits
+		video_setting.NormalizeUploadLimitsSetting(&limits)
+		maxBytes := limits.MaxBytesForContentType(contentType)
+		if fileHeader.Size > maxBytes {
+			return nil, fmt.Errorf("input_reference exceeds maximum size")
+		}
+		content, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(content)) > maxBytes {
+			return nil, fmt.Errorf("input_reference exceeds maximum size")
+		}
+		if contentType == "" || strings.EqualFold(contentType, "application/octet-stream") {
+			contentType = http.DetectContentType(content)
+		}
+		raw["input_reference"] = "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(content)
+	}
+	return common.Marshal(raw)
+}
+
+func normalizeOpenAIVideosFields(raw map[string]json.RawMessage) error {
+	if _, hasMedia := raw["media"]; hasMedia {
+		if _, hasInput := raw["input_reference"]; hasInput {
+			return fmt.Errorf("input_reference and media cannot be used together")
+		}
+	}
+	if input, err := requestString(raw, "input_reference"); err != nil {
+		return err
+	} else if input != "" {
+		media, marshalErr := common.Marshal([]videocommon.VideoMedia{{
+			Type:   videocommon.VideoMediaImage,
+			Role:   videocommon.VideoMediaRoleReference,
+			Source: input,
+		}})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		raw["media"] = media
+	}
+	delete(raw, "input_reference")
+
+	if size, err := requestString(raw, "size"); err != nil {
+		return err
+	} else if size != "" {
+		aspectRatio, resolution, ok := openAIVideoSize(strings.ToLower(strings.ReplaceAll(size, " ", "")))
+		if !ok {
+			return fmt.Errorf("size %q is not supported", size)
+		}
+		if _, set := raw["aspect_ratio"]; !set {
+			value, marshalErr := common.Marshal(aspectRatio)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			raw["aspect_ratio"] = value
+		}
+		if _, set := raw["resolution"]; !set {
+			value, marshalErr := common.Marshal(resolution)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			raw["resolution"] = value
+		}
+	}
+	delete(raw, "size")
+
+	if _, set := raw["generation_type"]; !set {
+		generationType := compatvideo_setting.GenerationText2Video
+		if _, hasMedia := raw["media"]; hasMedia {
+			generationType = compatvideo_setting.GenerationImage2Video
+		}
+		value, err := common.Marshal(generationType)
+		if err != nil {
+			return err
+		}
+		raw["generation_type"] = value
+	}
+	return nil
+}
+
+func openAIVideoSize(size string) (string, string, bool) {
+	switch size {
+	case "1280x720", "1792x1024":
+		return "16:9", "720p", true
+	case "720x1280", "1024x1792":
+		return "9:16", "720p", true
+	case "1024x1024":
+		return "1:1", "720p", true
+	case "1920x1080":
+		return "16:9", "1080p", true
+	case "1080x1920":
+		return "9:16", "1080p", true
+	default:
+		return "", "", false
+	}
+}
+
 func validateRequest(request videocommon.VideoGenerateRequest, profile compatvideo_setting.Profile) error {
 	if strings.TrimSpace(request.Prompt) == "" {
 		return fmt.Errorf("prompt is required")
@@ -199,7 +348,7 @@ func validateRequest(request videocommon.VideoGenerateRequest, profile compatvid
 		if source == "" {
 			return fmt.Errorf("media[%d].source is required", index)
 		}
-		if err := validateMediaSource(source); err != nil {
+		if err := validateMediaSource(media); err != nil {
 			return fmt.Errorf("media[%d]: %w", index, err)
 		}
 		switch media.Type {
@@ -257,10 +406,20 @@ func validateRequest(request videocommon.VideoGenerateRequest, profile compatvid
 	return nil
 }
 
-func validateMediaSource(source string) error {
+func validateMediaSource(media videocommon.VideoMedia) error {
+	source := strings.TrimSpace(media.Source)
 	lower := strings.ToLower(source)
 	if strings.HasPrefix(lower, "data:") {
-		return nil
+		switch media.Type {
+		case "", videocommon.VideoMediaImage:
+			return service.ValidateVideoInputImageDataURL(source)
+		case videocommon.VideoMediaVideo:
+			return service.ValidateVideoInputVideoDataURL(source)
+		case videocommon.VideoMediaAudio:
+			return service.ValidateVideoInputAudioDataURL(source)
+		default:
+			return fmt.Errorf("media type is not supported")
+		}
 	}
 	parsed, err := url.Parse(source)
 	if err != nil || parsed.Host == "" ||

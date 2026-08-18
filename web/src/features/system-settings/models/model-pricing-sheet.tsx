@@ -673,9 +673,7 @@ export const ModelPricingEditorPanel = forwardRef<
                                 </InputGroup>
                               </FormControl>
                               <FieldDescription>
-                                {t(
-                                  'USD price per second of generated video.'
-                                )}
+                                {t('USD price per second of generated video.')}
                               </FieldDescription>
                               <FormMessage />
                             </Field>

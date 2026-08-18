@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/aistarslab_setting"
 	"github.com/QuantumNous/new-api/setting/brioi_setting"
 	"github.com/QuantumNous/new-api/setting/compatvideo_setting"
 	"github.com/QuantumNous/new-api/setting/silkroad_setting"
@@ -101,4 +102,46 @@ func TestVideoProviderOptionValuesRejectsUnknownCompatVideoProfile(t *testing.T)
 		Profiles: json.RawMessage(overrides),
 	})
 	require.ErrorContains(t, err, "unknown compat_video profile")
+}
+
+func TestVideoProviderOptionValuesAcceptsEmptyAIStarsLabOverrides(t *testing.T) {
+	values, err := videoProviderOptionValues(VideoProviderOptionUpdateRequest{
+		Provider: setting.VideoProviderAIStarsLab,
+		Profiles: json.RawMessage(`[]`),
+	})
+	require.NoError(t, err)
+	require.Len(t, values, 1)
+	assert.JSONEq(t, `[]`, values["aistarslab_setting.profiles"])
+}
+
+func TestVideoProviderOptionValuesPersistsAIStarsLabModelResolutions(t *testing.T) {
+	overrides, err := common.Marshal([]aistarslab_setting.ModelOverride{
+		{
+			Model:       "seedance-2.0-fast",
+			Resolutions: []string{"720p", "1080p"},
+		},
+	})
+	require.NoError(t, err)
+
+	values, err := videoProviderOptionValues(VideoProviderOptionUpdateRequest{
+		Provider: setting.VideoProviderAIStarsLab,
+		Profiles: json.RawMessage(overrides),
+	})
+	require.NoError(t, err)
+	require.Len(t, values, 1)
+	assert.JSONEq(t, string(overrides), values["aistarslab_setting.profiles"])
+}
+
+func TestVideoProviderOptionValuesRejectsDuplicateAIStarsLabModels(t *testing.T) {
+	overrides, err := common.Marshal([]aistarslab_setting.ModelOverride{
+		{Model: "seedance-2.0-fast", Resolutions: []string{"720p"}},
+		{Model: "seedance-2.0-fast", Resolutions: []string{"1080p"}},
+	})
+	require.NoError(t, err)
+
+	_, err = videoProviderOptionValues(VideoProviderOptionUpdateRequest{
+		Provider: setting.VideoProviderAIStarsLab,
+		Profiles: json.RawMessage(overrides),
+	})
+	require.ErrorContains(t, err, "configured more than once")
 }

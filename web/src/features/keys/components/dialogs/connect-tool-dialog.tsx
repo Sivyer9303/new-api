@@ -172,10 +172,7 @@ export function ConnectToolDialog(props: Props) {
     // Always re-resolve against the current endpoint's groups so switching
     // provider type does not keep a group that only belonged to the previous type.
     setGroup((current) => {
-      if (
-        current &&
-        groupOptions.some((item) => item.value === current)
-      ) {
+      if (current && groupOptions.some((item) => item.value === current)) {
         return current
       }
       return groupOptions[0]?.value || ''
@@ -400,7 +397,7 @@ export function ConnectToolDialog(props: Props) {
               'If the app did not open, install the tool and use this API key manually:'
             )}
           </p>
-          <code className='bg-background block break-all rounded border px-2 py-1.5'>
+          <code className='bg-background block rounded border px-2 py-1.5 break-all'>
             {createdKey}
           </code>
         </div>

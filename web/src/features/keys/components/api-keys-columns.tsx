@@ -223,8 +223,7 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
       header: t('Allow subscription'),
       cell: ({ row }) => {
         const group = (row.getValue('group') as string) || ''
-        const allowed =
-          !group || allowSubscription[group] !== false
+        const allowed = !group || allowSubscription[group] !== false
         return <SubscriptionAllowLabel allowed={allowed} />
       },
       enableSorting: false,

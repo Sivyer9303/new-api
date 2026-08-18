@@ -234,7 +234,10 @@ export function parseBrioiProfiles(
             'generation_types',
             BRIOI_GENERATION_TYPES
           )
-        : softMergeGenerationTypes(stringArray(generationModes), generationModes)
+        : softMergeGenerationTypes(
+            stringArray(generationModes),
+            generationModes
+          )
     ).filter((value): value is BrioiGenerationType =>
       BRIOI_GENERATION_TYPES.includes(value as BrioiGenerationType)
     )

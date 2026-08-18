@@ -494,7 +494,9 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		case constant.ChannelTypeBrioi:
 			return fmt.Errorf("Brioi channel base URL cannot be empty")
 		case constant.ChannelTypeCompatVideo:
-			return fmt.Errorf("Compatible Video channel base URL cannot be empty")
+			return fmt.Errorf("xtoken channel base URL cannot be empty")
+		case constant.ChannelTypeAIStarsLab:
+			return fmt.Errorf("AIStarsLab channel base URL cannot be empty")
 		}
 	}
 

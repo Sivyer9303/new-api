@@ -16,6 +16,7 @@ func TestVideoProviderFromChannelTypeRoundTrip(t *testing.T) {
 		{constant.ChannelTypeSilkRoad, VideoProviderSilkRoad, true},
 		{constant.ChannelTypeBrioi, VideoProviderBrioi, true},
 		{constant.ChannelTypeCompatVideo, VideoProviderCompatVideo, true},
+		{constant.ChannelTypeAIStarsLab, VideoProviderAIStarsLab, true},
 		{constant.ChannelTypeOpenAI, "", false},
 		{0, "", false},
 	}

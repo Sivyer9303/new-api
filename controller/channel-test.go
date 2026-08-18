@@ -79,7 +79,9 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		ctx = context.Background()
 	}
 	if channel != nil &&
-		(channel.Type == constant.ChannelTypeBrioi || channel.Type == constant.ChannelTypeCompatVideo) {
+		(channel.Type == constant.ChannelTypeBrioi ||
+			channel.Type == constant.ChannelTypeCompatVideo ||
+			channel.Type == constant.ChannelTypeAIStarsLab) {
 		return testUpstreamModelsListChannel(ctx, channel)
 	}
 	tik := time.Now()

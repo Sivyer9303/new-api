@@ -180,7 +180,9 @@ export function generationTypesForProfile(
       return { ...limited, require_ref_model: false }
     })
     .filter((generationType) => {
-      if (generationType.allow_video || generationType.require_video) return true
+      if (generationType.allow_video || generationType.require_video) {
+        return true
+      }
       if (generationType.images_max === 0) return true
       if (generationType.image_roles.length > 0) return true
       return generationType.allow_audio || generationType.require_audio

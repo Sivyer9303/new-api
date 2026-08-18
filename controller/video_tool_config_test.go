@@ -52,6 +52,7 @@ func TestGetVideoToolConfigAggregatesSanitizedProviderCapabilities(t *testing.T)
 	assert.NotEmpty(t, response.Data.Providers.SilkRoad.Profiles)
 	assert.NotEmpty(t, response.Data.Providers.Brioi.Profiles)
 	assert.NotEmpty(t, response.Data.Providers.CompatVideo.Profiles)
+	assert.NotEmpty(t, response.Data.Providers.AIStarsLab.Profiles)
 
 	payload := strings.ToLower(recorder.Body.String())
 	assert.NotContains(t, payload, "top-secret-r2")

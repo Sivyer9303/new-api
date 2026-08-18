@@ -29,7 +29,7 @@ func TaskActionFromGenerationType(generationType string) string {
 	switch generationType {
 	case "text2video":
 		return TaskActionTextGenerate
-	case "first_frame", "start_end":
+	case "first_frame", "start_end", "frames2video":
 		return TaskActionFirstTailGenerate
 	case "reference_videos", "reference_audio":
 		return TaskActionReferenceGenerate

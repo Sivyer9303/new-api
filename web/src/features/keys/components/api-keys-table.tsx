@@ -201,8 +201,7 @@ function ApiKeysMobileList({
               </span>
               <SubscriptionAllowLabel
                 allowed={
-                  !apiKey.group ||
-                  allowSubscription[apiKey.group] !== false
+                  !apiKey.group || allowSubscription[apiKey.group] !== false
                 }
               />
             </div>

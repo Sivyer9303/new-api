@@ -128,7 +128,7 @@ function interleaveByCounts(counts: number[]): number[] {
     let bestScore = -Infinity
     for (let i = 0; i < remaining.length; i++) {
       if (remaining[i] <= 0) continue
-      const score = remaining[i] + (out[out.length - 1] === i ? -0.5 : 0)
+      const score = remaining[i] + (out.at(-1) === i ? -0.5 : 0)
       if (score > bestScore) {
         bestScore = score
         best = i

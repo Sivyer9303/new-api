@@ -17,7 +17,12 @@ import {
 describe('Compatible Video settings overrides', () => {
   test('parses an empty override list into all-inherit values', () => {
     const values = parseCompatibleVideoProfiles('[]')
-    for (const profile of ['seedance2', 'grok-image-video', 'grok-video-1.5', 'unknown']) {
+    for (const profile of [
+      'seedance2',
+      'grok-image-video',
+      'grok-video-1.5',
+      'unknown',
+    ]) {
       assert.equal(values.profiles[profile].durations, '')
       assert.equal(values.profiles[profile].resolutions, '')
       assert.equal(values.profiles[profile].aspect_ratios, '')
@@ -68,9 +73,10 @@ describe('Compatible Video settings overrides', () => {
 
   test('inherits the built-in dialect when one is not configured', () => {
     const values = parseCompatibleVideoProfiles('[]')
-    const payload = serializeCompatibleVideoProfiles(
-      values
-    ) as Record<string, unknown>[]
+    const payload = serializeCompatibleVideoProfiles(values) as Record<
+      string,
+      unknown
+    >[]
     const seedance = payload.find((entry) => entry.id === 'seedance2')
     assert.equal(seedance?.dialect, undefined)
   })

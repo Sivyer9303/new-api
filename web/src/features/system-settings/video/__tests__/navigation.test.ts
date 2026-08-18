@@ -39,6 +39,7 @@ describe('video settings navigation', () => {
       'silkroad',
       'brioi',
       'compatvideo',
+      'aistarslab',
     ])
     assert.deepEqual(
       items.map((item) => item.url),
@@ -48,6 +49,7 @@ describe('video settings navigation', () => {
         '/system-settings/video/silkroad',
         '/system-settings/video/brioi',
         '/system-settings/video/compatvideo',
+        '/system-settings/video/aistarslab',
       ]
     )
   })

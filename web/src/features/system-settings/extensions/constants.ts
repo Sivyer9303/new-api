@@ -113,7 +113,10 @@ export type CustomPageStatusItem = {
 }
 
 export function createCustomPageId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
     return `cp_${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
   }
   return `cp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`

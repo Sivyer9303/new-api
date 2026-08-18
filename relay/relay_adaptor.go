@@ -33,6 +33,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/siliconflow"
 	"github.com/QuantumNous/new-api/relay/channel/sub2api"
 	"github.com/QuantumNous/new-api/relay/channel/submodel"
+	taskaistarslab "github.com/QuantumNous/new-api/relay/channel/task/aistarslab"
 	taskali "github.com/QuantumNous/new-api/relay/channel/task/ali"
 	taskbrioi "github.com/QuantumNous/new-api/relay/channel/task/brioi"
 	taskcompatvideo "github.com/QuantumNous/new-api/relay/channel/task/compatvideo"
@@ -180,6 +181,8 @@ func GetTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
 			return &taskbrioi.TaskAdaptor{}
 		case constant.ChannelTypeCompatVideo:
 			return &taskcompatvideo.TaskAdaptor{}
+		case constant.ChannelTypeAIStarsLab:
+			return &taskaistarslab.TaskAdaptor{}
 		}
 	}
 	return nil

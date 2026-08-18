@@ -21,6 +21,7 @@ const (
 	ContextKeyTokenCrossGroupRetry     ContextKey = "token_cross_group_retry"
 	ContextKeyTokenAutoGroups          ContextKey = "token_auto_groups"
 	ContextKeyVideoProviderChannelType ContextKey = "video_provider_channel_type"
+	ContextKeyVideoRouteDecision       ContextKey = "video_route_decision"
 
 	/* channel related keys */
 	ContextKeyChannelId                ContextKey = "channel_id"

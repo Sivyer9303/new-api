@@ -22,6 +22,7 @@ type videoToolModel struct {
 	Object                 string                  `json:"object"`
 	Created                int                     `json:"created"`
 	OwnedBy                string                  `json:"owned_by"`
+	ChannelID              int                     `json:"channel_id"`
 	ProfileModel           string                  `json:"profile_model"`
 	ProviderID             setting.VideoProvider   `json:"provider_id"`
 	ChannelType            int                     `json:"channel_type"`
@@ -105,37 +106,25 @@ func GetVideoToolModels(c *gin.Context) {
 		return
 	}
 
-	type modelCapability struct {
-		hit     model.EligibleVideoModelRoute
-		invalid bool
-		seen    bool
-	}
-	capabilities := make(map[string]modelCapability, len(routes))
 	modelOrder := make([]string, 0, len(routes))
+	seenModels := make(map[string]struct{}, len(routes))
 	for _, route := range routes {
-		capability := capabilities[route.Model]
-		if !capability.seen {
-			modelOrder = append(modelOrder, route.Model)
-			capability.seen = true
-		}
-		if route.InvalidMapping {
-			capability.invalid = true
-			capabilities[route.Model] = capability
+		if _, seen := seenModels[route.Model]; seen {
 			continue
 		}
-		if !capability.invalid {
-			if hit, ok := model.PickVideoModelHitByName(routes, route.Model); ok {
-				capability.hit = hit
-			}
-		}
-		capabilities[route.Model] = capability
+		seenModels[route.Model] = struct{}{}
+		modelOrder = append(modelOrder, route.Model)
 	}
 
 	modelLimits := token.GetModelLimitsMap()
 	providers := make(map[setting.VideoProvider]struct{})
 	for _, modelName := range modelOrder {
-		capability := capabilities[modelName]
-		if capability.invalid || capability.hit.ChannelType <= 0 || capability.hit.UpstreamModel == "" {
+		decision, err := model.ResolveVideoRoute(
+			candidateGroups,
+			modelName,
+			"/v1/video/generations",
+		)
+		if err != nil || decision.ChannelID <= 0 || decision.UpstreamModel == "" {
 			continue
 		}
 		if token.ModelLimitsEnabled {
@@ -153,8 +142,9 @@ func GetVideoToolModels(c *gin.Context) {
 		}
 
 		provider, profile, generationTypes, ok := attachVideoToolCapabilities(
-			capability.hit.ChannelType,
-			capability.hit.UpstreamModel,
+			decision.ChannelType,
+			modelName,
+			decision.UpstreamModel,
 		)
 		if !ok {
 			continue
@@ -166,9 +156,10 @@ func GetVideoToolModels(c *gin.Context) {
 			Object:                 baseModel.Object,
 			Created:                baseModel.Created,
 			OwnedBy:                string(provider),
-			ProfileModel:           capability.hit.UpstreamModel,
+			ChannelID:              decision.ChannelID,
+			ProfileModel:           decision.UpstreamModel,
 			ProviderID:             provider,
-			ChannelType:            capability.hit.ChannelType,
+			ChannelType:            decision.ChannelType,
 			Profile:                profile,
 			GenerationTypes:        generationTypes,
 			SupportedEndpointTypes: baseModel.SupportedEndpointTypes,

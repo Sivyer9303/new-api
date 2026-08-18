@@ -48,10 +48,28 @@ describe('localizeTaskFailReason', () => {
       `t:${PROVIDER_TASK_FAILED_I18N_KEY}`
     )
     assert.equal(
-      localizeTaskFailReason('Brioi poll returned retryable status 503', (key) =>
-        key === 'Video generation failed' ? 'generic-fail' : key
+      localizeTaskFailReason(
+        'Brioi poll returned retryable status 503',
+        (key) => (key === 'Video generation failed' ? 'generic-fail' : key)
       ),
       'generic-fail'
+    )
+  })
+
+  test('translates task submission failure reasons', () => {
+    assert.equal(
+      localizeTaskFailReason(
+        'Task submission did not complete.',
+        (key) => `t:${key}`
+      ),
+      't:Task submission did not complete.'
+    )
+    assert.equal(
+      localizeTaskFailReason(
+        'Task submission or billing reservation outcome is uncertain; administrator review is required.',
+        (key) => `t:${key}`
+      ),
+      't:Task submission or billing reservation outcome is uncertain; administrator review is required.'
     )
   })
 

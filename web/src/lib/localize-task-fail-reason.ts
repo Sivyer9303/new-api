@@ -50,6 +50,15 @@ const GENERIC_FAIL_REASON_KEYS: Record<string, string> = {
     PROVIDER_UNKNOWN_STATUS_I18N_KEY,
   'SilkRoad returned an unknown task status; administrator review is required':
     PROVIDER_UNKNOWN_STATUS_I18N_KEY,
+  'Task submission did not complete.': 'Task submission did not complete.',
+  'Task submission or billing reservation outcome is uncertain; administrator review is required.':
+    'Task submission or billing reservation outcome is uncertain; administrator review is required.',
+  'Task submission outcome is uncertain after timeout; administrator review is required':
+    'Task submission outcome is uncertain after timeout; administrator review is required',
+  'Video billing settlement requires administrator review':
+    'Video billing settlement requires administrator review',
+  'Video billing settlement recovery requires administrator review':
+    'Video billing settlement recovery requires administrator review',
 }
 
 type TranslateFn = (key: string, options?: Record<string, unknown>) => string
