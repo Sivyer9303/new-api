@@ -29,6 +29,8 @@ import {
   resolutionFromModelName,
   resolveVideoProfile,
   resolveSelectedOption,
+  videoPlayModeModelName,
+  videoRequestResolution,
 } from '../lib/capabilities'
 import type {
   PublicGenerationType,
@@ -204,6 +206,32 @@ describe('video tool capability resolution', () => {
     )
   })
 
+  test('uses the public model id for -ref play modes when upstream has no -ref', () => {
+    const imageToVideo = generationType('image2video', true)
+    const textToVideo = generationType('text2video', false)
+    const modelName = videoPlayModeModelName({
+      id: 'seedance-2-0-fast-ref',
+      profile_model: '48:seedance-2.0-fast',
+    })
+
+    assert.equal(modelName, 'seedance-2-0-fast-ref')
+    assert.equal(generationTypeDisableReason(modelName, imageToVideo), null)
+    assert.equal(
+      generationTypeDisableReason(modelName, textToVideo),
+      'requires_non_ref_model'
+    )
+    assert.equal(
+      generationTypeDisableReason(
+        videoPlayModeModelName({
+          id: 'seedance-2-0-fast',
+          profile_model: '48:seedance-2.0-fast',
+        }),
+        imageToVideo
+      ),
+      'requires_ref_model'
+    )
+  })
+
   test('keeps every mode enabled for providers that do not require -ref names', () => {
     const textToVideo = generationType('text2video', false)
     const imageToVideo = generationType('image2video', false)
@@ -258,14 +286,28 @@ describe('video tool capability resolution', () => {
 })
 
 describe('resolutionFromModelName', () => {
-  test('reads Brioi resolution suffixes from local aliases', () => {
+  test('reads resolution suffixes from local aliases', () => {
     assert.equal(resolutionFromModelName('seedance-2-0-480p'), '480p')
     assert.equal(
       resolutionFromModelName('dreamina-seedance-2-0-720p-ref'),
       '720p'
     )
+    assert.equal(resolutionFromModelName('minimax-h3-480p-ref'), '480p')
     assert.equal(resolutionFromModelName('seedance-2-0-1080p'), '1080p')
     assert.equal(resolutionFromModelName('seedance-2-0-4k'), '4K')
+    assert.equal(resolutionFromModelName('minimax-h3-1k'), '1K')
     assert.equal(resolutionFromModelName('seedance-2-0'), '')
+  })
+})
+
+describe('videoRequestResolution', () => {
+  test('sends the model-encoded resolution except for SilkRoad', () => {
+    assert.equal(
+      videoRequestResolution('minimax-h3-480p-ref', 'aistarslab'),
+      '480p'
+    )
+    assert.equal(videoRequestResolution('seedance-2-0-720p', 'brioi'), '720p')
+    assert.equal(videoRequestResolution('seedance-2-0-720p', 'silkroad'), '')
+    assert.equal(videoRequestResolution('seedance-2-0', 'brioi'), '')
   })
 })

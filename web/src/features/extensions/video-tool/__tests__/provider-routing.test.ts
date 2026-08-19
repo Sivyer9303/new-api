@@ -15,6 +15,7 @@ import {
   VIDEO_TOOL_MODELS_ENDPOINT,
 } from '../api'
 import {
+  generationTypeDisableReason,
   generationTypesForProfile,
   resolveProviderVideoProfile,
 } from '../lib/capabilities'
@@ -476,5 +477,89 @@ describe('video provider routing', () => {
     assert.equal(videoMode.images_max, 9)
     assert.equal(videoMode.videos_min, 1)
     assert.equal(videoMode.videos_max, 3)
+  })
+
+  test('restricts aistarslab image and frame modes to -ref public models', () => {
+    const config = normalizeVideoToolConfig({
+      version: 2,
+      enabled: true,
+      providers: {
+        aistarslab: {
+          groups: ['aistar-group'],
+          default_profile_id: 'aistarslab',
+          generation_types: [
+            {
+              label: 'Text to video',
+              value: 'text2video',
+              sort: 1,
+              images_min: 0,
+              images_max: 0,
+            },
+            {
+              label: 'Image to video',
+              value: 'image2video',
+              sort: 2,
+              images_min: 1,
+              images_max: 8,
+              allow_video: true,
+              videos_max: 1,
+            },
+            {
+              label: 'First and last frame',
+              value: 'frames2video',
+              sort: 3,
+              images_min: 2,
+              images_max: 2,
+            },
+          ],
+          profiles: [
+            {
+              id: 'aistarslab',
+              exact_models: [
+                'seedance-2-0-fast',
+                'seedance-2-0-fast-ref',
+              ],
+              durations: [4],
+              aspect_ratios: ['16:9'],
+              resolutions: ['720p'],
+            },
+          ],
+        },
+      },
+    })
+    const provider = resolveVideoProviderForGroup(config, 'aistar-group')
+    assert.ok(provider)
+    const profile = resolveProviderVideoProfile(
+      provider,
+      'seedance-2-0-fast-ref'
+    )
+    assert.ok(profile)
+    assert.equal(profile.require_ref_model_suffix, true)
+    const generationTypes = generationTypesForProfile(provider, profile)
+    const textMode = generationTypes.find((mode) => mode.value === 'text2video')
+    const imageMode = generationTypes.find(
+      (mode) => mode.value === 'image2video'
+    )
+    const framesMode = generationTypes.find(
+      (mode) => mode.value === 'frames2video'
+    )
+    assert.ok(textMode)
+    assert.ok(imageMode)
+    assert.ok(framesMode)
+    assert.equal(textMode.require_ref_model, false)
+    assert.equal(imageMode.require_ref_model, true)
+    assert.equal(framesMode.require_ref_model, true)
+    assert.equal(
+      generationTypeDisableReason('seedance-2-0-fast', imageMode),
+      'requires_ref_model'
+    )
+    assert.equal(
+      generationTypeDisableReason('seedance-2-0-fast-ref', textMode),
+      'requires_non_ref_model'
+    )
+    assert.equal(
+      generationTypeDisableReason('seedance-2-0-fast-ref', imageMode),
+      null
+    )
   })
 })

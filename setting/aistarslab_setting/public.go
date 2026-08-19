@@ -1,6 +1,7 @@
 package aistarslab_setting
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -21,18 +22,19 @@ type PublicOption struct {
 }
 
 type PublicGenerationMode struct {
-	Label        string   `json:"label"`
-	Value        string   `json:"value"`
-	Sort         int      `json:"sort"`
-	RequireAudio bool     `json:"require_audio"`
-	AllowAudio   bool     `json:"allow_audio"`
-	RequireVideo bool     `json:"require_video"`
-	AllowVideo   bool     `json:"allow_video"`
-	ImagesMin    int      `json:"images_min"`
-	ImagesMax    int      `json:"images_max"`
-	VideosMin    int      `json:"videos_min"`
-	VideosMax    int      `json:"videos_max"`
-	ImageRoles   []string `json:"image_roles"`
+	Label           string   `json:"label"`
+	Value           string   `json:"value"`
+	Sort            int      `json:"sort"`
+	RequireRefModel bool     `json:"require_ref_model"`
+	RequireAudio    bool     `json:"require_audio"`
+	AllowAudio      bool     `json:"allow_audio"`
+	RequireVideo    bool     `json:"require_video"`
+	AllowVideo      bool     `json:"allow_video"`
+	ImagesMin       int      `json:"images_min"`
+	ImagesMax       int      `json:"images_max"`
+	VideosMin       int      `json:"videos_min"`
+	VideosMax       int      `json:"videos_max"`
+	ImageRoles      []string `json:"image_roles"`
 }
 
 type PublicMediaLimits struct {
@@ -129,12 +131,14 @@ func DefaultPublicProfile() PublicProfile {
 		},
 		{
 			Label: "Image to video", Value: GenerationImage2Video, Sort: 2,
-			ImagesMin: 1, ImagesMax: 8, ImageRoles: []string{"reference"},
+			RequireRefModel: true,
+			ImagesMin:       1, ImagesMax: 8, ImageRoles: []string{"reference"},
 			AllowAudio: true, AllowVideo: true, VideosMax: 1,
 		},
 		{
 			Label: "First and last frame", Value: GenerationFrames2Video, Sort: 3,
-			ImagesMin: 2, ImagesMax: 2, ImageRoles: []string{"first_frame", "last_frame"},
+			RequireRefModel: true,
+			ImagesMin:       2, ImagesMax: 2, ImageRoles: []string{"first_frame", "last_frame"},
 		},
 	}
 	generationTypes := make([]string, 0, len(modes))
@@ -144,14 +148,15 @@ func DefaultPublicProfile() PublicProfile {
 		mediaLimits[mode.Value] = mediaLimitsForMode(mode)
 	}
 	return PublicProfile{
-		ID:              ProfileDefault,
-		Label:           "Video",
-		Durations:       intOptions([]int{4, 5, 6, 8, 10, 12, 15}, "seconds"),
-		Resolutions:     stringOptions([]string{"720p", "1080p", "1K"}, "resolution"),
-		AspectRatios:    stringOptions([]string{"16:9", "9:16", "1:1"}, "size"),
-		GenerationTypes: generationTypes,
-		GenerationModes: modes,
-		MentionDialect:  "latin",
+		ID:                    ProfileDefault,
+		Label:                 "Video",
+		Durations:             intOptions([]int{5, 10, 15}, "seconds"),
+		Resolutions:           stringOptions([]string{"720p", "1080p", "1K"}, "resolution"),
+		AspectRatios:          stringOptions([]string{"16:9", "9:16", "1:1"}, "size"),
+		GenerationTypes:       generationTypes,
+		GenerationModes:       modes,
+		RequireRefModelSuffix: true,
+		MentionDialect:        "latin",
 		Media: PublicMediaLimits{
 			MinItems:      0,
 			MaxItems:      8,
@@ -162,6 +167,31 @@ func DefaultPublicProfile() PublicProfile {
 		},
 		MediaLimits: mediaLimits,
 	}
+}
+
+// PublicModelHasRef reports whether a local/public model name is the paid
+// reference variant. Upstream identifiers are unified and must not be used.
+func PublicModelHasRef(publicModel string) bool {
+	return strings.Contains(publicModel, "-ref")
+}
+
+// ValidateGenerationTypeForPublicModel keeps cheaper non-ref models on
+// text2video and -ref models on image/frame modes.
+func ValidateGenerationTypeForPublicModel(generationType, publicModel string) error {
+	generationType = strings.TrimSpace(generationType)
+	publicModel = strings.TrimSpace(publicModel)
+	hasRef := PublicModelHasRef(publicModel)
+	switch generationType {
+	case GenerationText2Video:
+		if hasRef {
+			return fmt.Errorf("generation_type %q requires a model whose name does not contain -ref, got %q", generationType, publicModel)
+		}
+	case GenerationImage2Video, GenerationFrames2Video:
+		if !hasRef {
+			return fmt.Errorf("generation_type %q requires a model whose name contains -ref, got %q", generationType, publicModel)
+		}
+	}
+	return nil
 }
 
 func mediaLimitsForMode(mode PublicGenerationMode) PublicMediaLimits {

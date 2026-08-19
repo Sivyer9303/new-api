@@ -94,7 +94,7 @@ func TestParseRequestAcceptsVideoToolAndOpenAIVideosPayloads(t *testing.T) {
 	assert.Equal(t, aistarslab_setting.GenerationText2Video, request.GenerationType)
 
 	request, err = parseRequestForPath("/v1/videos", []byte(`{
-		"model":"test:test-video",
+		"model":"test:test-video-ref",
 		"prompt":"测试视频生成接口",
 		"seconds":"5",
 		"size":"16:9",
@@ -141,7 +141,7 @@ func TestBuildRequestBodyStagesInlineMediaWithoutChannelR2Setting(t *testing.T) 
 	context, _ := gin.CreateTestContext(httptest.NewRecorder())
 	context.Request = request
 	info := &relaycommon.RelayInfo{
-		OriginModelName: "seedance-2-0-fast",
+		OriginModelName: "seedance-2-0-fast-ref",
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelId:         6,
 			ChannelType:       64,
@@ -180,4 +180,57 @@ func TestBuildRequestBodyStagesInlineMediaWithoutChannelR2Setting(t *testing.T) 
 	assert.Equal(t, []any{"https://r2.example/0.bin"}, metadata["images"])
 	assert.Equal(t, []any{"https://r2.example/1.bin"}, metadata["videos"])
 	assert.NotContains(t, string(got), "data:")
+}
+
+func TestParseRequestUsesPublicModelNameForRefPlayModes(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "seedance-2-0-fast-ref",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "48:seedance-2.0-fast",
+		},
+	}
+
+	request, err := parseRequestForPath("/v1/video/generations", []byte(`{
+		"model":"seedance-2-0-fast-ref",
+		"prompt":"animate this still",
+		"generation_type":"image2video",
+		"duration":4,
+		"aspect_ratio":"16:9",
+		"resolution":"720p",
+		"media":[{"type":"image","role":"reference","source":"https://example.com/a.png"}]
+	}`), info)
+	require.NoError(t, err)
+	assert.Equal(t, "48:seedance-2.0-fast", request.Model)
+	assert.Equal(t, aistarslab_setting.GenerationImage2Video, request.GenerationType)
+
+	_, err = parseRequestForPath("/v1/video/generations", []byte(`{
+		"model":"seedance-2-0-fast",
+		"prompt":"prompt only",
+		"generation_type":"text2video",
+		"duration":4,
+		"aspect_ratio":"16:9",
+		"resolution":"720p"
+	}`), &relaycommon.RelayInfo{
+		OriginModelName: "seedance-2-0-fast-ref",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "48:seedance-2.0-fast",
+		},
+	})
+	require.ErrorContains(t, err, "-ref")
+
+	_, err = parseRequestForPath("/v1/video/generations", []byte(`{
+		"model":"seedance-2-0-fast",
+		"prompt":"animate this still",
+		"generation_type":"image2video",
+		"duration":4,
+		"aspect_ratio":"16:9",
+		"resolution":"720p",
+		"media":[{"type":"image","role":"reference","source":"https://example.com/a.png"}]
+	}`), &relaycommon.RelayInfo{
+		OriginModelName: "seedance-2-0-fast",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "48:seedance-2.0-fast",
+		},
+	})
+	require.ErrorContains(t, err, "-ref")
 }

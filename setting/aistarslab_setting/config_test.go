@@ -73,4 +73,27 @@ func TestGetPublicVideoToolConfigIncludesExactModelProfiles(t *testing.T) {
 	assert.Equal(t, ProfileDefault, config.Profiles[0].ID)
 	assert.Equal(t, "seedance-2.0-fast", config.Profiles[1].ID)
 	assert.Equal(t, []string{"seedance-2.0-fast"}, config.Profiles[1].ExactModels)
+	assert.True(t, config.Profiles[0].RequireRefModelSuffix)
+	assert.True(t, config.Profiles[1].RequireRefModelSuffix)
+	require.Len(t, config.GenerationTypes, 3)
+	assert.False(t, config.GenerationTypes[0].RequireRefModel)
+	assert.Equal(t, GenerationText2Video, config.GenerationTypes[0].Value)
+	assert.True(t, config.GenerationTypes[1].RequireRefModel)
+	assert.Equal(t, GenerationImage2Video, config.GenerationTypes[1].Value)
+	assert.True(t, config.GenerationTypes[2].RequireRefModel)
+	assert.Equal(t, GenerationFrames2Video, config.GenerationTypes[2].Value)
+	require.Len(t, config.Profiles[0].Durations, 3)
+	assert.Equal(t, "5", config.Profiles[0].Durations[0].Value)
+	assert.Equal(t, "10", config.Profiles[0].Durations[1].Value)
+	assert.Equal(t, "15", config.Profiles[0].Durations[2].Value)
+	assert.Equal(t, config.Profiles[0].Durations, config.Profiles[1].Durations)
+}
+
+func TestValidateGenerationTypeForPublicModel(t *testing.T) {
+	require.NoError(t, ValidateGenerationTypeForPublicModel(GenerationText2Video, "seedance-2-0-fast"))
+	require.NoError(t, ValidateGenerationTypeForPublicModel(GenerationImage2Video, "seedance-2-0-fast-ref"))
+	require.NoError(t, ValidateGenerationTypeForPublicModel(GenerationFrames2Video, "seedance-2.0-fast-ref"))
+	require.ErrorContains(t, ValidateGenerationTypeForPublicModel(GenerationText2Video, "seedance-2-0-fast-ref"), "-ref")
+	require.ErrorContains(t, ValidateGenerationTypeForPublicModel(GenerationImage2Video, "seedance-2-0-fast"), "-ref")
+	require.ErrorContains(t, ValidateGenerationTypeForPublicModel(GenerationFrames2Video, "48:seedance-2.0-fast"), "-ref")
 }

@@ -22,7 +22,7 @@ export function resolveSelectedOption(
     : (options[0]?.value ?? '')
 }
 
-/** Derive Brioi resolution from a local/public model alias (e.g. seedance-2-0-480p). */
+/** Derive resolution from a local/public model alias (e.g. minimax-h3-480p-ref). */
 export function resolutionFromModelName(modelName: string): string {
   const normalized = modelName.trim().toLowerCase().replace(/-ref$/, '')
   if (!normalized) return ''
@@ -31,11 +31,21 @@ export function resolutionFromModelName(modelName: string): string {
     ['-720p', '720p'],
     ['-480p', '480p'],
     ['-4k', '4K'],
+    ['-1k', '1K'],
   ]
   for (const [suffix, value] of suffixes) {
     if (normalized.endsWith(suffix)) return value
   }
   return ''
+}
+
+/** Resolution sent with the video tool request. SilkRoad encodes it in the model name and rejects the field. */
+export function videoRequestResolution(
+  modelName: string,
+  providerId: string
+): string {
+  if (providerId === 'silkroad') return ''
+  return resolutionFromModelName(modelName)
 }
 
 export function retainCompatibleVideoModel(
@@ -49,6 +59,14 @@ export function retainCompatibleVideoModel(
 
 function isReferenceVideoModel(modelName: string): boolean {
   return modelName.includes('-ref')
+}
+
+/** Public/local model id used for -ref play-mode rules. Do not use upstream. */
+export function videoPlayModeModelName(model: {
+  id?: string
+  profile_model?: string
+} | null | undefined): string {
+  return (model?.id || model?.profile_model || '').trim()
 }
 
 export function modelSupportsGenerationType(

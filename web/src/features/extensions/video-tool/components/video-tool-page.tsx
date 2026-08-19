@@ -68,10 +68,11 @@ import { useVideoToolBootstrap } from '../hooks/use-video-tool-bootstrap'
 import {
   generationTypeDisableReason,
   generationTypesForProfile,
-  resolutionFromModelName,
   retainCompatibleVideoModel,
   resolveProviderVideoProfile,
   resolveSelectedOption,
+  videoPlayModeModelName,
+  videoRequestResolution,
   type GenerationTypeDisableReason,
 } from '../lib/capabilities'
 import { estimateVideoPrice } from '../lib/pricing'
@@ -344,7 +345,6 @@ export function VideoToolPage() {
   const [generationType, setGenerationType] = useState('')
   const [prompt, setPrompt] = useState('')
   const [durationValue, setDurationValue] = useState('')
-  const [resolution, setResolution] = useState('')
   const [aspectRatio, setAspectRatio] = useState('')
   const [generateAudio, setGenerateAudio] = useState(true)
   const [referenceImages, setReferenceImages] = useState<ReferenceImageItem[]>(
@@ -580,18 +580,11 @@ export function VideoToolPage() {
     }
     return options
   }, [generationType, selectedProfile])
-  // Brioi maps shared upstream models (e.g. seedance-2-0) and encodes tier in
-  // the local alias; SilkRoad encodes resolution in the model name itself and
-  // rejects a separate resolution field.
-  const modelEncodedResolution =
-    activeProvider?.id === 'brioi'
-      ? resolutionFromModelName(selectedModel?.id ?? '')
-      : ''
-  const resolutionOptions = modelEncodedResolution
-    ? []
-    : (selectedProfile?.resolutions ?? [])
   const aspectOptions = selectedProfile?.aspect_ratios ?? []
-  const effectiveResolution = modelEncodedResolution || resolution
+  const requestResolution = videoRequestResolution(
+    videoPlayModeModelName(selectedModel),
+    activeProvider?.id ?? ''
+  )
 
   const durationFieldKey =
     durationOptions.find((d) => d.value === durationValue)?.upstream_key ||
@@ -599,7 +592,7 @@ export function VideoToolPage() {
     'seconds'
 
   useEffect(() => {
-    const modelName = selectedModel?.profile_model || selectedModel?.id || ''
+    const modelName = videoPlayModeModelName(selectedModel)
     const enabledModes = generationTypes.filter(
       (candidate) => !generationTypeDisableReason(modelName, candidate)
     )
@@ -627,34 +620,17 @@ export function VideoToolPage() {
   useEffect(() => {
     if (!selectedProfile) {
       setDurationValue('')
-      setResolution('')
       setAspectRatio('')
       return
     }
-    const encodedResolution =
-      activeProvider?.id === 'brioi'
-        ? resolutionFromModelName(selectedModel?.id ?? '')
-        : ''
     const nextDuration = resolveSelectedOption(durationValue, durationOptions)
-    const nextResolution = encodedResolution
-      ? encodedResolution
-      : resolveSelectedOption(resolution, selectedProfile.resolutions)
     const nextAspectRatio = resolveSelectedOption(
       aspectRatio,
       selectedProfile.aspect_ratios
     )
     if (nextDuration !== durationValue) setDurationValue(nextDuration)
-    if (nextResolution !== resolution) setResolution(nextResolution)
     if (nextAspectRatio !== aspectRatio) setAspectRatio(nextAspectRatio)
-  }, [
-    activeProvider?.id,
-    selectedProfile,
-    selectedModel,
-    durationOptions,
-    durationValue,
-    resolution,
-    aspectRatio,
-  ])
+  }, [selectedProfile, durationOptions, durationValue, aspectRatio])
 
   useEffect(() => {
     setGenerateAudio(selectedProfile?.generate_audio_default !== false)
@@ -833,7 +809,7 @@ export function VideoToolPage() {
       aspectRatio,
       durationFieldKey,
       durationValue,
-      resolution: effectiveResolution,
+      resolution: requestResolution,
       images,
       imageRoles: selectedGenType?.image_roles,
       audioURL,
@@ -848,7 +824,7 @@ export function VideoToolPage() {
     prompt,
     generationType,
     aspectRatio,
-    effectiveResolution,
+    requestResolution,
     durationFieldKey,
     durationValue,
     selectedGenType,
@@ -881,8 +857,7 @@ export function VideoToolPage() {
       !generationType ||
       !prompt.trim() ||
       !durationValue ||
-      !aspectRatio ||
-      (resolutionOptions.length > 0 && !effectiveResolution)
+      !aspectRatio
     ) {
       toast.error(t('Please fill in all required fields'))
       return
@@ -1002,7 +977,7 @@ export function VideoToolPage() {
         aspectRatio,
         durationFieldKey,
         durationValue,
-        resolution: effectiveResolution,
+        resolution: requestResolution,
         images,
         imageRoles: selectedGenType.image_roles,
         audioURL,
@@ -1264,10 +1239,7 @@ export function VideoToolPage() {
                       aria-label={t('Generation mode')}
                     >
                       {generationTypes.map((gt) => {
-                        const modelName =
-                          selectedModel?.profile_model ||
-                          selectedModel?.id ||
-                          ''
+                        const modelName = videoPlayModeModelName(selectedModel)
                         const disableReason = selectedProfile
                           ? generationTypeDisableReason(modelName, gt)
                           : null
@@ -1326,14 +1298,7 @@ export function VideoToolPage() {
                     </p>
                   </div>
 
-                  <div
-                    className={cn(
-                      'grid gap-4',
-                      resolutionOptions.length > 0
-                        ? 'sm:grid-cols-3'
-                        : 'sm:grid-cols-2'
-                    )}
-                  >
+                  <div className='grid gap-4 sm:grid-cols-2'>
                     <div className='space-y-2'>
                       <Label htmlFor={`${controlId}-duration`}>
                         {durationFieldKey === 'duration'
@@ -1359,34 +1324,6 @@ export function VideoToolPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    {resolutionOptions.length > 0 ? (
-                      <div className='space-y-2'>
-                        <Label htmlFor={`${controlId}-resolution`}>
-                          {t('Resolution')}
-                        </Label>
-                        <Select
-                          value={resolution || null}
-                          onValueChange={(value) => setResolution(value ?? '')}
-                        >
-                          <SelectTrigger
-                            id={`${controlId}-resolution`}
-                            className='w-full'
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {resolutionOptions.map((option) => (
-                              <SelectItem
-                                key={option.value}
-                                value={option.value}
-                              >
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ) : null}
                     <div className='space-y-2'>
                       <Label htmlFor={`${controlId}-aspect-ratio`}>
                         {t('Aspect ratio')}

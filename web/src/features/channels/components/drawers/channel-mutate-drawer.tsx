@@ -1262,7 +1262,7 @@ export function ChannelMutateDrawer({
 
   // Load channel data into form when editing
   useEffect(() => {
-    preBrioiInputDeliveryRef.current = null
+    preForcedR2InputDeliveryRef.current = null
     if (isEditing && channelData?.data) {
       const defaults = transformChannelToFormDefaults(channelData.data)
       form.reset(defaults)
@@ -2066,7 +2066,7 @@ export function ChannelMutateDrawer({
                                                   shouldValidate: true,
                                                 }
                                               )
-                                              preBrioiInputDeliveryRef.current =
+                                              preForcedR2InputDeliveryRef.current =
                                                 null
                                             }
                                           }

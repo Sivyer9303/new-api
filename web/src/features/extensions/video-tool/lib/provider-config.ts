@@ -312,7 +312,8 @@ function normalizeGenerationType(
     sort: record ? integerValue(record.sort, index + 1) : index + 1,
     require_ref_model:
       record?.require_ref_model === true ||
-      (providerID === 'silkroad' && (imageMode || videoMode)),
+      ((providerID === 'silkroad' || providerID === 'aistarslab') &&
+        (imageMode || videoMode)),
     require_audio: record?.require_audio === true,
     allow_audio: record?.allow_audio === true || media.allow_audio,
     require_video: requireVideo,

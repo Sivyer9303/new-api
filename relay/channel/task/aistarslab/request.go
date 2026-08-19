@@ -172,6 +172,12 @@ func parseRequestForPath(_ string, body []byte, info *relaycommon.RelayInfo) (
 	if generationType == "" {
 		generationType = inferredGenerationType(media)
 	}
+	if err := aistarslab_setting.ValidateGenerationTypeForPublicModel(
+		generationType,
+		publicModelForCapabilities(info, publicModel),
+	); err != nil {
+		return videocommon.VideoGenerateRequest{}, err
+	}
 	request := videocommon.VideoGenerateRequest{
 		Model:          modelName,
 		Prompt:         strings.TrimSpace(prompt),
@@ -509,6 +515,15 @@ func rejectUnknownFields(raw map[string]json.RawMessage) error {
 	}
 	slices.Sort(unknown)
 	return fmt.Errorf("unknown fields: %s", strings.Join(unknown, ", "))
+}
+
+func publicModelForCapabilities(info *relaycommon.RelayInfo, requestModel string) string {
+	if info != nil {
+		if origin := strings.TrimSpace(info.GetOriginModelName()); origin != "" {
+			return origin
+		}
+	}
+	return strings.TrimSpace(requestModel)
 }
 
 func requestString(raw map[string]json.RawMessage, key string) (string, error) {
