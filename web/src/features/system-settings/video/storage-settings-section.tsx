@@ -436,6 +436,11 @@ export function VideoStorageSettingsSection(props: { storageJson: string }) {
                         'Key prefix for reference images and audio staged for upstreams that cannot accept base64. Must differ from the result prefix.'
                       )}
                     </FormDescription>
+                    <FormDescription>
+                      {t(
+                        'Browser direct upload requires R2 bucket CORS allowing PUT and OPTIONS from your dashboard origin(s).'
+                      )}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

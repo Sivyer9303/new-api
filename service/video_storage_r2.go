@@ -68,6 +68,7 @@ type r2ObjectStore interface {
 	DeleteObject(ctx context.Context, key string) error
 	ListObjects(ctx context.Context, prefix string, token string) (r2ObjectPage, error)
 	PresignGetObject(ctx context.Context, key string, ttl time.Duration) (string, error)
+	PresignPutObject(ctx context.Context, key string, contentType string, ttl time.Duration) (string, map[string]string, error)
 }
 
 type r2HTTPObjectStore struct {
@@ -306,6 +307,54 @@ func (s *r2HTTPObjectStore) PresignGetObject(
 		return "", err
 	}
 	return signedURL, nil
+}
+
+func (s *r2HTTPObjectStore) PresignPutObject(
+	ctx context.Context,
+	key string,
+	contentType string,
+	ttl time.Duration,
+) (string, map[string]string, error) {
+	target, err := s.objectURL(key)
+	if err != nil {
+		return "", nil, err
+	}
+	if ttl <= 0 {
+		return "", nil, errors.New("presign ttl must be positive")
+	}
+	contentType = strings.TrimSpace(contentType)
+	if contentType == "" {
+		return "", nil, errors.New("content type is required")
+	}
+	query := url.Values{}
+	query.Set("X-Amz-Expires", strconv.FormatInt(int64(ttl/time.Second), 10))
+	target.RawQuery = query.Encode()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, target.String(), nil)
+	if err != nil {
+		return "", nil, err
+	}
+	request.Header.Set("Content-Type", contentType)
+	signedURL, signedHeaders, err := s.signer.PresignHTTP(
+		ctx,
+		s.credentials,
+		request,
+		r2UnsignedPayload,
+		r2SigningService,
+		s.region,
+		s.currentTime().UTC(),
+	)
+	if err != nil {
+		return "", nil, err
+	}
+	headers := map[string]string{"Content-Type": contentType}
+	for name, values := range signedHeaders {
+		if len(values) == 0 {
+			continue
+		}
+		headers[name] = values[0]
+	}
+	return signedURL, headers, nil
 }
 
 type r2ListBucketResult struct {

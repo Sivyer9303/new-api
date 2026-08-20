@@ -18,59 +18,24 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { cn } from '@/lib/utils'
 
-import { formatPriceWithSiteRatio } from '../lib/site-recharge-display'
-
 export interface PriceWithRatioProps {
-  /** Upstream already-formatted list price (e.g. from formatPrice). */
+  /** Already-formatted list price (e.g. from formatPrice). */
   value: string
   className?: string
-  originalClassName?: string
   actualClassName?: string
 }
 
-/**
- * Display-only dual price: strikethrough list price + site recharge actual.
- */
+/** Renders a formatted model price. */
 export function PriceWithRatio(props: PriceWithRatioProps) {
-  const parts = formatPriceWithSiteRatio(props.value)
-
-  if (!parts.scalable) {
-    return (
-      <span
-        className={cn(
-          'text-amber-700 dark:text-amber-300 font-mono font-semibold tabular-nums',
-          props.actualClassName,
-          props.className
-        )}
-      >
-        {parts.original}
-      </span>
-    )
-  }
-
   return (
     <span
       className={cn(
-        'inline-flex flex-wrap items-baseline gap-1.5 font-mono tabular-nums',
+        'text-amber-700 dark:text-amber-300 font-mono font-semibold tabular-nums',
+        props.actualClassName,
         props.className
       )}
     >
-      <span
-        className={cn(
-          'text-muted-foreground/70 line-through',
-          props.originalClassName
-        )}
-      >
-        {parts.original}
-      </span>
-      <span
-        className={cn(
-          'font-semibold text-amber-700 dark:text-amber-300',
-          props.actualClassName
-        )}
-      >
-        {parts.actual}
-      </span>
+      {props.value}
     </span>
   )
 }

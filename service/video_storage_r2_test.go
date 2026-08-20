@@ -93,6 +93,20 @@ func (s *fakeR2Store) PresignGetObject(_ context.Context, key string, ttl time.D
 	), nil
 }
 
+func (s *fakeR2Store) PresignPutObject(
+	_ context.Context,
+	key string,
+	contentType string,
+	ttl time.Duration,
+) (string, map[string]string, error) {
+	return fmt.Sprintf(
+			"https://bucket.r2.example/%s?X-Amz-Expires=%d&X-Amz-Signature=put",
+			key, int64(ttl/time.Second),
+		), map[string]string{
+			"Content-Type": contentType,
+		}, nil
+}
+
 // withVideoStorageSetting overrides the effective storage configuration for one test.
 func withVideoStorageSetting(t *testing.T, storage video_setting.StorageSetting) {
 	t.Helper()

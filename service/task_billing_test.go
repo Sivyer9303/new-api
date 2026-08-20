@@ -635,7 +635,6 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 		Where("id = ?", tokenID).
 		Update("used_quota", preConsumed).Error)
 	seedChannel(t, channelID)
-	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
 	require.NoError(t, model.DB.Create(task).Error)
@@ -650,7 +649,7 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	assert.Zero(t, getTokenUsedQuota(t, tokenID))
 	usedQuota, requestCount := getUserUsageAccounting(t, userID)
 	assert.Zero(t, usedQuota)
-	assert.Equal(t, 1, requestCount)
+	assert.Zero(t, requestCount)
 	assert.Zero(t, getChannelUsedQuota(t, channelID))
 
 	// A refund log should be created
@@ -676,7 +675,6 @@ func TestRefundTaskQuota_Subscription(t *testing.T) {
 	seedToken(t, tokenID, userID, "sk-sub-key", tokenRemain)
 	seedChannel(t, channelID)
 	seedSubscription(t, subID, userID, subTotal, subUsed)
-	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceSubscription, subID)
 	require.NoError(t, model.DB.Create(task).Error)
@@ -691,7 +689,7 @@ func TestRefundTaskQuota_Subscription(t *testing.T) {
 	assert.Zero(t, getTokenUsedQuota(t, tokenID))
 	usedQuota, requestCount := getUserUsageAccounting(t, userID)
 	assert.Zero(t, usedQuota)
-	assert.Equal(t, 1, requestCount)
+	assert.Zero(t, requestCount)
 	assert.Zero(t, getChannelUsedQuota(t, channelID))
 
 	log := getLastLog(t)
@@ -727,7 +725,6 @@ func TestRefundTaskQuota_NoToken(t *testing.T) {
 
 	seedUser(t, userID, initQuota)
 	seedChannel(t, channelID)
-	seedChargedAccounting(t, userID, channelID, 0, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, 0, BillingSourceWallet, 0) // TokenId=0
 	require.NoError(t, model.DB.Create(task).Error)
@@ -738,7 +735,7 @@ func TestRefundTaskQuota_NoToken(t *testing.T) {
 	assert.Equal(t, initQuota+preConsumed, getUserQuota(t, userID))
 	usedQuota, requestCount := getUserUsageAccounting(t, userID)
 	assert.Zero(t, usedQuota)
-	assert.Equal(t, 1, requestCount)
+	assert.Zero(t, requestCount)
 	assert.Zero(t, getChannelUsedQuota(t, channelID))
 
 	// Log created
@@ -748,14 +745,13 @@ func TestRefundTaskQuota_NoToken(t *testing.T) {
 	assert.Zero(t, getTaskQuota(t, task.ID))
 }
 
-func TestRefundTaskQuota_FundingFailureKeepsAccountingAndPendingMarker(t *testing.T) {
+func TestRefundTaskQuota_FundingFailureKeepsPendingMarker(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
 	const userID, channelID, preConsumed = 5, 5, 1200
 	seedUser(t, userID, 5000)
 	seedChannel(t, channelID)
-	seedChargedAccounting(t, userID, channelID, 0, preConsumed, 1)
 	task := makeTask(userID, channelID, preConsumed, 0, BillingSourceSubscription, 9999)
 	task.Status = model.TaskStatusFailure
 	require.NoError(t, model.DB.Create(task).Error)
@@ -765,9 +761,9 @@ func TestRefundTaskQuota_FundingFailureKeepsAccountingAndPendingMarker(t *testin
 	assert.Equal(t, preConsumed, task.Quota)
 	assert.Equal(t, preConsumed, getTaskQuota(t, task.ID))
 	usedQuota, requestCount := getUserUsageAccounting(t, userID)
-	assert.Equal(t, preConsumed, usedQuota)
-	assert.Equal(t, 1, requestCount)
-	assert.Equal(t, int64(preConsumed), getChannelUsedQuota(t, channelID))
+	assert.Zero(t, usedQuota)
+	assert.Zero(t, requestCount)
+	assert.Zero(t, getChannelUsedQuota(t, channelID))
 	assert.Equal(t, int64(0), countLogs(t))
 }
 
@@ -786,8 +782,10 @@ func TestRecalculate_PositiveDelta(t *testing.T) {
 
 	seedUser(t, userID, initQuota)
 	seedToken(t, tokenID, userID, "sk-recalc-pos", tokenRemain)
+	require.NoError(t, model.DB.Model(&model.Token{}).
+		Where("id = ?", tokenID).
+		Update("used_quota", preConsumed).Error)
 	seedChannel(t, channelID)
-	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
 
@@ -825,8 +823,10 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 
 	seedUser(t, userID, initQuota)
 	seedToken(t, tokenID, userID, "sk-recalc-neg", tokenRemain)
+	require.NoError(t, model.DB.Model(&model.Token{}).
+		Where("id = ?", tokenID).
+		Update("used_quota", preConsumed).Error)
 	seedChannel(t, channelID)
-	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
 
@@ -869,7 +869,11 @@ func TestRecalculate_ZeroDelta(t *testing.T) {
 	// No change to user quota
 	assert.Equal(t, initQuota, getUserQuota(t, userID))
 
-	// No log created (delta is zero)
+	usedQuota, requestCount := getUserUsageAccounting(t, userID)
+	assert.Equal(t, preConsumed, usedQuota)
+	assert.Equal(t, 1, requestCount)
+
+	// No delta log created (delta is zero)
 	assert.Equal(t, int64(0), countLogs(t))
 }
 
@@ -903,9 +907,11 @@ func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {
 
 	seedUser(t, userID, 0)
 	seedToken(t, tokenID, userID, "sk-sub-recalc", tokenRemain)
+	require.NoError(t, model.DB.Model(&model.Token{}).
+		Where("id = ?", tokenID).
+		Update("used_quota", preConsumed).Error)
 	seedChannel(t, channelID)
 	seedSubscription(t, subID, userID, subTotal, subUsed)
-	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceSubscription, subID)
 
@@ -994,7 +1000,6 @@ func TestCASGuardedRefund_Win(t *testing.T) {
 	seedUser(t, userID, initQuota)
 	seedToken(t, tokenID, userID, "sk-cas-refund-win", tokenRemain)
 	seedChannel(t, channelID)
-	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
 	task.Status = model.TaskStatus(model.TaskStatusInProgress)
@@ -1013,7 +1018,7 @@ func TestCASGuardedRefund_Win(t *testing.T) {
 	assert.Equal(t, tokenRemain+preConsumed, getTokenRemainQuota(t, tokenID))
 	usedQuota, requestCount := getUserUsageAccounting(t, userID)
 	assert.Zero(t, usedQuota)
-	assert.Equal(t, 1, requestCount)
+	assert.Zero(t, requestCount)
 	assert.Zero(t, getChannelUsedQuota(t, channelID))
 
 	log := getLastLog(t)
@@ -1032,7 +1037,6 @@ func TestCASGuardedRefund_Lose(t *testing.T) {
 	seedUser(t, userID, initQuota)
 	seedToken(t, tokenID, userID, "sk-cas-refund-lose", tokenRemain)
 	seedChannel(t, channelID)
-	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	// Create task with IN_PROGRESS in DB
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
@@ -1050,9 +1054,9 @@ func TestCASGuardedRefund_Lose(t *testing.T) {
 	assert.Equal(t, initQuota, getUserQuota(t, userID))
 	assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
 	usedQuota, requestCount := getUserUsageAccounting(t, userID)
-	assert.Equal(t, preConsumed, usedQuota)
-	assert.Equal(t, 1, requestCount)
-	assert.Equal(t, int64(preConsumed), getChannelUsedQuota(t, channelID))
+	assert.Zero(t, usedQuota)
+	assert.Zero(t, requestCount)
+	assert.Zero(t, getChannelUsedQuota(t, channelID))
 
 	// No billing log should be created
 	assert.Equal(t, int64(0), countLogs(t))
@@ -1069,8 +1073,10 @@ func TestCASGuardedSettle_Win(t *testing.T) {
 
 	seedUser(t, userID, initQuota)
 	seedToken(t, tokenID, userID, "sk-cas-settle-win", tokenRemain)
+	require.NoError(t, model.DB.Model(&model.Token{}).
+		Where("id = ?", tokenID).
+		Update("used_quota", preConsumed).Error)
 	seedChannel(t, channelID)
-	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
 	task.Status = model.TaskStatus(model.TaskStatusInProgress)
@@ -1170,6 +1176,9 @@ func TestSettle_PerCallBilling_SkipsAdaptorAdjust(t *testing.T) {
 	assert.Equal(t, initQuota, getUserQuota(t, userID))
 	assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, preConsumed, task.Quota)
+	usedQuota, requestCount := getUserUsageAccounting(t, userID)
+	assert.Equal(t, preConsumed, usedQuota)
+	assert.Equal(t, 1, requestCount)
 	assert.Equal(t, int64(0), countLogs(t))
 }
 
@@ -1197,6 +1206,9 @@ func TestSettle_PerCallBilling_SkipsTotalTokens(t *testing.T) {
 	assert.Equal(t, initQuota, getUserQuota(t, userID))
 	assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, preConsumed, task.Quota)
+	usedQuota, requestCount := getUserUsageAccounting(t, userID)
+	assert.Equal(t, preConsumed, usedQuota)
+	assert.Equal(t, 1, requestCount)
 	assert.Equal(t, int64(0), countLogs(t))
 }
 
@@ -1225,6 +1237,9 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	assert.Equal(t, initQuota+(preConsumed-adaptorQuota), getUserQuota(t, userID))
 	assert.Equal(t, tokenRemain+(preConsumed-adaptorQuota), getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, adaptorQuota, task.Quota)
+	usedQuota, requestCount := getUserUsageAccounting(t, userID)
+	assert.Equal(t, adaptorQuota, usedQuota)
+	assert.Equal(t, 1, requestCount)
 
 	log := getLastLog(t)
 	require.NotNil(t, log)

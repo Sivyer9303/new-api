@@ -229,6 +229,18 @@ export function ReferenceImageGrid(props: ReferenceImageGridProps) {
                 <span className='bg-background/80 absolute bottom-1 left-1 rounded px-1 py-0.5 text-[10px] font-medium'>
                   {index + 1} · {roleLabel}
                 </span>
+                {item.uploadStatus === 'uploading' ||
+                item.uploadStatus === 'pending' ? (
+                  <div className='bg-background/70 absolute inset-0 flex flex-col items-center justify-center gap-1 text-[10px] font-medium'>
+                    <span>{t('Uploading…')}</span>
+                    <span>{Math.max(0, item.uploadProgress || 0)}%</span>
+                  </div>
+                ) : null}
+                {item.uploadStatus === 'failed' ? (
+                  <div className='bg-destructive/80 text-destructive-foreground absolute inset-x-0 bottom-0 px-1 py-0.5 text-center text-[10px] font-medium'>
+                    {t('Upload failed')}
+                  </div>
+                ) : null}
               </div>
             )
           }

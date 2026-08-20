@@ -31,7 +31,6 @@ import {
   PricingToolbar,
   ModelCardGrid,
   ModelDetailsDrawer,
-  RechargeRatioBanner,
 } from './components'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
@@ -202,8 +201,6 @@ export function Pricing() {
               className='mx-auto mt-4 max-w-2xl sm:mt-6'
             />
           </header>
-
-          <RechargeRatioBanner className='mb-4 sm:mb-6' />
 
           <div className='grid gap-4 xl:grid-cols-[330px_minmax(0,1fr)]'>
             <PricingSidebar

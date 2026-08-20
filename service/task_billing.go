@@ -15,8 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// LogTaskConsumption 记录任务消费日志和统计信息（仅记录，不涉及实际扣费）。
-// 实际扣费已由 BillingSession（PreConsumeBilling + SettleBilling）完成。
+// LogTaskConsumption 记录任务提交消费日志（审计用途，不更新 used_quota）。
+// 余额预扣由 BillingSession 完成；used_quota / request_count 在任务成功结算时写入（见 RecalculateTaskQuota），与原生补全一致。
 func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	tokenName := c.GetString("token_name")
 	logContent := fmt.Sprintf("操作 %s", info.Action)
@@ -62,8 +62,6 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		Group:     info.UsingGroup,
 		Other:     other,
 	})
-	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
-	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +159,7 @@ func taskModelName(task *model.Task) string {
 }
 
 // RefundTaskQuota 统一的任务失败退款逻辑。
-// 当异步任务失败时，退还资金与令牌额度，并回减用户和渠道用量。
+// 当异步任务失败时，退还资金与令牌额度。used_quota 在成功结算前不会增加，因此失败时不回减用量统计。
 // 返回资金来源是否已成功退还；失败时保留 quota，供显式重试或人工对账。
 func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool {
 	if task == nil {
@@ -198,11 +196,6 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 		taskAdjustTokenQuota(ctx, task, -quota)
 		task.Quota = 0
 	}
-
-	// Record the refund after the atomic financial transition commits.
-	// Reverse usage counters incremented at pre-consume; request count stays.
-	model.UpdateUserUsedQuota(task.UserId, -quota)
-	model.UpdateChannelUsedQuota(task.ChannelId, -quota)
 
 	other := taskBillingOther(task)
 	other["task_id"] = task.TaskID
@@ -257,42 +250,44 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		))
 	}
 
-	if quotaDelta == 0 {
-		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
-			task.TaskID, logger.LogQuota(actualQuota), reason))
-		return nil
-	}
+	if quotaDelta != 0 {
+		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 差额结算：delta=%s（实际：%s，预扣：%s，%s）",
+			task.TaskID,
+			logger.LogQuota(quotaDelta),
+			logger.LogQuota(actualQuota),
+			logger.LogQuota(preConsumedQuota),
+			reason,
+		))
 
-	logger.LogInfo(ctx, fmt.Sprintf("任务 %s 差额结算：delta=%s（实际：%s，预扣：%s，%s）",
-		task.TaskID,
-		logger.LogQuota(quotaDelta),
-		logger.LogQuota(actualQuota),
-		logger.LogQuota(preConsumedQuota),
-		reason,
-	))
-
-	if !persistedSettlement {
-		// 调整资金来源
-		if err := taskAdjustFunding(task, quotaDelta); err != nil {
-			logger.LogError(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, err.Error()))
-			return fmt.Errorf("adjust task funding: %w", err)
-		}
-
-		// 调整令牌额度
-		taskAdjustTokenQuota(ctx, task, quotaDelta)
-
-		task.Quota = actualQuota
-		if task.ID != 0 {
-			if err := task.UpdateQuota(); err != nil {
-				logger.LogError(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, err.Error()))
-				return fmt.Errorf("persist settled task quota: %w", err)
+		if !persistedSettlement {
+			if err := taskAdjustFunding(task, quotaDelta); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, err.Error()))
+				return fmt.Errorf("adjust task funding: %w", err)
+			}
+			taskAdjustTokenQuota(ctx, task, quotaDelta)
+			task.Quota = actualQuota
+			if task.ID != 0 {
+				if err := task.UpdateQuota(); err != nil {
+					logger.LogError(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, err.Error()))
+					return fmt.Errorf("persist settled task quota: %w", err)
+				}
 			}
 		}
+	} else {
+		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
+			task.TaskID, logger.LogQuota(actualQuota), reason))
 	}
 
-	// 提交阶段已经累计过一次请求；结算阶段只调整最终用量。
-	model.UpdateUserUsedQuota(task.UserId, quotaDelta)
-	model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
+	if actualQuota > 0 {
+		model.UpdateUserUsedQuotaAndRequestCount(task.UserId, actualQuota)
+		if task.ChannelId > 0 {
+			model.UpdateChannelUsedQuota(task.ChannelId, actualQuota)
+		}
+	}
+
+	if quotaDelta == 0 {
+		return nil
+	}
 
 	var logType int
 	var logQuota int

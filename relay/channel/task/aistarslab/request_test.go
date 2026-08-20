@@ -234,3 +234,37 @@ func TestParseRequestUsesPublicModelNameForRefPlayModes(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "-ref")
 }
+
+func TestParseRequestRejectsReferenceVideoForMinimaxH3(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "minimax-h3-480p-ref",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "59:minimax-h3",
+		},
+	}
+
+	_, err := parseRequestForPath("/v1/video/generations", []byte(`{
+		"model":"minimax-h3-480p-ref",
+		"prompt":"animate with image and video",
+		"generation_type":"image2video",
+		"duration":5,
+		"aspect_ratio":"16:9",
+		"resolution":"480p",
+		"media":[
+			{"type":"image","role":"reference","source":"https://example.com/a.png"},
+			{"type":"video","role":"reference","source":"https://example.com/a.mp4"}
+		]
+	}`), info)
+	require.ErrorContains(t, err, `does not accept reference videos`)
+
+	_, err = parseRequestForPath("/v1/video/generations", []byte(`{
+		"model":"minimax-h3-480p-ref",
+		"prompt":"animate with image only",
+		"generation_type":"image2video",
+		"duration":5,
+		"aspect_ratio":"16:9",
+		"resolution":"480p",
+		"media":[{"type":"image","role":"reference","source":"https://example.com/a.png"}]
+	}`), info)
+	require.NoError(t, err)
+}

@@ -28,6 +28,13 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/video/models", middleware.UserAuth(), controller.GetVideoToolModels)
 		apiRouter.GET("/video/storage-status", middleware.AdminAuth(), controller.GetVideoStorageStatus)
 		apiRouter.POST("/video/storage-status/refresh", middleware.AdminAuth(), controller.RefreshVideoStorageUsage)
+		videoInputAssetRoute := apiRouter.Group("/video/input-assets")
+		videoInputAssetRoute.Use(middleware.UserAuth())
+		{
+			videoInputAssetRoute.POST("/presign", controller.PresignVideoInputAsset)
+			videoInputAssetRoute.POST("/:id/complete", controller.CompleteVideoInputAsset)
+			videoInputAssetRoute.DELETE("/:id", controller.DeleteVideoInputAsset)
+		}
 		apiRouter.GET("/silkroad/video-tool", middleware.UserAuth(), controller.GetSilkRoadVideoToolConfig)
 		apiRouter.GET("/models", middleware.UserAuth(), controller.DashboardListModels)
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)

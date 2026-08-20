@@ -23,7 +23,6 @@ export { ModelCardGrid } from './model-card-grid'
 export { LoadingSkeleton } from './loading-skeleton'
 export { EmptyState } from './empty-state'
 export { SearchBar } from './search-bar'
-export { RechargeRatioBanner } from './recharge-ratio-banner'
 export { PriceWithRatio } from './price-with-ratio'
 export {
   ModelDetails,

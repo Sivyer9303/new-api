@@ -24,6 +24,17 @@ func SetVideoRouter(router *gin.Engine) {
 		videoV1Router.GET("/video/generations/:task_id", controller.RelayTaskFetch)
 		videoV1Router.POST("/videos/:video_id/remix", controller.RelayTask)
 	}
+
+	// Direct reference-media upload (presign → client PUT → complete). Rate
+	// limits and ownership are keyed by the token's owning user_id.
+	videoInputV1Router := router.Group("/v1/video/input-assets")
+	videoInputV1Router.Use(middleware.RouteTag("relay"))
+	videoInputV1Router.Use(middleware.TokenAuth())
+	{
+		videoInputV1Router.POST("/presign", controller.PresignVideoInputAsset)
+		videoInputV1Router.POST("/:id/complete", controller.CompleteVideoInputAsset)
+		videoInputV1Router.DELETE("/:id", controller.DeleteVideoInputAsset)
+	}
 	// openai compatible API video routes
 	// docs: https://platform.openai.com/docs/api-reference/videos/create
 	{

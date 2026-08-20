@@ -190,6 +190,12 @@ func parseRequestForPath(_ string, body []byte, info *relaycommon.RelayInfo) (
 	if err := validateRequest(request); err != nil {
 		return videocommon.VideoGenerateRequest{}, err
 	}
+	if err := validateReferenceVideoCount(
+		publicModelForCapabilities(info, publicModel),
+		request,
+	); err != nil {
+		return videocommon.VideoGenerateRequest{}, err
+	}
 	return request, nil
 }
 
@@ -468,6 +474,23 @@ func validateRequest(request videocommon.VideoGenerateRequest) error {
 		return fmt.Errorf("generation_type %q is not supported", request.GenerationType)
 	}
 	return nil
+}
+
+func validateReferenceVideoCount(
+	publicModel string,
+	request videocommon.VideoGenerateRequest,
+) error {
+	videos := 0
+	for _, media := range request.Media {
+		if media.Type == videocommon.VideoMediaVideo {
+			videos++
+		}
+	}
+	return aistarslab_setting.ValidateReferenceVideoCount(
+		publicModel,
+		request.GenerationType,
+		videos,
+	)
 }
 
 func validateMediaSource(media videocommon.VideoMedia) error {

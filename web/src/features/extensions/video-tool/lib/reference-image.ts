@@ -17,10 +17,49 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+import type { VideoInputUploadStatus } from './input-asset-upload'
+
 export type ReferenceImageItem = {
   id: string
   file: File
   previewUrl: string
+  uploadStatus: VideoInputUploadStatus
+  uploadProgress: number
+  assetId?: string
+  sourceUrl?: string
+  expiresAt?: number
+  uploadError?: string
+}
+
+/** Shared upload bookkeeping for audio / video reference files. */
+export type ReferenceMediaFileItem = {
+  id: string
+  file: File
+  previewUrl: string
+  uploadStatus: VideoInputUploadStatus
+  uploadProgress: number
+  assetId?: string
+  sourceUrl?: string
+  expiresAt?: number
+  uploadError?: string
+}
+
+export function createReferenceMediaFileItem(file: File): ReferenceMediaFileItem {
+  return {
+    id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
+    file,
+    previewUrl: URL.createObjectURL(file),
+    uploadStatus: 'pending',
+    uploadProgress: 0,
+  }
+}
+
+export function revokeReferenceMediaFileItems(
+  items: Array<ReferenceMediaFileItem | null | undefined>
+) {
+  for (const item of items) {
+    if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl)
+  }
 }
 
 const THUMBNAIL_MAX_EDGE = 320
@@ -65,6 +104,8 @@ export async function createReferenceImageItem(
     id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
     file,
     previewUrl,
+    uploadStatus: 'pending',
+    uploadProgress: 0,
   }
 }
 

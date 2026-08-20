@@ -78,7 +78,9 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 	defaultProfile := DefaultPublicProfile()
 	profiles := []PublicProfile{defaultProfile}
 	for _, override := range GetAIStarsLabSetting().Profiles {
-		profiles = append(profiles, publicProfileForOverride(override))
+		profile := publicProfileForOverride(override)
+		profile = applyModelSpecificGenerationLimits(override.Model, profile)
+		profiles = append(profiles, profile)
 	}
 	return PublicVideoToolConfig{
 		ID:                  "aistarslab",
@@ -94,10 +96,14 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 }
 
 func PublicProfileForModel(publicModel string) PublicProfile {
+	publicModel = strings.TrimSpace(publicModel)
+	var profile PublicProfile
 	if override, ok := findModelOverride(publicModel); ok {
-		return publicProfileForOverride(override)
+		profile = publicProfileForOverride(override)
+	} else {
+		profile = DefaultPublicProfile()
 	}
-	return DefaultPublicProfile()
+	return applyModelSpecificGenerationLimits(publicModel, profile)
 }
 
 func findModelOverride(publicModel string) (ModelOverride, bool) {
