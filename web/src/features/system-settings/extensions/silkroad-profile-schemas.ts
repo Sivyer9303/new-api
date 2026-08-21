@@ -80,7 +80,7 @@ export function emptyProfile(index = 0): ProfileForm {
     label: '',
     exact_models_text: '',
     model_prefixes_text: '',
-    require_ref_model_suffix: true,
+    require_ref_model_suffix: false,
     durations: [],
     aspect_ratios: [],
   }
@@ -108,7 +108,7 @@ export function parseProfilesToForm(raw: string | undefined): ProfileForm[] {
         label: String(p.label ?? ''),
         exact_models_text: exactModels.join(', '),
         model_prefixes_text: prefixes.join(', '),
-        require_ref_model_suffix: p.require_ref_model_suffix !== false,
+        require_ref_model_suffix: p.require_ref_model_suffix === true,
         durations: durations.map((d, i) => asOptionItem(d, i + 1)),
         aspect_ratios: aspects.map((d, i) => asOptionItem(d, i + 1)),
       }
@@ -130,7 +130,7 @@ export function profilesFormToApi(profiles: ProfileForm[]): ProfileApi[] {
       .split(/[,，\n]/)
       .map((s) => s.trim())
       .filter(Boolean),
-    ...(p.require_ref_model_suffix ? {} : { require_ref_model_suffix: false }),
+    require_ref_model_suffix: p.require_ref_model_suffix,
     ...(p.durations.length > 0
       ? {
           durations: p.durations.map((d) => ({

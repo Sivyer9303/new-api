@@ -98,15 +98,33 @@ func buildUpstreamBody(req FriendlyRequest, profile *silkroad_setting.Profile, u
 		return nil, fmt.Errorf("aspect_ratio %q is not enabled", req.AspectRatio)
 	}
 
-	body := map[string]any{
-		"model":  upstreamModel,
-		"prompt": req.Prompt,
+	seconds, err := strconv.Atoi(durOpt.Value)
+	if err != nil {
+		return nil, fmt.Errorf("invalid duration value %q", durOpt.Value)
 	}
 
-	if err := setDurationField(body, durOpt); err != nil {
-		return nil, err
+	body := map[string]any{
+		"model":    upstreamModel,
+		"prompt":   req.Prompt,
+		"duration": seconds,
 	}
-	setNestedValue(body, aspectOpt.UpstreamKey, aspectOpt.Value)
+	if resolution, ok := resolveUpstreamResolution(req.Resolution, upstreamModel); ok {
+		body["resolution"] = resolution
+	}
+
+	metadata := map[string]any{
+		"ratio": aspectOpt.Value,
+	}
+	if req.GenerateAudio != nil {
+		metadata["generate_audio"] = *req.GenerateAudio
+	}
+	if req.CameraFixed != nil {
+		metadata["camera_fixed"] = *req.CameraFixed
+	}
+	if req.Seed != nil {
+		metadata["seed"] = *req.Seed
+	}
+	body["metadata"] = metadata
 
 	if err := silkroad_setting.ApplyGenerationMedia(
 		body,
@@ -121,41 +139,41 @@ func buildUpstreamBody(req FriendlyRequest, profile *silkroad_setting.Profile, u
 	return common.Marshal(body)
 }
 
-func setDurationField(body map[string]any, durOpt *silkroad_setting.OptionItem) error {
-	key := durOpt.UpstreamKey
-	if key == "" {
-		return fmt.Errorf("duration upstream_key is empty")
+func resolveUpstreamResolution(explicit, upstreamModel string) (string, bool) {
+	value := strings.TrimSpace(explicit)
+	if value == "" {
+		value = resolutionFromUpstreamModel(upstreamModel)
 	}
-	switch key {
-	case "seconds":
-		setNestedValue(body, key, durOpt.Value) // JSON string
-	case "duration":
-		n, err := strconv.Atoi(durOpt.Value)
-		if err != nil {
-			return fmt.Errorf("invalid duration value %q", durOpt.Value)
-		}
-		setNestedValue(body, key, n) // JSON number
-	default:
-		setNestedValue(body, key, durOpt.Value)
+	if value == "" {
+		return "", false
 	}
-	return nil
+	normalized, err := normalizeSeedanceResolution(value)
+	if err != nil {
+		return "", false
+	}
+	return normalized, true
 }
 
-func setNestedValue(body map[string]any, key string, value any) {
-	parts := strings.Split(key, ".")
-	if len(parts) == 1 {
-		body[key] = value
-		return
-	}
-	cur := body
-	for i := 0; i < len(parts)-1; i++ {
-		p := parts[i]
-		next, ok := cur[p].(map[string]any)
-		if !ok {
-			next = map[string]any{}
-			cur[p] = next
+func resolutionFromUpstreamModel(modelName string) string {
+	name := strings.ToLower(strings.TrimSpace(modelName))
+	name = strings.TrimSuffix(name, "-ref")
+	name = strings.TrimSuffix(name, "-promax")
+	name = strings.TrimSuffix(name, "-global")
+	for _, spec := range []struct {
+		suffix string
+		value  string
+	}{
+		{"-1080p", "1080p"},
+		{"-720p", "720p"},
+		{"-480p", "480p"},
+		{"-4k", "4k"},
+		{"-1080", "1080p"},
+		{"-720", "720p"},
+		{"-480", "480p"},
+	} {
+		if strings.HasSuffix(name, spec.suffix) {
+			return spec.value
 		}
-		cur = next
 	}
-	cur[parts[len(parts)-1]] = value
+	return ""
 }

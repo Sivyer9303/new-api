@@ -16,20 +16,21 @@ func TestDefaultSilkRoadSettingProfiles(t *testing.T) {
 
 	seedance := s.Profiles[0]
 	assert.Equal(t, "seedance_reverse", seedance.ID)
-	assert.Equal(t, []string{"seedance-2.0-"}, seedance.ModelPrefixes)
-	require.Len(t, seedance.Durations, 2)
-	assert.Equal(t, "seconds", seedance.Durations[0].UpstreamKey)
-	assert.Equal(t, "10", seedance.Durations[0].Value)
-	assert.Equal(t, "15", seedance.Durations[1].Value)
+	assert.Equal(t, []string{"seedance-2.0-", "seedance-2-0", "seedance-2-5"}, seedance.ModelPrefixes)
+	require.Len(t, seedance.Durations, 12)
+	assert.Equal(t, "duration", seedance.Durations[0].UpstreamKey)
+	assert.Equal(t, "4", seedance.Durations[0].Value)
+	assert.Equal(t, "15", seedance.Durations[len(seedance.Durations)-1].Value)
+	assert.False(t, seedance.EnforcesRefModelSuffix())
 	assert.Empty(t, seedance.AspectRatios)
 
 	dreamina := s.Profiles[1]
 	assert.Equal(t, "dreamina_overseas", dreamina.ID)
-	assert.Equal(t, []string{"dreamina-seedance-2-0-"}, dreamina.ModelPrefixes)
-	require.Len(t, dreamina.Durations, 2)
-	assert.Equal(t, "seconds", dreamina.Durations[0].UpstreamKey)
+	assert.Contains(t, dreamina.ModelPrefixes, "dreamina-seedance-2-0-")
+	require.Len(t, dreamina.Durations, 12)
+	assert.Equal(t, "duration", dreamina.Durations[0].UpstreamKey)
 	assert.Equal(t, "4", dreamina.Durations[0].Value)
-	assert.Equal(t, "5", dreamina.Durations[1].Value)
+	assert.False(t, dreamina.EnforcesRefModelSuffix())
 	assert.Empty(t, dreamina.AspectRatios)
 }
 
@@ -68,6 +69,15 @@ func TestDefaultSilkRoadSettingStorage(t *testing.T) {
 	assert.Empty(t, s.Storage.IngestNodeName)
 	assert.Empty(t, s.Storage.PublicDownloadBaseURL)
 	assert.Empty(t, s.VideoToolGroups)
+}
+
+func TestEnforcesRefModelSuffixOmittedDefaultsFalse(t *testing.T) {
+	assert.False(t, (*Profile)(nil).EnforcesRefModelSuffix())
+	omitted := &Profile{}
+	assert.False(t, omitted.EnforcesRefModelSuffix())
+	enabled := true
+	required := &Profile{RequireRefModelSuffix: &enabled}
+	assert.True(t, required.EnforcesRefModelSuffix())
 }
 
 func TestGetSilkRoadSettingReturnsDefaults(t *testing.T) {

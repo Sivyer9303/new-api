@@ -24,9 +24,9 @@ import {
 } from './upload-limits'
 
 const DEFAULT_COMMON =
-  '{"durations":[{"label":"4 秒","value":"4","upstream_key":"seconds","enabled":true,"sort":1},{"label":"5 秒","value":"5","upstream_key":"seconds","enabled":true,"sort":2},{"label":"10 秒","value":"10","upstream_key":"seconds","enabled":true,"sort":3},{"label":"15 秒","value":"15","upstream_key":"seconds","enabled":true,"sort":4}],"aspect_ratios":[{"label":"16:9","value":"16:9","upstream_key":"aspect_ratio","enabled":true,"sort":1},{"label":"9:16","value":"9:16","upstream_key":"aspect_ratio","enabled":true,"sort":2},{"label":"1:1","value":"1:1","upstream_key":"aspect_ratio","enabled":true,"sort":3}]}'
+  '{"durations":[{"label":"4 秒","value":"4","upstream_key":"duration","enabled":true,"sort":1},{"label":"5 秒","value":"5","upstream_key":"duration","enabled":true,"sort":2},{"label":"10 秒","value":"10","upstream_key":"duration","enabled":true,"sort":3},{"label":"15 秒","value":"15","upstream_key":"duration","enabled":true,"sort":4}],"aspect_ratios":[{"label":"16:9","value":"16:9","upstream_key":"aspect_ratio","enabled":true,"sort":1},{"label":"9:16","value":"9:16","upstream_key":"aspect_ratio","enabled":true,"sort":2},{"label":"1:1","value":"1:1","upstream_key":"aspect_ratio","enabled":true,"sort":3}]}'
 const DEFAULT_PROFILES =
-  '[{"id":"seedance_reverse","label":"Seedance","model_prefixes":["seedance-2.0-"]}]'
+  '[{"id":"seedance_reverse","label":"Seedance","model_prefixes":["seedance-2.0-","seedance-2-0","seedance-2-5"],"require_ref_model_suffix":false}]'
 
 const defaultVideoSettings: VideoSettings = {
   'video_setting.enabled': false,

@@ -27,8 +27,12 @@ type FriendlyRequest struct {
 	DurationValue   string // normalized option value, e.g. "10" or "5"
 	DurationSeconds int    // billing multiplier (always seconds count)
 	AspectRatio     string
+	Resolution      string
+	GenerateAudio   *bool
+	CameraFixed     *bool
+	Seed            *int
 	Images          []string
-	AudioURL        string   // reference audio data URL (data:audio/mpeg;base64,...)
+	AudioURL        string   // reference audio data URL or http(s) URL
 	ReferenceVideos []string // reference video data URLs or http(s) URLs
 }
 
@@ -103,6 +107,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		)
 	}
 	req.DurationSeconds = seconds
+	if req.Resolution == "" {
+		if derived := resolutionFromUpstreamModel(silkRoadProfileModelName(info, req.Model)); derived != "" {
+			req.Resolution = derived
+		}
+	}
 
 	storeFriendlyRequest(c, info, req)
 	return nil
@@ -189,7 +198,9 @@ func normalizeOpenAIVideoFields(requestPath string, raw map[string]any) {
 
 func applyOpenAIVideoDefaults(req *FriendlyRequest, profile *silkroad_setting.Profile) {
 	if req.DurationValue == "" {
-		if option, ok := firstEnabledOption(profile.Durations); ok {
+		if option, ok := silkroad_setting.FindEnabledOption(profile.Durations, "5"); ok {
+			req.DurationValue = option.Value
+		} else if option, ok := firstEnabledOption(profile.Durations); ok {
 			req.DurationValue = option.Value
 		}
 	}
@@ -247,6 +258,7 @@ func storeFriendlyRequest(c *gin.Context, info *relaycommon.RelayInfo, req Frien
 		GenerationType: req.GenerationType,
 		Duration:       req.DurationSeconds,
 		Seconds:        req.DurationValue,
+		Resolution:     req.Resolution,
 		AspectRatio:    req.AspectRatio,
 		Media:          media,
 	})
@@ -274,6 +286,30 @@ func parseFriendlyRequest(raw map[string]any) (FriendlyRequest, error) {
 	}
 	if v, ok := raw["aspect_ratio"].(string); ok {
 		req.AspectRatio = strings.TrimSpace(v)
+	}
+	if v, ok := raw["resolution"].(string); ok {
+		req.Resolution = strings.TrimSpace(v)
+	}
+	if _, exists := raw["generate_audio"]; exists {
+		flag, err := scalarToBool(raw["generate_audio"])
+		if err != nil {
+			return req, fmt.Errorf("invalid generate_audio: %w", err)
+		}
+		req.GenerateAudio = &flag
+	}
+	if _, exists := raw["camera_fixed"]; exists {
+		flag, err := scalarToBool(raw["camera_fixed"])
+		if err != nil {
+			return req, fmt.Errorf("invalid camera_fixed: %w", err)
+		}
+		req.CameraFixed = &flag
+	}
+	if _, exists := raw["seed"]; exists {
+		seed, err := scalarToInt(raw["seed"])
+		if err != nil {
+			return req, fmt.Errorf("invalid seed: %w", err)
+		}
+		req.Seed = &seed
 	}
 
 	if secs, ok := raw["seconds"]; ok {
@@ -411,6 +447,46 @@ func scalarToString(v any) (string, error) {
 	}
 }
 
+func scalarToBool(v any) (bool, error) {
+	switch t := v.(type) {
+	case bool:
+		return t, nil
+	default:
+		return false, fmt.Errorf("must be a boolean")
+	}
+}
+
+func scalarToInt(v any) (int, error) {
+	switch t := v.(type) {
+	case int:
+		return t, nil
+	case int64:
+		return int(t), nil
+	case float64:
+		if t != float64(int(t)) {
+			return 0, fmt.Errorf("must be an integer")
+		}
+		return int(t), nil
+	default:
+		return 0, fmt.Errorf("must be an integer")
+	}
+}
+
+func normalizeSeedanceResolution(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "480p", "480":
+		return "480p", nil
+	case "720p", "720":
+		return "720p", nil
+	case "1080p", "1080":
+		return "1080p", nil
+	case "4k":
+		return "4k", nil
+	default:
+		return "", fmt.Errorf("resolution %q is not supported", value)
+	}
+}
+
 func validateFriendlyRequest(req *FriendlyRequest, profile *silkroad_setting.Profile, raw map[string]any) error {
 	if req == nil {
 		return fmt.Errorf("request is required")
@@ -443,6 +519,13 @@ func validateFriendlyRequest(req *FriendlyRequest, profile *silkroad_setting.Pro
 	}
 	if _, ok := silkroad_setting.FindEnabledOption(profile.Durations, req.DurationValue); !ok {
 		return fmt.Errorf("duration %q is not enabled for this profile", req.DurationValue)
+	}
+	if req.Resolution != "" {
+		normalized, err := normalizeSeedanceResolution(req.Resolution)
+		if err != nil {
+			return err
+		}
+		req.Resolution = normalized
 	}
 
 	n := len(req.Images)
@@ -477,9 +560,12 @@ func validateAudioURL(audioURL string, mode *silkroad_setting.GenerationMode) er
 		return fmt.Errorf("audio_url is not supported for this generation_type")
 	}
 	lower := strings.ToLower(audioURL)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return nil
+	}
 	if !strings.HasPrefix(lower, "data:audio/mpeg;base64,") &&
 		!strings.HasPrefix(lower, "data:audio/mp3;base64,") {
-		return fmt.Errorf("audio_url must be an MP3 data URL (data:audio/mpeg;base64,...)")
+		return fmt.Errorf("audio_url must be an MP3 data URL or an http(s) URL")
 	}
 	if len(audioURL) > maxAudioDataURLBytes {
 		return fmt.Errorf("audio_url exceeds maximum size")
@@ -543,6 +629,10 @@ func rejectUnknownTopLevelKeys(raw map[string]any) error {
 		"seconds":          {},
 		"duration":         {},
 		"aspect_ratio":     {},
+		"resolution":       {},
+		"generate_audio":   {},
+		"camera_fixed":     {},
+		"seed":             {},
 		"images":           {},
 		"media":            {},
 		"audio_url":        {},

@@ -53,7 +53,7 @@ func TestE2EBuildSeedanceText2VideoGolden(t *testing.T) {
 	got, err := io.ReadAll(reader)
 	require.NoError(t, err)
 
-	const want = `{"aspect_ratio":"16:9","model":"seedance-2.0-720","prompt":"a cat walking on the moon","seconds":"10"}`
+	const want = `{"duration":10,"metadata":{"ratio":"16:9"},"model":"seedance-2.0-720","prompt":"a cat walking on the moon","resolution":"720p"}`
 	assert.JSONEq(t, want, string(got))
 	assert.NotContains(t, string(got), "generation_type")
 	assert.NotContains(t, string(got), "images")
@@ -77,10 +77,10 @@ func TestE2EBuildDreaminaImage2VideoGolden(t *testing.T) {
 	got, err := io.ReadAll(reader)
 	require.NoError(t, err)
 
-	const want = `{"aspect_ratio":"9:16","image":"data:image/jpeg;base64,abc","model":"dreamina-seedance-2-0-720-ref","prompt":"animate the still photo","seconds":"5"}`
+	const want = `{"duration":5,"images":["data:image/jpeg;base64,abc"],"metadata":{"ratio":"9:16"},"model":"dreamina-seedance-2-0-720-ref","prompt":"animate the still photo","resolution":"720p"}`
 	assert.JSONEq(t, want, string(got))
 	assert.NotContains(t, string(got), "generation_type")
-	assert.NotContains(t, string(got), `"images"`)
+	assert.NotContains(t, string(got), `"image"`)
 }
 
 func TestE2EBuildUsesMappedUpstreamModelForProfileAndReferenceValidation(t *testing.T) {
@@ -120,10 +120,11 @@ func TestE2EBuildOpenAIVideosJSONNormalizesIntoFriendlyRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.JSONEq(t, `{
-		"aspect_ratio":"16:9",
+		"duration":5,
+		"metadata":{"ratio":"16:9"},
 		"model":"seedance-2.0-720",
 		"prompt":"a lighthouse in a storm",
-		"seconds":"10"
+		"resolution":"720p"
 	}`, string(got))
 }
 
@@ -164,12 +165,15 @@ func TestE2EBuildDreaminaReferenceAudioGolden(t *testing.T) {
 	require.NoError(t, err)
 
 	const want = `{
-		"aspect_ratio":"16:9",
-		"audio_url":"data:audio/mpeg;base64,ccc",
-		"image":"data:image/jpeg;base64,aaa",
+		"duration":5,
+		"images":["data:image/jpeg;base64,aaa"],
+		"metadata":{
+			"audios":["data:audio/mpeg;base64,ccc"],
+			"ratio":"16:9"
+		},
 		"model":"dreamina-seedance-2-0-1080p-ref",
 		"prompt":"一只橘猫在窗台上伸懒腰",
-		"seconds":"5"
+		"resolution":"1080p"
 	}`
 	assert.JSONEq(t, want, string(got))
 }
@@ -201,12 +205,15 @@ func TestE2EBuildDreaminaReferenceVideosGolden(t *testing.T) {
 	require.NoError(t, err)
 
 	const want = `{
-		"aspect_ratio":"16:9",
-		"image":"data:image/jpeg;base64,aaa",
+		"duration":5,
+		"images":["data:image/jpeg;base64,aaa"],
+		"metadata":{
+			"ratio":"16:9",
+			"reference_videos":["data:video/mp4;base64,vid"]
+		},
 		"model":"dreamina-seedance-2-0-1080p-ref",
 		"prompt":"跟随 @Video1 的运镜",
-		"reference_videos":["data:video/mp4;base64,vid"],
-		"seconds":"5"
+		"resolution":"1080p"
 	}`
 	assert.JSONEq(t, want, string(got))
 }
@@ -230,12 +237,15 @@ func TestE2EBuildDreaminaStartEndGolden(t *testing.T) {
 	require.NoError(t, err)
 
 	const want = `{
-		"aspect_ratio":"16:9",
-		"first_frame":"data:image/jpeg;base64,first",
-		"last_frame":"data:image/jpeg;base64,last",
+		"duration":5,
+		"metadata":{
+			"first_frame":"data:image/jpeg;base64,first",
+			"last_frame":"data:image/jpeg;base64,last",
+			"ratio":"16:9"
+		},
 		"model":"dreamina-seedance-2-0-1080p-ref",
 		"prompt":"一只橘猫在窗台上伸懒腰",
-		"seconds":"5"
+		"resolution":"1080p"
 	}`
 	assert.JSONEq(t, want, string(got))
 	assert.NotContains(t, string(got), `"images"`)

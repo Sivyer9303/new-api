@@ -1,6 +1,8 @@
 package silkroad_setting
 
 import (
+	"strconv"
+
 	"github.com/QuantumNous/new-api/setting/config"
 )
 
@@ -23,16 +25,16 @@ type Profile struct {
 	Durations     []OptionItem `json:"durations,omitempty"`
 	AspectRatios  []OptionItem `json:"aspect_ratios,omitempty"`
 	// RequireRefModelSuffix controls Seedance-style "-ref" model naming.
-	// nil/omitted defaults to true. Set false for families like Grok that do
-	// not use a -ref suffix for image/audio/video modes.
+	// nil/omitted defaults to false so Elucid Seedance models (no -ref suffix)
+	// can use image/audio/video modes. Set true to keep requiring -ref.
 	RequireRefModelSuffix *bool `json:"require_ref_model_suffix,omitempty"`
 }
 
 // EnforcesRefModelSuffix reports whether image/audio/video modes require a
-// model name containing "-ref". Omitted config defaults to true.
+// model name containing "-ref". Omitted config defaults to false.
 func (p *Profile) EnforcesRefModelSuffix() bool {
 	if p == nil || p.RequireRefModelSuffix == nil {
-		return true
+		return false
 	}
 	return *p.RequireRefModelSuffix
 }
@@ -74,34 +76,29 @@ func GetSilkRoadSetting() *SilkRoadSetting {
 }
 
 func defaultSilkRoadSetting() SilkRoadSetting {
+	refSuffix := false
+	durations := seedanceDurations()
 	return SilkRoadSetting{
 		Common: CommonSetting{
-			Durations: []OptionItem{
-				{Label: "4 秒", Value: "4", UpstreamKey: "seconds", Enabled: true, Sort: 1},
-				{Label: "5 秒", Value: "5", UpstreamKey: "seconds", Enabled: true, Sort: 2},
-				{Label: "10 秒", Value: "10", UpstreamKey: "seconds", Enabled: true, Sort: 3},
-				{Label: "15 秒", Value: "15", UpstreamKey: "seconds", Enabled: true, Sort: 4},
-			},
+			Durations:    durations,
 			AspectRatios: defaultAspectRatios(),
 		},
 		Profiles: []Profile{
 			{
-				ID:            "seedance_reverse",
-				Label:         "逆向低价",
-				ModelPrefixes: []string{"seedance-2.0-"},
-				Durations: []OptionItem{
-					{Label: "10 秒", Value: "10", UpstreamKey: "seconds", Enabled: true, Sort: 1},
-					{Label: "15 秒", Value: "15", UpstreamKey: "seconds", Enabled: true, Sort: 2},
-				},
+				ID:                    "seedance_reverse",
+				Label:                 "逆向低价",
+				ModelPrefixes:         []string{"seedance-2.0-", "seedance-2-0", "seedance-2-5"},
+				Durations:             append([]OptionItem(nil), durations...),
+				RequireRefModelSuffix: &refSuffix,
 			},
 			{
-				ID:            "dreamina_overseas",
-				Label:         "海外满血",
-				ModelPrefixes: []string{"dreamina-seedance-2-0-"},
-				Durations: []OptionItem{
-					{Label: "4 秒", Value: "4", UpstreamKey: "seconds", Enabled: true, Sort: 1},
-					{Label: "5 秒", Value: "5", UpstreamKey: "seconds", Enabled: true, Sort: 2},
+				ID:    "dreamina_overseas",
+				Label: "海外满血",
+				ModelPrefixes: []string{
+					"dreamina-seedance-2-0-",
 				},
+				Durations:             append([]OptionItem(nil), durations...),
+				RequireRefModelSuffix: &refSuffix,
 			},
 		},
 		DefaultProfileID: "seedance_reverse",
@@ -119,6 +116,20 @@ func defaultSilkRoadSetting() SilkRoadSetting {
 		// Empty by default: Seedance tool shows no keys until admins opt in.
 		VideoToolGroups: []string{},
 	}
+}
+
+func seedanceDurations() []OptionItem {
+	out := make([]OptionItem, 0, 12)
+	for seconds := 4; seconds <= 15; seconds++ {
+		out = append(out, OptionItem{
+			Label:       strconv.Itoa(seconds) + " 秒",
+			Value:       strconv.Itoa(seconds),
+			UpstreamKey: "duration",
+			Enabled:     true,
+			Sort:        seconds - 3,
+		})
+	}
+	return out
 }
 
 func defaultAspectRatios() []OptionItem {

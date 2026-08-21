@@ -10,7 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuildRequestBodyImage2VideoSetsImage(t *testing.T) {
+func metadataOf(t *testing.T, body map[string]any) map[string]any {
+	t.Helper()
+	meta, ok := body["metadata"].(map[string]any)
+	require.True(t, ok)
+	return meta
+}
+
+func TestBuildRequestBodyImage2VideoSetsImages(t *testing.T) {
 	a := &TaskAdaptor{}
 	c, info := newTestContext(t, `{
 		"model":"seedance-2.0-720-ref",
@@ -36,16 +43,19 @@ func TestBuildRequestBodyImage2VideoSetsImage(t *testing.T) {
 
 	assert.Equal(t, "seedance-2.0-720-ref", body["model"])
 	assert.Equal(t, "animate this", body["prompt"])
-	assert.Equal(t, "data:image/jpeg;base64,abc", body["image"])
-	assert.Equal(t, "10", body["seconds"])
-	assert.Equal(t, "16:9", body["aspect_ratio"])
+	assert.Equal(t, []any{"data:image/jpeg;base64,abc"}, body["images"])
+	assert.Equal(t, float64(10), body["duration"])
+	assert.Equal(t, "720p", body["resolution"])
+	assert.Equal(t, "16:9", metadataOf(t, body)["ratio"])
 	_, hasGenType := body["generation_type"]
 	assert.False(t, hasGenType, "generation_type must not appear in upstream body")
-	_, hasImages := body["images"]
-	assert.False(t, hasImages, "friendly images array must not appear for single-image mode")
+	_, hasImage := body["image"]
+	assert.False(t, hasImage, "singular image must not appear at top level")
+	_, hasAspect := body["aspect_ratio"]
+	assert.False(t, hasAspect, "aspect_ratio must be nested under metadata.ratio")
 }
 
-func TestBuildUpstreamBodySecondsString(t *testing.T) {
+func TestBuildUpstreamBodyDurationNumberAndMetadataRatio(t *testing.T) {
 	profile, ok := silkroad_setting.MatchProfile("seedance-2.0-720")
 	require.True(t, ok)
 
@@ -61,8 +71,11 @@ func TestBuildUpstreamBodySecondsString(t *testing.T) {
 
 	var body map[string]any
 	require.NoError(t, common.Unmarshal(data, &body))
-	assert.Equal(t, "10", body["seconds"])
-	assert.Equal(t, "9:16", body["aspect_ratio"])
+	assert.Equal(t, float64(10), body["duration"])
+	assert.Equal(t, "720p", body["resolution"])
+	assert.Equal(t, "9:16", metadataOf(t, body)["ratio"])
+	_, hasSeconds := body["seconds"]
+	assert.False(t, hasSeconds)
 }
 
 func TestBuildUpstreamBodyMultiImageSetsImages(t *testing.T) {
@@ -89,7 +102,7 @@ func TestBuildUpstreamBodyMultiImageSetsImages(t *testing.T) {
 	assert.Equal(t, "data:image/jpeg;base64,a", refs[0])
 }
 
-func TestBuildUpstreamBodyStartEndSetsFrames(t *testing.T) {
+func TestBuildUpstreamBodyStartEndSetsMetadataFrames(t *testing.T) {
 	profile, ok := silkroad_setting.MatchProfile("dreamina-seedance-2-0-720")
 	require.True(t, ok)
 
@@ -106,10 +119,13 @@ func TestBuildUpstreamBodyStartEndSetsFrames(t *testing.T) {
 
 	var body map[string]any
 	require.NoError(t, common.Unmarshal(data, &body))
-	assert.Equal(t, "data:image/jpeg;base64,first", body["first_frame"])
-	assert.Equal(t, "data:image/jpeg;base64,last", body["last_frame"])
+	meta := metadataOf(t, body)
+	assert.Equal(t, "data:image/jpeg;base64,first", meta["first_frame"])
+	assert.Equal(t, "data:image/jpeg;base64,last", meta["last_frame"])
 	_, hasImages := body["images"]
 	assert.False(t, hasImages)
+	_, hasTopFrame := body["first_frame"]
+	assert.False(t, hasTopFrame)
 }
 
 func TestBuildUpstreamBodyReferenceAudio(t *testing.T) {
@@ -130,8 +146,10 @@ func TestBuildUpstreamBodyReferenceAudio(t *testing.T) {
 
 	var body map[string]any
 	require.NoError(t, common.Unmarshal(data, &body))
-	assert.Equal(t, "data:image/jpeg;base64,pic", body["image"])
-	assert.Equal(t, "data:audio/mpeg;base64,aud", body["audio_url"])
+	assert.Equal(t, []any{"data:image/jpeg;base64,pic"}, body["images"])
+	assert.Equal(t, []any{"data:audio/mpeg;base64,aud"}, metadataOf(t, body)["audios"])
+	_, hasAudioURL := body["audio_url"]
+	assert.False(t, hasAudioURL)
 }
 
 func TestBuildUpstreamBodyReferenceVideos(t *testing.T) {
@@ -152,6 +170,39 @@ func TestBuildUpstreamBodyReferenceVideos(t *testing.T) {
 
 	var body map[string]any
 	require.NoError(t, common.Unmarshal(data, &body))
-	assert.Equal(t, "data:image/jpeg;base64,pic", body["image"])
-	assert.Equal(t, []any{"data:video/mp4;base64,vid"}, body["reference_videos"])
+	assert.Equal(t, []any{"data:image/jpeg;base64,pic"}, body["images"])
+	assert.Equal(t, []any{"data:video/mp4;base64,vid"}, metadataOf(t, body)["reference_videos"])
+	_, hasTopVideos := body["reference_videos"]
+	assert.False(t, hasTopVideos)
+}
+
+func TestBuildUpstreamBodySeedanceControlsAndExplicitResolution(t *testing.T) {
+	profile, ok := silkroad_setting.MatchProfile("seedance-2-0")
+	require.True(t, ok)
+
+	generateAudio := true
+	cameraFixed := true
+	seed := 42
+	req := FriendlyRequest{
+		Model:          "seedance-2-0",
+		Prompt:         "a cat on a windowsill",
+		GenerationType: "text2video",
+		DurationValue:  "5",
+		AspectRatio:    "16:9",
+		Resolution:     "4K",
+		GenerateAudio:  &generateAudio,
+		CameraFixed:    &cameraFixed,
+		Seed:           &seed,
+	}
+	data, err := buildUpstreamBody(req, profile, "seedance-2-0")
+	require.NoError(t, err)
+
+	var body map[string]any
+	require.NoError(t, common.Unmarshal(data, &body))
+	assert.Equal(t, "4k", body["resolution"])
+	meta := metadataOf(t, body)
+	assert.Equal(t, "16:9", meta["ratio"])
+	assert.Equal(t, true, meta["generate_audio"])
+	assert.Equal(t, true, meta["camera_fixed"])
+	assert.Equal(t, float64(42), meta["seed"])
 }

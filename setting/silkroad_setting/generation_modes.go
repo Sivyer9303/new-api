@@ -111,10 +111,10 @@ func FindGenerationMode(value string) (*GenerationMode, bool) {
 	return nil, false
 }
 
-// ApplyGenerationMedia writes upstream media fields for the given mode.
-// Friendly client fields (images / audio_url / reference_videos) are never
-// passed through as-is except when the recipe intentionally uses the same
-// upstream key name.
+// ApplyGenerationMedia writes Elucid Seedance media fields for the given mode.
+// Top-level `images` is used for image-to-video / multi-image / companion
+// stills. Control inputs (first/last frame, audios, reference videos) go
+// under `metadata` so the gateway actually reads them.
 func ApplyGenerationMedia(
 	body map[string]any,
 	mode *GenerationMode,
@@ -136,20 +136,19 @@ func ApplyGenerationMedia(
 		if len(images) != 1 {
 			return fmt.Errorf("image2video requires exactly 1 image")
 		}
-		body["image"] = images[0]
+		setTopLevelImages(body, images)
 	case GenerationMultiImage:
 		if len(images) < 2 {
 			return fmt.Errorf("multi_image requires at least 2 images")
 		}
-		out := make([]string, len(images))
-		copy(out, images)
-		body["images"] = out
+		setTopLevelImages(body, images)
 	case GenerationStartEnd:
 		if len(images) != 2 {
 			return fmt.Errorf("start_end requires exactly 2 images")
 		}
-		body["first_frame"] = images[0]
-		body["last_frame"] = images[1]
+		meta := metadataObject(body)
+		meta["first_frame"] = images[0]
+		meta["last_frame"] = images[1]
 	case GenerationReferenceAudio:
 		audioURL = strings.TrimSpace(audioURL)
 		if audioURL == "" {
@@ -158,14 +157,9 @@ func ApplyGenerationMedia(
 		if len(images) < 1 {
 			return fmt.Errorf("reference_audio requires at least 1 image")
 		}
-		body["audio_url"] = audioURL
-		if len(images) == 1 {
-			body["image"] = images[0]
-		} else {
-			out := make([]string, len(images))
-			copy(out, images)
-			body["images"] = out
-		}
+		meta := metadataObject(body)
+		meta["audios"] = []string{audioURL}
+		setTopLevelImages(body, images)
 	case GenerationReferenceVideos:
 		if len(videos) < mode.VideosMin || len(videos) > mode.VideosMax {
 			return fmt.Errorf(
@@ -174,18 +168,33 @@ func ApplyGenerationMedia(
 				mode.VideosMax,
 			)
 		}
-		outVideos := make([]string, len(videos))
-		copy(outVideos, videos)
-		body["reference_videos"] = outVideos
-		if len(images) == 1 {
-			body["image"] = images[0]
-		} else if len(images) > 1 {
-			outImages := make([]string, len(images))
-			copy(outImages, images)
-			body["images"] = outImages
-		}
+		meta := metadataObject(body)
+		meta["reference_videos"] = copyStrings(videos)
+		setTopLevelImages(body, images)
 	default:
 		return fmt.Errorf("unsupported generation_type %q", mode.Value)
 	}
 	return nil
+}
+
+func metadataObject(body map[string]any) map[string]any {
+	raw, _ := body["metadata"].(map[string]any)
+	if raw == nil {
+		raw = map[string]any{}
+		body["metadata"] = raw
+	}
+	return raw
+}
+
+func setTopLevelImages(body map[string]any, images []string) {
+	if len(images) == 0 {
+		return
+	}
+	body["images"] = copyStrings(images)
+}
+
+func copyStrings(in []string) []string {
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
 }

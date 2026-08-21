@@ -12,7 +12,7 @@ func TestApplyGenerationMediaImage2Video(t *testing.T) {
 	require.True(t, ok)
 	body := map[string]any{}
 	require.NoError(t, ApplyGenerationMedia(body, mode, []string{"data:image/jpeg;base64,a"}, "", nil))
-	assert.Equal(t, "data:image/jpeg;base64,a", body["image"])
+	assert.Equal(t, []string{"data:image/jpeg;base64,a"}, body["images"])
 }
 
 func TestApplyGenerationMediaReferenceAudioRequiresAudio(t *testing.T) {
@@ -36,8 +36,10 @@ func TestApplyGenerationMediaReferenceAudioWithImage(t *testing.T) {
 	require.True(t, ok)
 	body := map[string]any{}
 	require.NoError(t, ApplyGenerationMedia(body, mode, []string{"data:image/jpeg;base64,a"}, "data:audio/mpeg;base64,b", nil))
-	assert.Equal(t, "data:image/jpeg;base64,a", body["image"])
-	assert.Equal(t, "data:audio/mpeg;base64,b", body["audio_url"])
+	assert.Equal(t, []string{"data:image/jpeg;base64,a"}, body["images"])
+	meta, ok := body["metadata"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []string{"data:audio/mpeg;base64,b"}, meta["audios"])
 }
 
 func TestApplyGenerationMediaReferenceVideos(t *testing.T) {
@@ -51,8 +53,10 @@ func TestApplyGenerationMediaReferenceVideos(t *testing.T) {
 		"",
 		[]string{"data:video/mp4;base64,v1"},
 	))
-	assert.Equal(t, "data:image/jpeg;base64,a", body["image"])
-	assert.Equal(t, []string{"data:video/mp4;base64,v1"}, body["reference_videos"])
+	assert.Equal(t, []string{"data:image/jpeg;base64,a"}, body["images"])
+	meta, ok := body["metadata"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []string{"data:video/mp4;base64,v1"}, meta["reference_videos"])
 }
 
 func TestApplyGenerationMediaReferenceVideosRequiresVideo(t *testing.T) {
@@ -63,3 +67,21 @@ func TestApplyGenerationMediaReferenceVideosRequiresVideo(t *testing.T) {
 	assert.Contains(t, err.Error(), "reference_videos")
 }
 
+func TestApplyGenerationMediaStartEndUsesMetadataFrames(t *testing.T) {
+	mode, ok := FindGenerationMode(GenerationStartEnd)
+	require.True(t, ok)
+	body := map[string]any{}
+	require.NoError(t, ApplyGenerationMedia(
+		body,
+		mode,
+		[]string{"data:image/jpeg;base64,first", "data:image/jpeg;base64,last"},
+		"",
+		nil,
+	))
+	_, hasImages := body["images"]
+	assert.False(t, hasImages)
+	meta, ok := body["metadata"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "data:image/jpeg;base64,first", meta["first_frame"])
+	assert.Equal(t, "data:image/jpeg;base64,last", meta["last_frame"])
+}

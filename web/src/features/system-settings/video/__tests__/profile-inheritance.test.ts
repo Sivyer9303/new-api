@@ -21,7 +21,7 @@ describe('SilkRoad profile inheritance', () => {
     )
 
     assert.equal(form[0].exact_models_text, 'seedance-2.0-pro')
-    assert.equal(form[0].require_ref_model_suffix, true)
+    assert.equal(form[0].require_ref_model_suffix, false)
     assert.deepEqual(form[0].durations, [])
     assert.deepEqual(form[0].aspect_ratios, [])
     assert.deepEqual(profilesFormToApi(form), [
@@ -30,6 +30,7 @@ describe('SilkRoad profile inheritance', () => {
         label: 'Seedance',
         exact_models: ['seedance-2.0-pro'],
         model_prefixes: ['seedance-2.0-'],
+        require_ref_model_suffix: false,
       },
     ])
   })

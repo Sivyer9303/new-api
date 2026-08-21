@@ -301,13 +301,15 @@ describe('resolutionFromModelName', () => {
 })
 
 describe('videoRequestResolution', () => {
-  test('sends the model-encoded resolution except for SilkRoad', () => {
+  test('sends the model-encoded resolution, using Seedance 4k casing for SilkRoad', () => {
     assert.equal(
       videoRequestResolution('minimax-h3-480p-ref', 'aistarslab'),
       '480p'
     )
     assert.equal(videoRequestResolution('seedance-2-0-720p', 'brioi'), '720p')
-    assert.equal(videoRequestResolution('seedance-2-0-720p', 'silkroad'), '')
+    assert.equal(videoRequestResolution('seedance-2-0-720p', 'silkroad'), '720p')
+    assert.equal(videoRequestResolution('seedance-2-0-4k', 'silkroad'), '4k')
+    assert.equal(videoRequestResolution('seedance-2-0-4k', 'brioi'), '4K')
     assert.equal(videoRequestResolution('seedance-2-0', 'brioi'), '')
   })
 })

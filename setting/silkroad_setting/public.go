@@ -35,6 +35,7 @@ type PublicProfile struct {
 	Durations             []PublicOption `json:"durations"`
 	AspectRatios          []PublicOption `json:"aspect_ratios"`
 	RequireRefModelSuffix bool           `json:"require_ref_model_suffix"`
+	AllowGenerateAudio    bool           `json:"allow_generate_audio"`
 }
 
 // PublicVideoToolConfig is returned to logged-in users for the Seedance-style tool page.
@@ -73,6 +74,7 @@ func GetPublicVideoToolConfig() PublicVideoToolConfig {
 			Durations:             publicOptions(p.Durations),
 			AspectRatios:          publicOptions(p.AspectRatios),
 			RequireRefModelSuffix: p.EnforcesRefModelSuffix(),
+			AllowGenerateAudio:    true,
 		}
 		if len(pub.Durations) == 0 || len(pub.AspectRatios) == 0 {
 			continue

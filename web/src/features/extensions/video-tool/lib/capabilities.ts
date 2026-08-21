@@ -39,13 +39,14 @@ export function resolutionFromModelName(modelName: string): string {
   return ''
 }
 
-/** Resolution sent with the video tool request. SilkRoad encodes it in the model name and rejects the field. */
+/** Resolution sent with the video tool request. SilkRoad encodes fallback resolution in the model name when omitted. */
 export function videoRequestResolution(
   modelName: string,
   providerId: string
 ): string {
-  if (providerId === 'silkroad') return ''
-  return resolutionFromModelName(modelName)
+  const value = resolutionFromModelName(modelName)
+  if (providerId === 'silkroad' && value === '4K') return '4k'
+  return value
 }
 
 export function retainCompatibleVideoModel(

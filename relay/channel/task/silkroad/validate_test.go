@@ -48,7 +48,7 @@ func TestValidateRejectsDurationNotInConfig(t *testing.T) {
 		"model":"seedance-2.0-720",
 		"prompt":"hi",
 		"generation_type":"text2video",
-		"seconds":"12",
+		"seconds":"20",
 		"aspect_ratio":"16:9"
 	}`)
 
@@ -96,6 +96,8 @@ func TestValidateFriendlyRequestRejectsMissingRefModel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	enabled := true
+	profile.RequireRefModelSuffix = &enabled
 	err = checkRequireRefModel(mode, "dreamina-seedance-2-0-720", profile)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "-ref")
@@ -104,4 +106,56 @@ func TestValidateFriendlyRequestRejectsMissingRefModel(t *testing.T) {
 	profile.RequireRefModelSuffix = &disabled
 	err = checkRequireRefModel(mode, "grok-image-video", profile)
 	require.NoError(t, err)
+}
+
+func TestValidateAllowsImage2VideoWithoutRefSuffix(t *testing.T) {
+	a := &TaskAdaptor{}
+	c, info := newTestContext(t, `{
+		"model":"seedance-2-0",
+		"prompt":"animate this",
+		"generation_type":"image2video",
+		"duration":5,
+		"aspect_ratio":"16:9",
+		"images":["https://example.com/a.png"]
+	}`)
+	info.OriginModelName = "seedance-2-0"
+	info.ChannelMeta.UpstreamModelName = "seedance-2-0"
+
+	require.Nil(t, a.ValidateRequestAndSetAction(c, info))
+}
+
+func TestValidateRejectsUnknownResolution(t *testing.T) {
+	a := &TaskAdaptor{}
+	c, info := newTestContext(t, `{
+		"model":"seedance-2-0",
+		"prompt":"hi",
+		"generation_type":"text2video",
+		"duration":5,
+		"aspect_ratio":"16:9",
+		"resolution":"8k"
+	}`)
+	info.OriginModelName = "seedance-2-0"
+	info.ChannelMeta.UpstreamModelName = "seedance-2-0"
+
+	taskErr := a.ValidateRequestAndSetAction(c, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+	assert.Contains(t, strings.ToLower(taskErr.Message), "resolution")
+}
+
+func TestValidateAcceptsHTTPAudioURL(t *testing.T) {
+	a := &TaskAdaptor{}
+	c, info := newTestContext(t, `{
+		"model":"seedance-2-0",
+		"prompt":"hi",
+		"generation_type":"reference_audio",
+		"duration":5,
+		"aspect_ratio":"16:9",
+		"images":["https://example.com/a.png"],
+		"audio_url":"https://example.com/a.mp3"
+	}`)
+	info.OriginModelName = "seedance-2-0"
+	info.ChannelMeta.UpstreamModelName = "seedance-2-0"
+
+	require.Nil(t, a.ValidateRequestAndSetAction(c, info))
 }

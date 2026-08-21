@@ -13,10 +13,26 @@ func TestMatchProfileSeedance(t *testing.T) {
 	assert.Equal(t, "seedance_reverse", p.ID)
 }
 
-func TestMatchProfileDreamina(t *testing.T) {
-	p, ok := MatchProfile("dreamina-seedance-2-0-720")
+func TestMatchProfileSeedanceHyphenatedAndGlobal(t *testing.T) {
+	domestic, ok := MatchProfile("seedance-2-0-1080p")
 	require.True(t, ok)
-	assert.Equal(t, "dreamina_overseas", p.ID)
+	assert.Equal(t, "seedance_reverse", domestic.ID)
+
+	fast, ok := MatchProfile("seedance-2-0-fast")
+	require.True(t, ok)
+	assert.Equal(t, "seedance_reverse", fast.ID)
+
+	v25, ok := MatchProfile("seedance-2-5")
+	require.True(t, ok)
+	assert.Equal(t, "seedance_reverse", v25.ID)
+
+	global, ok := MatchProfile("seedance-2-0-global")
+	require.True(t, ok)
+	assert.Equal(t, "seedance_reverse", global.ID)
+
+	promax, ok := MatchProfile("seedance-2-5-1080p-promax")
+	require.True(t, ok)
+	assert.Equal(t, "seedance_reverse", promax.ID)
 }
 
 func TestMatchProfileMiss(t *testing.T) {

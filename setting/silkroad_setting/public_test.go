@@ -31,13 +31,15 @@ func TestGetPublicVideoToolConfigFiltersDisabled(t *testing.T) {
 	seedance, ok := findPublicProfile(cfg.Profiles, "seedance_reverse")
 	require.True(t, ok)
 	for _, d := range seedance.Durations {
-		assert.NotEqual(t, "10", d.Value)
+		assert.NotEqual(t, "4", d.Value)
 	}
 	assert.Len(t, cfg.GenerationTypes, 6)
 	assert.Equal(t, GenerationReferenceVideos, cfg.GenerationTypes[5].Value)
 	assert.True(t, cfg.GenerationTypes[5].AllowVideo)
 	assert.Contains(t, seedance.ModelPrefixes, "seedance-2.0-")
-	assert.True(t, seedance.RequireRefModelSuffix)
+	assert.Contains(t, seedance.ModelPrefixes, "seedance-2-0")
+	assert.False(t, seedance.RequireRefModelSuffix)
+	assert.True(t, seedance.AllowGenerateAudio)
 }
 
 func TestGetPublicVideoToolConfigIncludesPrefixes(t *testing.T) {
