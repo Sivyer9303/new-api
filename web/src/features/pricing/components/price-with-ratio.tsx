@@ -30,7 +30,7 @@ export function PriceWithRatio(props: PriceWithRatioProps) {
   return (
     <span
       className={cn(
-        'text-amber-700 dark:text-amber-300 font-mono font-semibold tabular-nums',
+        'text-foreground font-mono font-semibold tabular-nums',
         props.actualClassName,
         props.className
       )}
